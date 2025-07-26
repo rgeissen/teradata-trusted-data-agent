@@ -46,17 +46,17 @@ This combination of power and transparency makes it the definitive tool for anyo
 The application operates on a sophisticated client-server model, ensuring a clean separation of concerns and robust performance.
 
 ```
-+-----------+      +-------------------------+      +------------------+      +--------------------+      +------------------+
-|           |      |                         |      |                  |      |                    |      |                  |
-| End User  | <--> |  Frontend (index.html)  | <--> | Backend (Python) | <--> | Google Gemini LLM  | <--> | Teradata MCP     |
-|           |      |     (HTML, JS, CSS)     |      |   (Quart Server) |      | (Reasoning Engine) |      | Server (Tools)   |
-|           |      |                         |      |                  |      |                    |      |                  |
-+-----------+      +-------------------------+      +------------------+      +--------------------+      +------------------+
++-----------+      +-------------------------+      +------------------+      +----------------------+      +------------------+
+|           |      |                         |      |                  |      |                      |      |                  |
+| End User  | <--> |  Frontend (index.html)  | <--> | Backend (Python) | <--> | Large Language Model | <--> | Teradata MCP     |
+|           |      |     (HTML, JS, CSS)     |      |   (Quart Server) |      |  (Reasoning Engine)  |      | Server (Tools)   |
+|           |      |                         |      |                  |      |                      |      |                  |
++-----------+      +-------------------------+      +------------------+      +----------------------+      +------------------+
 ```
 
 1.  **Frontend (`index.html`):** A sleek, single-page application built with HTML, Tailwind CSS, and vanilla JavaScript. It captures user input and uses Server-Sent Events (SSE) to render real-time updates from the backend.
 2.  **Backend (`mcp_web_client.py`):** A high-performance asynchronous web server built with **Quart**. It serves the frontend, manages user sessions, and orchestrates the entire AI workflow.
-3.  **LLM (Google Gemini):** The reasoning engine. The backend dynamically initializes the connection based on user-provided credentials and sends structured prompts to the Gemini API.
+3.  **Large Language Model (LLM):** The reasoning engine. The backend dynamically initializes the connection to the selected LLM provider (e.g., Google) based on user-provided credentials and sends structured prompts to the model's API.
 4.  **Teradata MCP Server:** The **Model Context Protocol (MCP)** server acts as the secure, powerful bridge to the database, exposing functionalities as a well-defined API of "tools" for the AI agent.
 
 ## Key Features
@@ -76,7 +76,7 @@ The application operates on a sophisticated client-server model, ensuring a clea
 
 * **Python 3.8+** and `pip`.
 * Access to a running **Teradata MCP Server**.
-* A **Google Gemini API Key**. You can obtain one from the [Google AI Studio](https://aistudio.google.com/app/apikey).
+* An **API Key from a supported LLM provider**. The initial validated provider is Google. You can obtain a Gemini API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 ### Step 1: Clone the Repository
 
@@ -139,9 +139,9 @@ Access the UI by navigating your browser to [http://127.0.0.1:5000](http://127.0
 
 The first time you launch, a configuration modal will appear.
 1.  **MCP Server:** Enter the Host, Port, and Path for your running MCP Server.
-2.  **LLM Provider:** Select "Google".
-3.  **API Key:** Enter your Google Gemini API Key.
-4.  **Model:** Click the "Refresh" button to fetch available models. The certified model will be selectable.
+2.  **LLM Provider:** Select your desired provider (currently Google is enabled, with more to be validated based on market demand).
+3.  **API Key:** Enter the corresponding API Key for the selected provider.
+4.  **Model:** Click the "Refresh" button to fetch available models. The certified model will be selectable by default.
 5.  Click **"Connect and Load"**. The application will validate both connections and load all available capabilities.
 
 ### Navigating the Interface
