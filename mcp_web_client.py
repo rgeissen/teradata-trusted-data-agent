@@ -38,6 +38,37 @@ class AppConfig:
 APP_CONFIG = AppConfig()
 CERTIFIED_MODEL = "gemini-1.5-flash"
 
+# --- NEW: Default System Prompts Mapping ---
+DEFAULT_SYSTEM_PROMPTS = {
+    "gemini-1.5-flash": (
+        "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.\n\n"
+        "--- **Core Reasoning Hierarchy** ---\n"
+        "1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.\n"
+        "2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.\n"
+        "3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.\n\n"
+        "--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---\n"
+        "You **MUST** remember and reuse information from previous turns.\n"
+        "**Example of CORRECT Inference:**\n"
+        "    -   USER (Turn 1): \"what is the business description for the `equipment` table in database `DEMO_Customer360_db`?\"\n"
+        "    -   ASSISTANT (Turn 1): (Executes the request)\n"
+        "    -   USER (Turn 2): \"ok now what is the quality of that table?\"\n"
+        "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters.\"\n"
+        "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.\n\n"
+        "--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---\n"
+        "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names. For example, if a tool is defined to accept a parameter named `sql`, you MUST use `\"sql\": \"...\"` in your JSON. Using a guess like `\"query\": \"...\"` or `\"sql_query\": \"...\"` will fail.\n\n"
+        "--- **CRITICAL RULE: SQL GENERATION** ---\n"
+        "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`). Do **NOT** pass the database name as a separate `db_name` argument to `base_readQuery`.\n\n"
+        "--- **Response Formatting** ---\n"
+        "-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.\n"
+        "-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.\n"
+        "-   **Clarifying Question:** Only ask if information is truly missing.\n\n"
+        "{tools_context}\n\n"
+        "{prompts_context}\n\n"
+    ),
+    # Add other model prompts here in the future
+}
+
+
 tools_context = None
 prompts_context = None
 llm = None
@@ -631,38 +662,29 @@ async def get_session_history(session_id):
 
 @app.route("/session", methods=["POST"])
 async def new_session():
-    global llm, tools_context, prompts_context
+    global llm
     if not llm or not mcp_client:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
+    
+    data = await request.get_json(silent=True)
+    if data is None:
+        app.logger.error("Request to /session received with no JSON body.")
+        return jsonify({"error": "Request to create session must include a JSON body."}), 400
+
+    system_prompt_from_client = data.get("system_prompt")
+    if not system_prompt_from_client:
+        return jsonify({"error": "A system prompt is required to start a session."}), 400
+    
     try:
         session_id = str(uuid.uuid4())
-        system_prompt = (
-            "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.\n\n"
-            "--- **Core Reasoning Hierarchy** ---\n"
-            "1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.\n"
-            "2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.\n"
-            "3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.\n\n"
-            "--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---\n"
-            "You **MUST** remember and reuse information from previous turns.\n"
-            "**Example of CORRECT Inference:**\n"
-            "    -   USER (Turn 1): \"what is the business description for the `equipment` table in database `DEMO_Customer360_db`?\"\n"
-            "    -   ASSISTANT (Turn 1): (Executes the request)\n"
-            "    -   USER (Turn 2): \"ok now what is the quality of that table?\"\n"
-            "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters.\"\n"
-            "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.\n\n"
-            "--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---\n"
-            "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names. For example, if a tool is defined to accept a parameter named `sql`, you MUST use `\"sql\": \"...\"` in your JSON. Using a guess like `\"query\": \"...\"` or `\"sql_query\": \"...\"` will fail.\n\n"
-            "--- **CRITICAL RULE: SQL GENERATION** ---\n"
-            "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`). Do **NOT** pass the database name as a separate `db_name` argument to `base_readQuery`.\n\n"
-            "--- **Response Formatting** ---\n"
-            "-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.\n"
-            "-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.\n"
-            "-   **Clarifying Question:** Only ask if information is truly missing.\n\n"
-            f"{tools_context}\n\n"
-            f"{prompts_context}\n\n"
+        
+        final_system_prompt = system_prompt_from_client.format(
+            tools_context=tools_context or "--- No Tools Available ---",
+            prompts_context=prompts_context or "--- No Prompts Available ---"
         )
+        
         initial_history = [
-            {"role": "user", "parts": [{"text": system_prompt}]},
+            {"role": "user", "parts": [{"text": final_system_prompt}]},
             {"role": "model", "parts": [{"text": "Understood. I will follow all instructions, paying special attention to context, parameter inference, tool arguments, and SQL generation rules."}]}
         ]
         SESSIONS[session_id] = {
@@ -874,6 +896,17 @@ async def load_and_categorize_resources():
 
 # --- NEW AND MODIFIED ENDPOINTS ---
 
+@app.route("/system_prompt/<model_name>", methods=["GET"])
+async def get_default_system_prompt(model_name):
+    """Returns the default system prompt for a given model."""
+    prompt = DEFAULT_SYSTEM_PROMPTS.get(model_name)
+    if prompt:
+        return jsonify({"status": "success", "system_prompt": prompt})
+    else:
+        fallback_prompt = DEFAULT_SYSTEM_PROMPTS.get(CERTIFIED_MODEL, "No default prompt available.")
+        return jsonify({"status": "fallback", "system_prompt": fallback_prompt})
+
+
 async def get_models_for_provider(provider: str, api_key: str):
     """Fetches a list of available models for a given provider."""
     if provider == "Google":
@@ -884,7 +917,6 @@ async def get_models_for_provider(provider: str, api_key: str):
             models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             clean_models = [name.split('/')[-1] for name in models]
             
-            # Structure the response based on the lock status
             structured_model_list = []
             for model_name in clean_models:
                 is_certified = APP_CONFIG.MODELS_UNLOCKED or model_name == CERTIFIED_MODEL
@@ -924,15 +956,13 @@ async def initialize_llm(provider: str, model: str, api_key: str):
         try:
             genai.configure(api_key=api_key)
             temp_llm = genai.GenerativeModel(model)
-            # Test the connection with a simple, non-costly call
             await temp_llm.generate_content_async("test", generation_config={"max_output_tokens": 5})
-            llm = temp_llm # Assign to global only after successful test
+            llm = temp_llm
             app.logger.info(f"Successfully initialized and tested Google LLM model: {model}")
             return True, "LLM connection successful."
         except Exception as e:
             llm = None
             app.logger.error(f"Failed to initialize Google LLM: {e}", exc_info=True)
-            # Try to extract a more user-friendly error message
             error_str = str(e)
             if "API key not valid" in error_str:
                 raise ValueError("The provided Google API Key is not valid. Please check and try again.")
@@ -946,7 +976,6 @@ async def configure_services():
     global mcp_client, llm
     data = await request.get_json()
     
-    # --- LLM Configuration ---
     llm_provider = data.get("provider")
     llm_model = data.get("model")
     llm_api_key = data.get("apiKey")
@@ -958,7 +987,6 @@ async def configure_services():
     except Exception as e:
         return jsonify({"status": "error", "message": f"An unexpected error occurred during LLM initialization: {e}"}), 500
 
-    # --- MCP Configuration ---
     mcp_host = data.get("host", "127.0.0.1")
     mcp_port = data.get("port", "8001")
     mcp_path = data.get("path", "/mcp/")
@@ -971,11 +999,9 @@ async def configure_services():
         return jsonify({"status": "success", "message": "MCP and LLM configured successfully."})
     except Exception as e:
         app.logger.error(f"Failed to load MCP resources after LLM init: {e}", exc_info=True)
-        # Reset LLM since the full config failed
         llm = None
         mcp_client = None
         return jsonify({"status": "error", "message": f"LLM connection succeeded, but failed to load MCP resources: {e}"}), 500
-
 
 @app.after_serving
 async def shutdown():
@@ -1002,7 +1028,6 @@ async def main():
     await hypercorn.asyncio.serve(app, config)
 
 if __name__ == "__main__":
-    # --- Command-Line Argument Parser ---
     parser = argparse.ArgumentParser(description="Run the Trusted Data Agent web client.")
     parser.add_argument(
         "--unlock-models",

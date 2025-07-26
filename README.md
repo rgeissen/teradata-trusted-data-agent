@@ -1,46 +1,49 @@
 # Trusted Data Agent
 
-**A transparent, AI-powered conversational interface for Teradata databases.**
+**An Advanced, Dynamic AI Conversational Interface for Enterprise Data Platforms.**
 
-The Trusted Data Agent is a sophisticated web application designed to showcase and facilitate AI-powered interaction with a Teradata database system. Its primary goal is to act as the perfect "study buddy" for developers, data analysts, and architects who are exploring the integration of Large Language Models (LLMs) with enterprise data platforms. It provides complete, real-time transparency into the conversational flow between the user, the AI agent, the Teradata Model Context Protocol (MCP) server, and the underlying database.
+The Trusted Data Agent represents a paradigm shift in how developers, analysts, and architects interact with complex data ecosystems. It is a sophisticated web application designed not only to showcase AI-powered interaction with a Teradata database but to serve as a powerful, fully transparent "study buddy" for mastering the integration of Large Language Models (LLMs) with enterprise data.
 
-*(Replace with an actual screenshot of the application)*
+This solution provides unparalleled, real-time insight into the complete conversational flow between the user, the AI agent, the Teradata **Model Context Protocol (MCP)** server, and the underlying database, establishing a new standard for clarity and control in AI-driven data analytics.
 
 ---
 
 ## Table of Contents
-- [Overview](#overview)
+- [Overview: A Superior Approach](#overview-a-superior-approach)
 - [How It Works: Architecture](#how-it-works-architecture)
 - [Key Features](#key-features)
 - [Installation and Setup Guide](#installation-and-setup-guide)
   - [Prerequisites](#prerequisites)
   - [Step 1: Clone the Repository](#step-1-clone-the-repository)
   - [Step 2: Set Up Dependencies](#step-2-set-up-dependencies)
-  - [Step 3: Configure API Key](#step-3-configure-api-key)
+  - [Step 3: Configure API Key (Optional)](#step-3-configure-api-key-optional)
 - [Running the Application](#running-the-application)
+  - [Standard Mode](#standard-mode)
+  - [Developer Mode (Unlocking Models)](#developer-mode-unlocking-models)
 - [User Guide](#user-guide)
-  - [First-Time Setup: Connecting to MCP](#first-time-setup-connecting-to-mcp)
+  - [First-Time Setup: Connecting to Services](#first-time-setup-connecting-to-services)
   - [Navigating the Interface](#navigating-the-interface)
+  - [Mastering the System Prompt Editor](#mastering-the-system-prompt-editor)
   - [Starting a Conversation](#starting-a-conversation)
 - [Troubleshooting](#troubleshooting)
 - [Author & Contributions](#author--contributions)
 
 ---
 
-## Overview
+## Overview: A Superior Approach
 
-In a world increasingly driven by data, the ability to interact with complex database systems in a simple, intuitive way is paramount. The Trusted Data Agent bridges this gap by providing a natural language interface for your Teradata system. Instead of writing complex SQL queries, you can simply ask questions. The AI agent then:
+The Trusted Data Agent transcends typical data chat applications by placing ultimate control and understanding in the hands of the user. It provides a seamless natural language interface to your Teradata system, empowering you to ask complex questions and receive synthesized, accurate answers without writing a single line of SQL.
 
-1.  **Understands** your request.
-2.  **Formulates a plan** to find the answer.
-3.  **Uses a suite of tools** (exposed by the MCP Server) to interact with the database.
-4.  **Synthesizes the results** into a clear, human-readable response.
+Its core superiority lies in its **unmatched transparency and dynamic configurability**:
 
-What makes this agent unique is its commitment to transparency. The **Live Status** panel shows you every thought, every tool call, and every piece of data the agent uses, making it an unparalleled educational tool for understanding how AI agents operate in a real-world data environment.
+1.  **Deep Insight:** The **Live Status** panel is more than a log; it's a real-time window into the AI's mind, revealing its reasoning, tool selection, and the raw data it receives. This makes it an indispensable tool for debugging, learning, and building trust in AI systems.
+2.  **Unprecedented Flexibility:** Unlike static applications, the Trusted Data Agent allows you to dynamically configure your LLM provider, select specific models, and even edit the core **System Prompt** that dictates the agent's behavior—all from within the UI.
+
+This combination of power and transparency makes it the definitive tool for anyone serious about developing or deploying enterprise-grade AI data agents.
 
 ## How It Works: Architecture
 
-The application operates on a client-server model, with a clear separation of concerns between the user interface and the backend logic.
+The application operates on a sophisticated client-server model, ensuring a clean separation of concerns and robust performance.
 
 ```
 +-----------+      +-------------------------+      +------------------+      +--------------------+      +------------------+
@@ -51,36 +54,31 @@ The application operates on a client-server model, with a clear separation of co
 +-----------+      +-------------------------+      +------------------+      +--------------------+      +------------------+
 ```
 
-1.  **Frontend (`index.html`):** A single-page application built with HTML, Tailwind CSS, and vanilla JavaScript. It captures user input and uses Server-Sent Events (SSE) to receive real-time updates from the backend, creating a dynamic and responsive experience.
-2.  **Backend (`mcp_web_client.py`):** A powerful asynchronous web server built with **Quart**. It serves the frontend, manages user sessions, and orchestrates the entire AI workflow.
-3.  **LLM (Google Gemini):** The reasoning engine of the agent. The backend sends structured prompts (including conversation history and available tools) to the Gemini API, which decides the next best action.
-4.  **Teradata MCP Server:** The bridge to the database. MCP stands for **Model Context Protocol**. It exposes database functionalities (like listing tables, describing columns, checking data quality) as a secure, well-defined API of "tools" that the AI agent can call.
+1.  **Frontend (`index.html`):** A sleek, single-page application built with HTML, Tailwind CSS, and vanilla JavaScript. It captures user input and uses Server-Sent Events (SSE) to render real-time updates from the backend.
+2.  **Backend (`mcp_web_client.py`):** A high-performance asynchronous web server built with **Quart**. It serves the frontend, manages user sessions, and orchestrates the entire AI workflow.
+3.  **LLM (Google Gemini):** The reasoning engine. The backend dynamically initializes the connection based on user-provided credentials and sends structured prompts to the Gemini API.
+4.  **Teradata MCP Server:** The **Model Context Protocol (MCP)** server acts as the secure, powerful bridge to the database, exposing functionalities as a well-defined API of "tools" for the AI agent.
 
 ## Key Features
 
+* **Dynamic LLM Configuration:** Configure your LLM provider, API key, and select from a list of available models directly within the application's UI.
+* **Live Model Refresh:** Fetch an up-to-date list of supported models from your provider with the click of a button.
+* **System Prompt Editor:** Take full control of the agent's behavior. Edit, save, and reset the core system prompt for each model, with changes persisting across sessions.
 * **Intuitive Conversational UI:** Ask questions in plain English to query and analyze your database.
-* **Complete Transparency:** The **Live Status** panel provides a real-time, step-by-step stream of the agent's thought process, tool selections, and API results.
+* **Complete Transparency:** The **Live Status** panel provides a real-time stream of the agent's thought process, actions, and tool outputs.
 * **Dynamic Capability Loading:** Automatically discovers and displays all available **Tools**, **Prompts**, and **Resources** from the connected MCP Server.
 * **Rich Data Rendering:** Intelligently formats and displays various data types, including query results in interactive tables and SQL DDL in highlighted code blocks.
 * **Persistent Session History:** Keeps a record of your conversations, allowing you to switch between different lines of inquiry.
-* **Interactive Workspace:** Features collapsible side and top panels to customize your view and focus on what matters.
-* **Easy Configuration:** A simple startup modal allows you to configure the connection to your MCP Server.
 
 ## Installation and Setup Guide
 
-Follow these instructions to get the Trusted Data Agent running on your local machine.
-
 ### Prerequisites
 
-Before you begin, ensure you have the following:
-
 * **Python 3.8+** and `pip`.
-* Access to a running **Teradata MCP Server**. You will need its host, port, and path.
+* Access to a running **Teradata MCP Server**.
 * A **Google Gemini API Key**. You can obtain one from the [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 ### Step 1: Clone the Repository
-
-The Trusted Data Agent is available on GitHub. Clone the repository to your local machine:
 
 ```bash
 git clone [https://github.com/rgeissen/teradata-trusted-data-agent.git](https://github.com/rgeissen/teradata-trusted-data-agent.git)
@@ -89,7 +87,7 @@ cd teradata-trusted-data-agent
 
 ### Step 2: Set Up Dependencies
 
-It is highly recommended to use a Python virtual environment to manage dependencies. This project includes a `requirements.txt` file to simplify the process.
+It is highly recommended to use a Python virtual environment.
 
 1.  **Create and activate a virtual environment:**
     ```bash
@@ -107,66 +105,72 @@ It is highly recommended to use a Python virtual environment to manage dependenc
     pip install -r requirements.txt
     ```
 
-### Step 3: Configure API Key
+### Step 3: Configure API Key (Optional)
 
-The application loads your Gemini API key from a `.env` file for security.
+You can either enter your API key in the UI at runtime or, for convenience during development, create a `.env` file in the project root:
 
-1.  Create a file named `.env` in the root of the project directory.
-2.  Add your API key to this file:
-    ```
-    GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
-    ```
-    Replace `YOUR_GEMINI_API_KEY_HERE` with your actual key.
+```
+GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
+```
 
 ## Running the Application
 
-With the setup complete, you can now start the backend server.
+### Standard Mode
 
-1.  **Run the Python script:**
-    ```bash
-    python mcp_web_client.py
-    ```
+For standard operation with the certified model (`gemini-1.5-flash`):
 
-2.  **Access the UI:**
-    Once the server is running, you will see a confirmation in your terminal. Open your web browser and navigate to:
-    [http://127.0.0.1:5000](http://127.0.0.1:5000)
+```bash
+python mcp_web_client.py
+```
+
+### Developer Mode (Unlocking Models)
+
+To enable all discovered models for testing purposes, start the server with the `--unlock-models` flag:
+
+```bash
+python mcp_web_client.py --unlock-models
+```
+
+Access the UI by navigating your browser to [http://127.0.0.1:5000](http://127.0.0.1:5000).
 
 ## User Guide
 
-### First-Time Setup: Connecting to MCP
+### First-Time Setup: Connecting to Services
 
-The first time you launch the application, a configuration modal will appear.
-1.  **Host:** Enter the IP address or hostname of your MCP Server (e.g., `127.0.0.1`).
-2.  **Port:** Enter the port the MCP Server is running on (e.g., `8001`).
-3.  **Path:** Enter the base path for the MCP API (e.g., `/mcp/`).
-4.  Click **"Load and Test Connection"**. The application will attempt to connect and load the available capabilities. If successful, the modal will close, and the chat input will become active.
+The first time you launch, a configuration modal will appear.
+1.  **MCP Server:** Enter the Host, Port, and Path for your running MCP Server.
+2.  **LLM Provider:** Select "Google".
+3.  **API Key:** Enter your Google Gemini API Key.
+4.  **Model:** Click the "Refresh" button to fetch available models. The certified model will be selectable.
+5.  Click **"Connect and Load"**. The application will validate both connections and load all available capabilities.
 
 ### Navigating the Interface
 
-The UI is divided into several key areas:
-* **Capabilities Panel (Top):** Browse available Tools, Prompts, and Resources. Clicking on a prompt allows you to run it directly with arguments.
-* **Chat Window (Center):** The main area for your conversation with the agent.
-* **Live Status Panel (Right):** A real-time log of the agent's internal state and actions. This is crucial for understanding *how* the agent arrives at its answers.
-* **History Panel (Left):** A list of your past and current conversations. Click "New Chat" to start a fresh session.
+* **System Prompt (Menu Bar):** Once configured, this button becomes active. Click it to open the System Prompt Editor for the currently selected model.
+* **Capabilities Panel (Top):** Browse available Tools and Prompts discovered from the MCP server.
+* **Chat Window (Center):** Your primary conversational area.
+* **Live Status Panel (Right):** Your window into the agent's mind.
+* **History Panel (Left):** Manage and switch between chat sessions.
+
+### Mastering the System Prompt Editor
+
+This powerful feature allows you to fine-tune the agent's core instructions.
+* **Editing:** The text area contains the prompt that will be sent to the LLM at the start of every new session. You can modify it to change the agent's persona, rules, or focus.
+* **Saving:** Click "Save" to store your custom prompt in your browser's local storage. It will be automatically loaded the next time you configure the application with this model.
+* **Resetting:** Click "Reset to Default" to fetch and restore the original, hardcoded system prompt for that model.
 
 ### Starting a Conversation
 
-Simply type your question into the input box at the bottom and press Enter. Try starting with simple requests and gradually increase complexity.
-
-**Example Prompts:**
-* *"List all tables in the `DEMO_Customer360_db` database."*
-* *"What is the business description for the `equipment` table?"*
-* *"Show me a preview of that table."*
-* *"Now, can you check the data quality for the `equipment_id` column?"*
+Type your question into the input box. The agent will now follow the instructions defined in your active system prompt.
 
 ## Troubleshooting
 
-* **Connection Error on Startup:** If the configuration modal shows an error, double-check that your MCP Server is running and that the Host, Port, and Path are correct. Check for firewall issues that might be blocking the connection.
-* **LLM Errors:** If you see errors related to the language model, ensure your `.env` file is correctly formatted and contains a valid Gemini API key.
-* **"No Tools Available":** This indicates the backend connected to the MCP Server, but the server itself reported having no available tools. Check your MCP Server configuration.
+* **Stale UI on Startup:** If the configuration dialog doesn't appear, check the browser's developer console for JavaScript errors. Ensure your `index.html` file is complete and up-to-date.
+* **Connection Errors:** Double-check all host, port, path, and API key information. Ensure no firewalls are blocking the connection.
+* **"Failed to fetch models":** This usually indicates an invalid API key or a network issue preventing connection to the provider's API.
 
 ## Author & Contributions
 
 * **Author/Initiator:** Rainer Geissendoerfer, World Wide Data Architecture, Teradata.
-* **Source Code & Contributions:** The Trusted Data Agent is open source, and contributions are highly welcome. Please visit the main Git repository to report issues or submit pull requests.
+* **Source Code & Contributions:** The Trusted Data Agent is open source. Contributions are highly welcome. Please visit the main Git repository to report issues or submit pull requests.
     * **Git Repository:** [https://github.com/rgeissen/teradata-trusted-data-agent.git](https://github.com/rgeissen/teradata-trusted-data-agent.git)

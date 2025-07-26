@@ -36,21 +36,24 @@
         .category-panel::-webkit-scrollbar,
         #status-window-content::-webkit-scrollbar,
         #session-list::-webkit-scrollbar,
-        .table-container::-webkit-scrollbar {
+        .table-container::-webkit-scrollbar,
+        #prompt-editor-textarea::-webkit-scrollbar {
             width: 6px; 
         }
         #chat-container::-webkit-scrollbar-track,
         .category-panel::-webkit-scrollbar-track,
         #status-window-content::-webkit-scrollbar-track,
         #session-list::-webkit-scrollbar-track,
-        .table-container::-webkit-scrollbar-track {
+        .table-container::-webkit-scrollbar-track,
+        #prompt-editor-textarea::-webkit-scrollbar-track {
             background: transparent; 
         }
         #chat-container::-webkit-scrollbar-thumb,
         .category-panel::-webkit-scrollbar-thumb,
         #status-window-content::-webkit-scrollbar-thumb,
         #session-list::-webkit-scrollbar-thumb,
-        .table-container::-webkit-scrollbar-thumb {
+        .table-container::-webkit-scrollbar-thumb,
+        #prompt-editor-textarea::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.2); 
             border-radius: 3px; 
         }
@@ -98,12 +101,13 @@
             color: var(--teradata-orange);
         }
 
-        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay { transition: opacity 0.3s ease-in-out; }
-        #prompt-modal-content, #info-modal-content, #config-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
-        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden { pointer-events: none; opacity: 0; }
+        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay { transition: opacity 0.3s ease-in-out; }
+        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden { pointer-events: none; opacity: 0; }
         #prompt-modal-overlay.hidden #prompt-modal-content,
         #info-modal-overlay.hidden #info-modal-content,
-        #config-modal-overlay.hidden #config-modal-content { transform: scale(0.95); opacity: 0; }
+        #config-modal-overlay.hidden #config-modal-content,
+        #prompt-editor-overlay.hidden #prompt-editor-content { transform: scale(0.95); opacity: 0; }
         
         .status-step {
             transition: all 0.3s ease-in-out;
@@ -277,6 +281,9 @@
         <div class="flex items-center gap-x-2">
             <div class="menu-item">
                 <button id="config-menu-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Config</button>
+            </div>
+            <div class="menu-item">
+                <button id="prompt-editor-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>System Prompt</button>
             </div>
             <div class="menu-item">
                 <button id="window-menu-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Window</button>
@@ -493,6 +500,25 @@
         </div>
     </div>
 
+    <!-- System Prompt Editor Modal -->
+    <div id="prompt-editor-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="prompt-editor-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-3xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
+            <div class="flex justify-between items-center mb-4">
+                <!-- MODIFICATION: Added ID to the title -->
+                <h3 id="prompt-editor-title" class="text-xl font-bold header-title">System Prompt Editor</h3>
+                <div id="prompt-editor-status" class="text-sm"></div>
+            </div>
+            <textarea id="prompt-editor-textarea" class="flex-1 w-full p-3 bg-gray-800/80 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none font-mono text-sm"></textarea>
+            <div class="flex justify-between items-center mt-4">
+                <button type="button" id="prompt-editor-reset" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Reset to Default</button>
+                <div>
+                    <button type="button" id="prompt-editor-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors mr-2">Close</button>
+                    <button type="button" id="prompt-editor-save" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Prompt Modal -->
     <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="prompt-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
@@ -509,7 +535,7 @@
 
     <!-- JavaScript Logic -->
     <script>
-        // All JavaScript logic is now included and corrected
+        // --- START: FULLY RESTORED JAVASCRIPT ---
         const chatLog = document.getElementById('chat-log');
         const chatForm = document.getElementById('chat-form');
         const userInput = document.getElementById('user-input');
@@ -526,10 +552,8 @@
         const promptModalInputs = document.getElementById('prompt-modal-inputs');
         const promptModalClose = document.getElementById('prompt-modal-close');
 
-        // Main Content
         const mainContent = document.getElementById('main-content');
 
-        // Status Panel Elements
         const statusWindow = document.getElementById('status-window');
         const statusWindowContent = document.getElementById('status-window-content');
         const toggleStatusButton = document.getElementById('toggle-status-button');
@@ -537,7 +561,6 @@
         const statusExpandIcon = document.getElementById('status-expand-icon');
         const toggleStatusCheckbox = document.getElementById('toggle-status-checkbox');
 
-        // Session History Panel Elements
         const sessionHistoryPanel = document.getElementById('session-history-panel');
         const sessionList = document.getElementById('session-list');
         const toggleHistoryButton = document.getElementById('toggle-history-button');
@@ -545,20 +568,17 @@
         const historyExpandIcon = document.getElementById('history-expand-icon');
         const toggleHistoryCheckbox = document.getElementById('toggle-history-checkbox');
 
-        // Header Panel Elements
         const toolHeader = document.getElementById('tool-header');
         const toggleHeaderButton = document.getElementById('toggle-header-button');
         const headerCollapseIcon = document.getElementById('header-collapse-icon');
         const headerExpandIcon = document.getElementById('header-expand-icon');
         const toggleHeaderCheckbox = document.getElementById('toggle-header-checkbox');
 
-        // Info Modal
         const infoButton = document.getElementById('info-button');
         const infoModalOverlay = document.getElementById('info-modal-overlay');
         const infoModalClose = document.getElementById('info-modal-close');
         const infoModalContent = document.getElementById('info-modal-content');
 
-        // Config Modal
         const configMenuButton = document.getElementById('config-menu-button');
         const configModalOverlay = document.getElementById('config-modal-overlay');
         const configModalContent = document.getElementById('config-modal-content');
@@ -571,10 +591,21 @@
         const refreshSpinner = document.getElementById('refresh-spinner');
         const llmModelSelect = document.getElementById('llm-model');
 
-        // Window Menu
         const windowMenuButton = document.getElementById('window-menu-button');
         const windowDropdownMenu = document.getElementById('window-dropdown-menu');
+        
+        const promptEditorButton = document.getElementById('prompt-editor-button');
+        const promptEditorOverlay = document.getElementById('prompt-editor-overlay');
+        const promptEditorContent = document.getElementById('prompt-editor-content');
+        const promptEditorTitle = document.getElementById('prompt-editor-title'); // MODIFICATION: Added title element
+        const promptEditorTextarea = document.getElementById('prompt-editor-textarea');
+        const promptEditorSave = document.getElementById('prompt-editor-save');
+        const promptEditorReset = document.getElementById('prompt-editor-reset');
+        const promptEditorClose = document.getElementById('prompt-editor-close');
+        const promptEditorStatus = document.getElementById('prompt-editor-status');
 
+        let activeSystemPrompt = '';
+        let currentModel = '';
         let currentStatusId = 0;
         let currentSessionId = null;
         let resourceData = { tools: {}, prompts: {}, resources: {} };
@@ -890,14 +921,22 @@
         }
 
         async function startNewSession() {
+            if (!activeSystemPrompt) {
+                addMessage('assistant', 'Cannot start a new session. The system prompt is not loaded. Please re-configure.');
+                return;
+            }
             chatLog.innerHTML = '';
             statusWindowContent.innerHTML = '<p class="text-gray-400">Waiting for a new request...</p>';
             addMessage('assistant', "Starting a new conversation... Please wait.");
             toggleLoading(true);
             try {
-                const res = await fetch('/session', { method: 'POST' });
+                const res = await fetch('/session', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ system_prompt: activeSystemPrompt })
+                });
                 const data = await res.json();
-                if (data.session_id) {
+                if (res.ok && data.session_id) {
                     addSessionToList(data.session_id, data.name, true);
                     loadSession(data.session_id);
                 } else {
@@ -1135,6 +1174,20 @@
                 if (res.ok) {
                     configStatus.textContent = 'Success! All services connected and resources loaded.';
                     configStatus.className = 'text-sm text-green-400';
+                    currentModel = config.model; // Set the current model
+                    
+                    // Load custom or default system prompt
+                    const customPrompts = JSON.parse(localStorage.getItem('customSystemPrompts')) || {};
+                    if (customPrompts[currentModel]) {
+                        activeSystemPrompt = customPrompts[currentModel];
+                    } else {
+                        const promptRes = await fetch(`/system_prompt/${currentModel}`);
+                        const promptData = await promptRes.json();
+                        activeSystemPrompt = promptData.system_prompt || '';
+                    }
+                    
+                    promptEditorButton.disabled = false; // Enable the prompt editor button
+
                     await loadResources('tools');
                     await loadResources('prompts');
                     await loadResources('resources');
@@ -1149,6 +1202,7 @@
             } catch (error) {
                 configStatus.textContent = `Error: ${error.message}`;
                 configStatus.className = 'text-sm text-red-400';
+                promptEditorButton.disabled = true;
             } finally {
                 configLoadingSpinner.classList.add('hidden');
             }
@@ -1209,6 +1263,55 @@
 
         refreshModelsButton.addEventListener('click', fetchModels);
 
+        function openPromptEditor() {
+            // MODIFICATION: Update title with the current model name
+            promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentModel}</code>`;
+            promptEditorTextarea.value = activeSystemPrompt;
+            promptEditorOverlay.classList.remove('hidden', 'opacity-0');
+            promptEditorContent.classList.remove('scale-95', 'opacity-0');
+        }
+
+        function closePromptEditor() {
+            promptEditorOverlay.classList.add('opacity-0');
+            promptEditorContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => promptEditorOverlay.classList.add('hidden'), 300);
+        }
+
+        function saveSystemPrompt() {
+            const newPrompt = promptEditorTextarea.value;
+            activeSystemPrompt = newPrompt;
+            
+            const customPrompts = JSON.parse(localStorage.getItem('customSystemPrompts')) || {};
+            customPrompts[currentModel] = newPrompt;
+            localStorage.setItem('customSystemPrompts', JSON.stringify(customPrompts));
+
+            promptEditorStatus.textContent = 'Saved!';
+            promptEditorStatus.className = 'text-sm text-green-400';
+            setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
+        }
+
+        async function resetSystemPrompt() {
+            try {
+                const res = await fetch(`/system_prompt/${currentModel}`);
+                const data = await res.json();
+                if (data.system_prompt) {
+                    promptEditorTextarea.value = data.system_prompt;
+                    saveSystemPrompt(); // Save the reset prompt
+                    promptEditorStatus.textContent = 'Reset to default and saved!';
+                    promptEditorStatus.className = 'text-sm text-yellow-400';
+                    setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
+                }
+            } catch (e) {
+                promptEditorStatus.textContent = 'Error resetting prompt.';
+                promptEditorStatus.className = 'text-sm text-red-400';
+            }
+        }
+
+        promptEditorButton.addEventListener('click', openPromptEditor);
+        promptEditorClose.addEventListener('click', closePromptEditor);
+        promptEditorSave.addEventListener('click', saveSystemPrompt);
+        promptEditorReset.addEventListener('click', resetSystemPrompt);
+        
         document.addEventListener('DOMContentLoaded', () => {
             const savedConfig = JSON.parse(localStorage.getItem('mcpConfig'));
             if (savedConfig) {
