@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trusted Data Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap');
+        
+        :root {
+            --teradata-orange: #F15F22;
+            --teradata-orange-dark: #D9501A;
+            --dark-bg: #262626;
+            --medium-bg: #333333;
+            --light-text: #F0F0F0;
+            --medium-text: #999999;
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--dark-bg);
+            background-image: radial-gradient(circle, #4a4a4a, var(--dark-bg));
+            color: var(--light-text);
+            overflow: hidden;
+        }
+
+        .glass-panel {
+            background: rgba(51, 51, 51, 0.5); /* #333333 with alpha */
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #chat-container::-webkit-scrollbar,
+        .category-panel::-webkit-scrollbar,
+        #status-window-content::-webkit-scrollbar,
+        #session-list::-webkit-scrollbar,
+        .table-container::-webkit-scrollbar { /* Added table-container */
+            width: 6px; 
+        }
+        #chat-container::-webkit-scrollbar-track,
+        .category-panel::-webkit-scrollbar-track,
+        #status-window-content::-webkit-scrollbar-track,
+        #session-list::-webkit-scrollbar-track,
+        .table-container::-webkit-scrollbar-track { /* Added table-container */
+            background: transparent; 
+        }
+        #chat-container::-webkit-scrollbar-thumb,
+        .category-panel::-webkit-scrollbar-thumb,
+        #status-window-content::-webkit-scrollbar-thumb,
+        #session-list::-webkit-scrollbar-thumb,
+        .table-container::-webkit-scrollbar-thumb { /* Added table-container */
+            background: rgba(255, 255, 255, 0.2); 
+            border-radius: 3px; 
+        }
+
+        .message-bubble { 
+            animation: fadeIn 0.5s cubic-bezier(0.215, 0.610, 0.355, 1.000) both;
+        }
+        
+        @keyframes fadeIn { 
+            from { opacity: 0; transform: translateY(20px) scale(0.95); } 
+            to { opacity: 1; transform: translateY(0) scale(1); } 
+        }
+        
+        .header-title { font-family: 'Space Grotesk', sans-serif; }
+        
+        .category-panel {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out;
+        }
+        .category-panel.open {
+            max-height: 15rem; 
+            overflow-y: auto;
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+        }
+        .category-tab.active {
+            background-color: var(--teradata-orange);
+            color: white;
+        }
+
+        details.resource-item > summary { list-style: none; cursor: pointer; }
+        details.resource-item > summary::-webkit-details-marker { display: none; }
+        details.resource-item .chevron { transition: transform 0.2s ease-in-out; }
+        details.resource-item[open] > summary .chevron { transform: rotate(90deg); }
+
+        details.resource-selected > summary {
+            background-color: var(--teradata-orange-dark) !important;
+            box-shadow: 0 0 12px 2px rgba(241, 95, 34, 0.3);
+            border-left: 4px solid var(--teradata-orange);
+        }
+
+        .resource-tab.active {
+            border-bottom: 2px solid var(--teradata-orange);
+            color: var(--teradata-orange);
+        }
+
+        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay { transition: opacity 0.3s ease-in-out; }
+        #prompt-modal-content, #info-modal-content, #config-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden { pointer-events: none; opacity: 0; }
+        #prompt-modal-overlay.hidden #prompt-modal-content,
+        #info-modal-overlay.hidden #info-modal-content,
+        #config-modal-overlay.hidden #config-modal-content { transform: scale(0.95); opacity: 0; }
+        
+        .status-step {
+            transition: all 0.3s ease-in-out;
+            border-left: 4px solid transparent;
+        }
+        .status-step.active {
+            border-left-color: var(--teradata-orange);
+            background-color: rgba(241, 95, 34, 0.1);
+        }
+        .status-step.completed {
+            border-left-color: #10b981;
+            opacity: 0.7;
+        }
+
+        /* --- Professional Output Component Styles --- */
+        .response-card {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .response-card.summary-card {
+            background-color: transparent;
+            border: none;
+            padding: 0;
+        }
+        .sql-code-block {
+            background-color: #1E1E1E;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            overflow: hidden;
+        }
+        .sql-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background-color: rgba(0, 0, 0, 0.3);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.875rem;
+            color: #ccc;
+        }
+        .sql-code-block pre {
+            margin: 0;
+            padding: 1rem;
+            overflow-x: auto;
+        }
+        .sql-code-block code {
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            font-size: 0.875rem;
+            color: #d4d4d4;
+            white-space: pre;
+        }
+        .copy-button {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: none;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .copy-button:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+        .copy-button.copied {
+            background-color: #10b981;
+        }
+
+        /* --- MODIFIED: Table Styling --- */
+        .table-container {
+            overflow-x: auto;
+            max-width: 100%;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            /* NEW: Add max-height and vertical scroll */
+            max-height: 500px; /* Limits visible height to approx. 10-12 rows */
+            overflow-y: auto;
+        }
+        .assistant-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        .assistant-table th, .assistant-table td {
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 0.75rem 1rem;
+            text-align: left;
+            white-space: nowrap;
+        }
+        .assistant-table th {
+            background-color: rgba(241, 95, 34, 0.2);
+            font-weight: bold;
+            /* NEW: Make header sticky */
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .assistant-table tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        /* --- Collapsible Panels --- */
+        #status-window, #session-history-panel {
+            transition: width 0.3s ease-in-out, padding 0.3s ease-in-out, border 0.3s ease-in-out;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        #status-window.collapsed, #session-history-panel.collapsed {
+            width: 0;
+            padding-left: 0;
+            padding-right: 0;
+            border-width: 0;
+        }
+        #status-window.collapsed > *, #session-history-panel.collapsed > * {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #status-window > *, #session-history-panel > * {
+             transition: opacity 0.2s ease-in-out;
+        }
+        
+        .session-item.active {
+            background-color: var(--teradata-orange-dark);
+            box-shadow: 0 0 12px 2px rgba(241, 95, 34, 0.3);
+            border-left: 4px solid var(--teradata-orange);
+        }
+
+        /* --- Collapsible Header --- */
+        #tool-header {
+            transition: max-height 0.4s ease-in-out, padding 0.4s ease-in-out, border-bottom-width 0.4s ease-in-out, opacity 0.3s ease-in-out;
+            overflow: hidden;
+            max-height: 500px; /* Set a large enough max-height for open state */
+        }
+        #tool-header.collapsed {
+            max-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            border-bottom-width: 0;
+            opacity: 0;
+        }
+
+        /* --- Menu Bar --- */
+        .menu-item {
+            position: relative;
+        }
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            z-index: 50;
+        }
+        .dropdown-menu.open {
+            display: block;
+        }
+
+    </style>
+</head>
+<body class="flex h-screen flex-col">
+
+    <nav class="w-full bg-black/30 backdrop-blur-md border-b border-white/10 px-4 py-2 flex items-center justify-between flex-shrink-0 z-40">
+        <div class="flex items-center gap-x-4">
+            <h1 class="header-title text-xl font-bold text-white">Trusted Data Agent</h1>
+        </div>
+        <div class="flex items-center gap-x-2">
+            <div class="menu-item">
+                <button id="config-menu-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Config</button>
+            </div>
+            <div class="menu-item">
+                <button id="window-menu-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Window</button>
+                <div id="window-dropdown-menu" class="dropdown-menu mt-2 w-56 rounded-md shadow-lg glass-panel p-1">
+                    <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
+                        <span>History Panel</span>
+                        <input type="checkbox" id="toggle-history-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
+                    </label>
+                    <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
+                        <span>Capabilities Panel</span>
+                        <input type="checkbox" id="toggle-header-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
+                    </label>
+                    <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
+                        <span>Status Panel</span>
+                        <input type="checkbox" id="toggle-status-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
+                    </label>
+                </div>
+            </div>
+            <div class="menu-item">
+                <button id="info-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Info</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex flex-1 min-h-0">
+        <aside id="session-history-panel" class="w-1/4 max-w-xs h-full flex flex-col glass-panel rounded-r-2xl shadow-2xl border-r border-white/10 collapsed">
+            <header class="p-4 border-b border-white/10 flex justify-between items-center flex-shrink-0">
+                <h2 class="header-title text-lg font-bold text-white">History</h2>
+                <button id="new-chat-button" type="button" title="Start New Chat" class="p-2 text-gray-300 hover:text-white transition-colors rounded-md hover:bg-white/10">
+                    <svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                </button>
+            </header>
+            <div id="session-list" class="flex-1 p-2 overflow-y-auto space-y-2">
+                <!-- Session items will be dynamically inserted here -->
+            </div>
+        </aside>
+
+        <div id="main-content" class="flex flex-col h-full flex-1 min-w-0 relative">
+             <div id="top-buttons-container" class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-30 pointer-events-none">
+                <button id="toggle-history-button" title="Toggle History Panel" class="p-2 rounded-full bg-gray-800/50 hover:bg-teradata-orange transition-colors pointer-events-auto">
+                    <svg id="history-expand-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                    <svg id="history-collapse-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+                 <button id="toggle-header-button" title="Toggle Capabilities Panel" class="p-2 rounded-full bg-gray-800/50 hover:bg-teradata-orange transition-colors pointer-events-auto">
+                     <svg id="header-collapse-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+                    </svg>
+                    <svg id="header-expand-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+                <button id="toggle-status-button" title="Toggle Status Panel" class="p-2 rounded-full bg-gray-800/50 hover:bg-teradata-orange transition-colors pointer-events-auto">
+                    <svg id="status-collapse-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                     <svg id="status-expand-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+
+            <header id="tool-header" class="relative bg-[#262626] rounded-b-2xl shadow-2xl z-20 flex flex-col flex-shrink-0 border-b border-white/10 collapsed">
+                <nav id="resource-tabs" class="flex justify-center items-center gap-x-4 p-3 border-b border-white/10">
+                    <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white active" data-type="tools">Tools</button>
+                    <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="prompts">Prompts</button>
+                    <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="resources">Resources</button>
+                </nav>
+                <div id="panels-container" class="flex-1 min-h-0">
+                    <div id="tools-panel" class="resource-panel flex flex-col h-full">
+                        <nav id="tools-categories" class="flex justify-center items-center gap-x-2 p-3 border-b border-white/10"></nav>
+                        <div id="tools-panels-container" class="flex-1 min-h-0 overflow-y-auto p-2"></div>
+                    </div>
+                    <div id="prompts-panel" class="resource-panel flex-col h-full" style="display: none;">
+                        <nav id="prompts-categories" class="flex justify-center items-center gap-x-2 p-3 border-b border-white/10"></nav>
+                        <div id="prompts-panels-container" class="flex-1 min-h-0 overflow-y-auto p-2"></div>
+                    </div>
+                    <div id="resources-panel" class="resource-panel flex-col h-full" style="display: none;">
+                        <nav id="resources-categories" class="flex justify-center items-center gap-x-2 p-3 border-b border-white/10"></nav>
+                        <div id="resources-panels-container" class="flex-1 min-h-0 overflow-y-auto p-2"></div>
+                    </div>
+                </div>
+            </header>
+
+            <div class="flex-1 flex flex-col min-h-0">
+                 <main id="chat-container" class="flex-1 overflow-y-auto p-6 pt-16">
+                    <div id="chat-log" class="max-w-4xl mx-auto space-y-8"></div>
+                </main>
+
+                <footer class="p-4">
+                    <div class="max-w-4xl mx-auto">
+                        <form id="chat-form" class="flex items-center gap-3 glass-panel rounded-xl p-2">
+                            <input type="text" id="user-input" placeholder="Ask about databases, tables, users..."
+                                class="flex-1 p-3 bg-transparent border-none rounded-lg focus:outline-none text-white placeholder-gray-400"
+                                autocomplete="off" disabled />
+                            <button type="submit" id="submit-button"
+                                class="p-3 bg-[#F15F22] rounded-lg hover:bg-[#D9501A] disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center w-12 h-12 transition-all duration-200 transform hover:scale-110"
+                                disabled>
+                                <svg id="send-icon" class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                                <svg id="loading-spinner" class="w-6 h-6 text-white animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            </button>
+                        </form>
+                    </div>
+                </footer>
+            </div>
+        </div>
+
+        <aside id="status-window" class="w-1/3 max-w-md h-full flex flex-col glass-panel rounded-l-2xl shadow-2xl border-l border-white/10 collapsed">
+            <header class="p-4 border-b border-white/10 flex justify-center items-center">
+                <h2 id="status-title" class="header-title text-lg font-bold text-white">Live Status</h2>
+            </header>
+            <div id="status-window-content" class="flex-1 p-4 overflow-y-auto space-y-4">
+                <p class="text-gray-400">Waiting for a new request...</p>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Info Modal -->
+    <div id="info-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="info-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
+            <h3 class="text-xl font-bold mb-4 header-title">About This Project</h3>
+            <div class="text-gray-300 space-y-4 text-sm">
+                <div>
+                    <h4 class="font-semibold text-white mb-1">Overview</h4>
+                    <p>This Trusted Data Agent is a project designed to showcase AI-powered interaction with a Teradata database. It's initial goal was (and still is) to act as the perfect study buddy for LLM/MCP interaction as it outlines clear conversation transparency on all interactions between the consumer, the MCP server, and the LLM.</p>
+                </div>
+                <div>
+                    <h4 class="font-semibold text-white mb-1">Source Code & Contributions</h4>
+                    <p>The project currently resides as a subdirectory of the general Teradata MCP Server Engagement (main git project). It is open source and contributions are welcome. Please visit the main git project to report issues or submit pull requests. You will find the Trusted Data Agent as a subfolder in the `test` directory of the main git project.</p>
+                    <p class="mt-2"><strong>Git Repository:</strong> <a href="https://github.com/Teradata/teradata-mcp-server" target="_blank" class="text-teradata-orange hover:underline">https://github.com/Teradata/teradata-mcp-server</a></p>
+                </div>
+                <hr class="border-white/10 my-4">
+                <div>
+                    <p class="text-xs text-gray-400">Trusted Data Client Author/Initiator</p>
+                    <p class="font-semibold text-white">Rainer Geissendoerfer, World Wide Data Architecture, Teradata</p>
+                </div>
+            </div>
+            <div class="flex justify-end mt-6">
+                <button id="info-modal-close" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Config Modal -->
+    <div id="config-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
+            <h3 class="text-xl font-bold mb-4 header-title">MCP Server Configuration</h3>
+            <form id="config-form">
+                <div class="space-y-4 mb-6">
+                    <div>
+                        <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Host</label>
+                        <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                    <div>
+                        <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Port</label>
+                        <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                    <div>
+                        <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Path</label>
+                        <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                </div>
+                <div id="config-status" class="text-sm min-h-[1.25rem] mb-4"></div>
+                <div class="flex justify-between items-center">
+                    <button type="button" id="config-modal-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Close</button>
+                    <button type="submit" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold flex items-center">
+                        <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span>Load and Test Connection</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="prompt-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
+            <h3 id="prompt-modal-title" class="text-xl font-bold mb-4"></h3>
+            <form id="prompt-modal-form">
+                <div id="prompt-modal-inputs" class="space-y-4 mb-6"></div>
+                <div class="flex justify-end gap-3">
+                    <button type="button" id="prompt-modal-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Cancel</button>
+                    <button type="submit" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Run Prompt</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // All JavaScript logic is now included and corrected
+        const chatLog = document.getElementById('chat-log');
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const submitButton = document.getElementById('submit-button');
+        const sendIcon = document.getElementById('send-icon');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const newChatButton = document.getElementById('new-chat-button');
+        
+        const resourceTabs = document.getElementById('resource-tabs');
+        
+        const promptModalOverlay = document.getElementById('prompt-modal-overlay');
+        const promptModalForm = document.getElementById('prompt-modal-form');
+        const promptModalTitle = document.getElementById('prompt-modal-title');
+        const promptModalInputs = document.getElementById('prompt-modal-inputs');
+        const promptModalClose = document.getElementById('prompt-modal-close');
+
+        // Main Content
+        const mainContent = document.getElementById('main-content');
+
+        // Status Panel Elements
+        const statusWindow = document.getElementById('status-window');
+        const statusWindowContent = document.getElementById('status-window-content');
+        const toggleStatusButton = document.getElementById('toggle-status-button');
+        const statusCollapseIcon = document.getElementById('status-collapse-icon');
+        const statusExpandIcon = document.getElementById('status-expand-icon');
+        const toggleStatusCheckbox = document.getElementById('toggle-status-checkbox');
+
+        // Session History Panel Elements
+        const sessionHistoryPanel = document.getElementById('session-history-panel');
+        const sessionList = document.getElementById('session-list');
+        const toggleHistoryButton = document.getElementById('toggle-history-button');
+        const historyCollapseIcon = document.getElementById('history-collapse-icon');
+        const historyExpandIcon = document.getElementById('history-expand-icon');
+        const toggleHistoryCheckbox = document.getElementById('toggle-history-checkbox');
+
+        // Header Panel Elements
+        const toolHeader = document.getElementById('tool-header');
+        const toggleHeaderButton = document.getElementById('toggle-header-button');
+        const headerCollapseIcon = document.getElementById('header-collapse-icon');
+        const headerExpandIcon = document.getElementById('header-expand-icon');
+        const toggleHeaderCheckbox = document.getElementById('toggle-header-checkbox');
+
+        // Info Modal
+        const infoButton = document.getElementById('info-button');
+        const infoModalOverlay = document.getElementById('info-modal-overlay');
+        const infoModalClose = document.getElementById('info-modal-close');
+        const infoModalContent = document.getElementById('info-modal-content');
+
+        // Config Modal
+        const configMenuButton = document.getElementById('config-menu-button');
+        const configModalOverlay = document.getElementById('config-modal-overlay');
+        const configModalContent = document.getElementById('config-modal-content');
+        const configModalClose = document.getElementById('config-modal-close');
+        const configForm = document.getElementById('config-form');
+        const configStatus = document.getElementById('config-status');
+        const configLoadingSpinner = document.getElementById('config-loading-spinner');
+
+
+        // Window Menu
+        const windowMenuButton = document.getElementById('window-menu-button');
+        const windowDropdownMenu = document.getElementById('window-dropdown-menu');
+
+        let currentStatusId = 0;
+        let currentSessionId = null;
+        let resourceData = { tools: {}, prompts: {}, resources: {} };
+        let currentlySelectedResource = null;
+        let eventSource = null;
+
+        // NEW: Copy to clipboard function
+        function copyToClipboard(button) {
+            const codeBlock = button.closest('.sql-code-block').querySelector('code');
+            const textToCopy = codeBlock.innerText;
+            
+            // Use a temporary textarea element to copy the text
+            const textArea = document.createElement('textarea');
+            textArea.value = textToCopy;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                button.textContent = 'Copied!';
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg> Copy`;
+                    button.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+            }
+            document.body.removeChild(textArea);
+        }
+
+        function addMessage(role, content) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `message-bubble flex items-start gap-4 ${role === 'user' ? 'justify-end' : ''}`;
+            const icon = document.createElement('div');
+            icon.className = 'flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shadow-lg';
+            icon.textContent = role === 'user' ? 'U' : 'A';
+            icon.classList.add(role === 'user' ? 'bg-gray-700' : 'bg-[#F15F22]');
+            
+            const messageContainer = document.createElement('div');
+            messageContainer.className = 'p-4 rounded-xl shadow-lg max-w-2xl glass-panel';
+            messageContainer.classList.add(role === 'user' ? 'bg-gray-800/50' : 'bg-[#333333]/50');
+
+            const author = document.createElement('p');
+            author.className = 'font-bold mb-2 text-sm';
+            author.textContent = role === 'user' ? 'You' : 'Assistant';
+            author.classList.add(role === 'user' ? 'text-gray-300' : 'text-[#F15F22]');
+            messageContainer.appendChild(author);
+            
+            const messageContent = document.createElement('div');
+            // The content is now expected to be pre-formatted HTML from the backend
+            messageContent.innerHTML = content; 
+            messageContainer.appendChild(messageContent);
+
+            wrapper.appendChild(role === 'user' ? messageContainer : icon);
+            wrapper.appendChild(role === 'user' ? icon : messageContainer);
+
+            chatLog.appendChild(wrapper);
+            // MODIFIED: Scroll to the START of the new message bubble
+            wrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        
+        function toggleLoading(isLoading) {
+            userInput.disabled = isLoading;
+            submitButton.disabled = isLoading;
+            newChatButton.disabled = isLoading;
+            sendIcon.classList.toggle('hidden', isLoading);
+            loadingSpinner.classList.toggle('hidden', !isLoading);
+        }
+
+        function updateStatusWindow(step, details, isFinal=false) {
+            const lastStep = document.getElementById(`status-step-${currentStatusId}`);
+            if (lastStep) {
+                lastStep.classList.remove('active');
+                lastStep.classList.add('completed');
+            }
+            
+            currentStatusId++;
+            const stepEl = document.createElement('div');
+            stepEl.id = `status-step-${currentStatusId}`;
+            stepEl.className = 'status-step p-3 rounded-md';
+            
+            const stepTitle = document.createElement('h4');
+            stepTitle.className = 'font-bold text-sm text-white mb-2';
+            stepTitle.textContent = step;
+            stepEl.appendChild(stepTitle);
+
+            if (details) {
+                const pre = document.createElement('pre');
+                pre.className = 'p-2 bg-gray-900/70 rounded-md text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap';
+                try {
+                    const parsed = typeof details === 'string' ? JSON.parse(details) : details;
+                    pre.textContent = JSON.stringify(parsed, null, 2);
+                } catch (e) {
+                    pre.textContent = details;
+                }
+                stepEl.appendChild(pre);
+            }
+            
+            statusWindowContent.appendChild(stepEl);
+            if (!isFinal) {
+                stepEl.classList.add('active');
+            } else {
+                stepEl.classList.add('completed');
+            }
+            
+            statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
+        }
+
+        async function startStream(endpoint, body) {
+            if (body.message) {
+                addMessage('user', body.message);
+            } else {
+                addMessage('user', `Executing prompt: ${body.prompt_name}`);
+            }
+            userInput.value = '';
+            toggleLoading(true);
+            statusWindowContent.innerHTML = ''; 
+            currentStatusId = 0;
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const messages = buffer.split('\n\n');
+                    buffer = messages.pop(); 
+
+                    for (const message of messages) {
+                        if (!message) continue;
+
+                        let eventName = 'message';
+                        let dataLine = '';
+
+                        const lines = message.split('\n');
+                        for(const line of lines) {
+                            if (line.startsWith('data:')) {
+                                dataLine = line.substring(5).trim();
+                            } else if (line.startsWith('event:')) {
+                                eventName = line.substring(6).trim();
+                            }
+                        }
+
+                        if (dataLine) {
+                            const eventData = JSON.parse(dataLine);
+
+                            if (eventName === 'session_update') {
+                                const { id, name } = eventData.session_name_update;
+                                const sessionItem = document.getElementById(`session-${id}`);
+                                if (sessionItem) {
+                                    sessionItem.querySelector('span').textContent = name;
+                                }
+                            } else if (eventName === 'llm_thought') {
+                                updateStatusWindow("Assistant's Thought Process", eventData.details);
+                            } else if (eventName === 'prompt_selected') {
+                                updateStatusWindow("Assistant Selected Prompt", eventData.details);
+                                if (eventData.prompt_name) {
+                                    highlightResource(eventData.prompt_name, 'prompts');
+                                }
+                            } else if (eventName === 'tool_result') {
+                                updateStatusWindow("Tool Execution Result", eventData.details);
+                                if (eventData.tool_name) {
+                                    highlightResource(eventData.tool_name, 'tools');
+                                }
+                            } else if (eventName === 'final_answer') {
+                                addMessage('assistant', eventData.final_answer);
+                                updateStatusWindow("Finished", "Response sent to chat.", true);
+                                toggleLoading(false);
+                            } else if (eventName === 'error') {
+                                addMessage('assistant', `Sorry, an error occurred: ${eventData.error}`);
+                                updateStatusWindow("Error", eventData.details, true);
+                                toggleLoading(false);
+                            } else {
+                                updateStatusWindow(eventData.step, eventData.details);
+                            }
+                        }
+                    }
+                }
+
+            } catch (error) {
+                addMessage('assistant', `Sorry, a connection error occurred: ${error.message}`);
+                updateStatusWindow("Error", error.stack, true);
+                toggleLoading(false);
+            }
+        }
+
+        function createResourceItem(resource, type) {
+            const detailsEl = document.createElement('details');
+            detailsEl.id = `resource-${type}-${resource.name}`;
+            detailsEl.className = 'resource-item bg-gray-800/50 rounded-lg border border-gray-700/60';
+            
+            detailsEl.innerHTML = `
+                <summary class="flex justify-between items-center p-3 font-semibold text-white hover:bg-gray-700/50 rounded-lg transition-colors">
+                    <span>${resource.name}</span>
+                    <svg class="chevron w-5 h-5 text-[#F15F22] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </summary>
+                <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60">${resource.description}</div>
+            `;
+            
+            if (type === 'prompts') {
+                const summary = detailsEl.querySelector('summary');
+                summary.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    openPromptModal(resource);
+                });
+            }
+
+            return detailsEl;
+        }
+
+        async function loadResources(type) {
+            const tabButton = document.querySelector(`.resource-tab[data-type="${type}"]`);
+            const categoriesContainer = document.getElementById(`${type}-categories`);
+            const panelsContainer = document.getElementById(`${type}-panels-container`);
+            const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
+
+            try {
+                const res = await fetch(`/${type}`);
+                const data = await res.json();
+
+                tabButton.style.display = 'inline-block';
+
+                if (!res.ok || data.error || Object.keys(data).length === 0) {
+                    tabButton.textContent = `${typeCapitalized} (0)`;
+                    categoriesContainer.innerHTML = '';
+                    panelsContainer.innerHTML = `<div class="p-4 text-center text-gray-400">No ${type} available.</div>`;
+                    return;
+                }
+                
+                const totalCount = Object.values(data).reduce((acc, items) => acc + items.length, 0);
+                tabButton.textContent = `${typeCapitalized} (${totalCount})`;
+
+                resourceData[type] = data;
+                categoriesContainer.innerHTML = '';
+                panelsContainer.innerHTML = '';
+                
+                Object.keys(data).forEach(category => {
+                    const categoryTab = document.createElement('button');
+                    categoryTab.className = 'category-tab px-4 py-2 rounded-md font-semibold text-sm transition-colors hover:bg-[#D9501A]';
+                    categoryTab.textContent = category;
+                    categoryTab.dataset.category = category;
+                    categoryTab.dataset.type = type;
+                    categoriesContainer.appendChild(categoryTab);
+
+                    const panel = document.createElement('div');
+                    panel.id = `panel-${type}-${category}`;
+                    panel.className = 'category-panel px-4 space-y-2';
+                    panel.dataset.category = category;
+
+                    data[category].forEach(resource => {
+                        const itemEl = createResourceItem(resource, type);
+                        panel.appendChild(itemEl);
+                    });
+                    panelsContainer.appendChild(panel);
+                });
+
+                document.querySelectorAll(`#${type}-categories .category-tab`).forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        document.querySelectorAll(`#${type}-categories .category-tab`).forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+                        
+                        document.querySelectorAll(`#${type}-panels-container .category-panel`).forEach(p => {
+                            p.classList.toggle('open', p.dataset.category === tab.dataset.category);
+                        });
+                    });
+                });
+
+                if (categoriesContainer.querySelector('.category-tab')) {
+                    categoriesContainer.querySelector('.category-tab').click();
+                }
+
+            } catch (error) {
+                console.error(`Failed to load ${type}: ${error.message}`);
+                tabButton.textContent = `${typeCapitalized} (Error)`;
+                tabButton.style.display = 'inline-block';
+                categoriesContainer.innerHTML = '';
+                panelsContainer.innerHTML = `<div class="p-4 text-center text-red-400">Failed to load ${type}.</div>`;
+            }
+        }
+
+        function highlightResource(resourceName, type) {
+            if (currentlySelectedResource) {
+                currentlySelectedResource.classList.remove('resource-selected');
+            }
+
+            let resourceCategory = null;
+            for (const category in resourceData[type]) {
+                if (resourceData[type][category].some(r => r.name === resourceName)) {
+                    resourceCategory = category;
+                    break;
+                }
+            }
+
+            if (resourceCategory) {
+                document.querySelector(`.resource-tab[data-type="${type}"]`).click();
+                const categoryTab = document.querySelector(`.category-tab[data-type="${type}"][data-category="${resourceCategory}"]`);
+                if(categoryTab) categoryTab.click();
+
+                const resourceElement = document.getElementById(`resource-${type}-${resourceName}`);
+                if (resourceElement) {
+                    resourceElement.open = true;
+                    resourceElement.classList.add('resource-selected');
+                    currentlySelectedResource = resourceElement;
+                    resourceElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        }
+
+        async function startNewSession() {
+            chatLog.innerHTML = '';
+            statusWindowContent.innerHTML = '<p class="text-gray-400">Waiting for a new request...</p>';
+            addMessage('assistant', "Starting a new conversation... Please wait.");
+            toggleLoading(true);
+            try {
+                const res = await fetch('/session', { method: 'POST' });
+                const data = await res.json();
+                if (data.session_id) {
+                    addSessionToList(data.session_id, data.name, true);
+                    loadSession(data.session_id);
+                } else {
+                    throw new Error(data.error || "Failed to get a session ID.");
+                }
+            } catch (error) {
+                addMessage('assistant', `Failed to start a new session: ${error.message}`);
+            } finally {
+                toggleLoading(false);
+                userInput.focus();
+            }
+        }
+
+        async function loadSession(sessionId) {
+            if (currentSessionId === sessionId) return;
+
+            toggleLoading(true);
+            try {
+                const res = await fetch(`/session/${sessionId}`);
+                const history = await res.json();
+
+                if (res.ok) {
+                    currentSessionId = sessionId;
+                    chatLog.innerHTML = '';
+                    history.forEach(msg => addMessage(msg.role, msg.content));
+                    
+                    document.querySelectorAll('.session-item').forEach(item => {
+                        item.classList.toggle('active', item.dataset.sessionId === sessionId);
+                    });
+                    
+                    if (history.length === 0) {
+                         addMessage('assistant', "I'm ready to help. How can I assist you with your Teradata system today?");
+                    }
+                } else {
+                    addMessage('assistant', `Error loading session: ${history.error}`);
+                }
+            } catch (error) {
+                addMessage('assistant', `Failed to load session: ${error.message}`);
+            } finally {
+                toggleLoading(false);
+                userInput.focus();
+            }
+        }
+
+        function addSessionToList(sessionId, name, isActive = false) {
+            const sessionItem = document.createElement('button');
+            sessionItem.id = `session-${sessionId}`;
+            sessionItem.dataset.sessionId = sessionId;
+            sessionItem.className = 'session-item w-full text-left p-3 rounded-lg hover:bg-white/10 transition-colors truncate';
+            if (isActive) {
+                document.querySelectorAll('.session-item').forEach(item => item.classList.remove('active'));
+                sessionItem.classList.add('active');
+            }
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'font-semibold text-sm text-white';
+            nameSpan.textContent = name;
+            sessionItem.appendChild(nameSpan);
+
+            sessionItem.addEventListener('click', () => loadSession(sessionId));
+            sessionList.prepend(sessionItem); // Add new sessions to the top
+        }
+
+        async function loadAllSessions() {
+            try {
+                const res = await fetch('/sessions');
+                const sessions = await res.json();
+                sessionList.innerHTML = '';
+                if (sessions && sessions.length > 0) {
+                    sessions.forEach(s => addSessionToList(s.id, s.name));
+                    // Automatically load the most recent session
+                    loadSession(sessions[0].id);
+                } else {
+                    // If no sessions exist, create a new one
+                    await startNewSession();
+                }
+            } catch (e) {
+                console.error("Could not load sessions", e);
+                addMessage('assistant', 'Could not retrieve past sessions. Starting a new one.');
+                await startNewSession();
+            }
+        }
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = userInput.value.trim();
+            if (!message || !currentSessionId) return;
+            startStream('/ask_stream', { message, session_id: currentSessionId });
+        });
+
+        newChatButton.addEventListener('click', startNewSession);
+
+        resourceTabs.addEventListener('click', (e) => {
+            if (e.target.classList.contains('resource-tab')) {
+                const type = e.target.dataset.type;
+                document.querySelectorAll('.resource-tab').forEach(tab => tab.classList.remove('active'));
+                e.target.classList.add('active');
+
+                document.querySelectorAll('.resource-panel').forEach(panel => {
+                    panel.style.display = panel.id === `${type}-panel` ? 'flex' : 'none';
+                });
+            }
+        });
+
+        function openPromptModal(prompt) {
+            promptModalOverlay.classList.remove('hidden', 'opacity-0');
+            promptModalContent.classList.remove('scale-95', 'opacity-0');
+            promptModalTitle.textContent = prompt.name;
+            promptModalForm.dataset.promptName = prompt.name;
+            promptModalInputs.innerHTML = '';
+
+            if (prompt.arguments && prompt.arguments.length > 0) {
+                prompt.arguments.forEach(arg => {
+                    const inputGroup = document.createElement('div');
+                    const label = document.createElement('label');
+                    label.htmlFor = `prompt-arg-${arg.name}`;
+                    label.className = 'block text-sm font-medium text-gray-300 mb-1';
+                    label.textContent = arg.name + (arg.required ? ' *' : '');
+                    
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.id = `prompt-arg-${arg.name}`;
+                    input.name = arg.name;
+                    input.className = 'w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-[#F15F22] focus:border-[#F15F22] outline-none';
+                    input.placeholder = arg.description || `Enter value for ${arg.name}`;
+                    if (arg.required) input.required = true;
+
+                    inputGroup.appendChild(label);
+                    inputGroup.appendChild(input);
+                    promptModalInputs.appendChild(inputGroup);
+                });
+            } else {
+                promptModalInputs.innerHTML = '<p class="text-gray-400">This prompt requires no arguments.</p>';
+            }
+        }
+
+        function closePromptModal() {
+            promptModalOverlay.classList.add('opacity-0');
+            promptModalContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => promptModalOverlay.classList.add('hidden'), 300);
+        }
+
+        promptModalForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const promptName = e.target.dataset.promptName;
+            const formData = new FormData(e.target);
+            const arugments = Object.fromEntries(formData.entries());
+            
+            closePromptModal();
+            await startStream('/invoke_prompt_stream', {
+                session_id: currentSessionId,
+                prompt_name: promptName,
+                arguments: arugments
+            });
+        });
+
+        promptModalClose.addEventListener('click', closePromptModal);
+        promptModalOverlay.addEventListener('click', (e) => {
+            if (e.target === promptModalOverlay) closePromptModal();
+        });
+
+        // --- Window Toggle Logic ---
+        function setupPanelToggle(button, panel, checkbox, collapseIcon, expandIcon) {
+            const toggle = (isOpen) => {
+                const isCollapsed = !isOpen;
+                panel.classList.toggle('collapsed', isCollapsed);
+                if (collapseIcon) collapseIcon.classList.toggle('hidden', isCollapsed);
+                if (expandIcon) expandIcon.classList.toggle('hidden', !isCollapsed);
+                if (checkbox) checkbox.checked = isOpen;
+            };
+
+            button.addEventListener('click', () => toggle(panel.classList.contains('collapsed')));
+            if (checkbox) {
+                checkbox.addEventListener('change', () => toggle(checkbox.checked));
+            }
+        }
+
+        // --- Menu Logic ---
+        windowMenuButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            windowDropdownMenu.classList.toggle('open');
+        });
+        document.addEventListener('click', (e) => {
+            if (!windowDropdownMenu.contains(e.target) && e.target !== windowMenuButton) {
+                windowDropdownMenu.classList.remove('open');
+            }
+        });
+
+        // --- Info Modal Logic ---
+        infoButton.addEventListener('click', () => {
+            infoModalOverlay.classList.remove('hidden', 'opacity-0');
+            infoModalContent.classList.remove('scale-95', 'opacity-0');
+        });
+        infoModalClose.addEventListener('click', () => {
+            infoModalOverlay.classList.add('opacity-0');
+            infoModalContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => infoModalOverlay.classList.add('hidden'), 300);
+        });
+        infoModalOverlay.addEventListener('click', (e) => {
+            if (e.target === infoModalOverlay) {
+                infoModalClose.click();
+            }
+        });
+
+        // --- Config Modal Logic ---
+        configMenuButton.addEventListener('click', () => {
+            configModalOverlay.classList.remove('hidden', 'opacity-0');
+            configModalContent.classList.remove('scale-95', 'opacity-0');
+        });
+        configModalClose.addEventListener('click', () => {
+            configModalOverlay.classList.add('opacity-0');
+            configModalContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => configModalOverlay.classList.add('hidden'), 300);
+        });
+        configForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            configLoadingSpinner.classList.remove('hidden');
+            configStatus.textContent = 'Connecting...';
+            configStatus.className = 'text-sm text-yellow-400';
+
+            const formData = new FormData(e.target);
+            const config = Object.fromEntries(formData.entries());
+            
+            localStorage.setItem('mcpConfig', JSON.stringify(config));
+
+            try {
+                const res = await fetch('/connect_mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await res.json();
+
+                if (res.ok) {
+                    configStatus.textContent = 'Success! Resources loaded.';
+                    configStatus.className = 'text-sm text-green-400';
+                    await loadResources('tools');
+                    await loadResources('prompts');
+                    await loadResources('resources');
+                    setTimeout(configModalClose.click(), 1500);
+                    await loadAllSessions();
+                } else {
+                    throw new Error(result.message || 'Connection failed.');
+                }
+            } catch (error) {
+                configStatus.textContent = `Error: ${error.message}`;
+                configStatus.className = 'text-sm text-red-400';
+            } finally {
+                configLoadingSpinner.classList.add('hidden');
+            }
+        });
+
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedConfig = JSON.parse(localStorage.getItem('mcpConfig'));
+            if (savedConfig) {
+                document.getElementById('mcp-host').value = savedConfig.host || '127.0.0.1';
+                document.getElementById('mcp-port').value = savedConfig.port || '8001';
+                document.getElementById('mcp-path').value = savedConfig.path || '/mcp/';
+            } else {
+                 document.getElementById('mcp-host').value = '127.0.0.1';
+                document.getElementById('mcp-port').value = '8001';
+                document.getElementById('mcp-path').value = '/mcp/';
+            }
+
+
+            // Set initial checkbox states based on panel classes
+            toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
+            setupPanelToggle(toggleHistoryButton, sessionHistoryPanel, toggleHistoryCheckbox, historyCollapseIcon, historyExpandIcon);
+
+            toggleHeaderCheckbox.checked = !toolHeader.classList.contains('collapsed');
+            setupPanelToggle(toggleHeaderButton, toolHeader, toggleHeaderCheckbox, headerCollapseIcon, headerExpandIcon);
+
+            toggleStatusCheckbox.checked = !statusWindow.classList.contains('collapsed');
+            setupPanelToggle(toggleStatusButton, statusWindow, toggleStatusCheckbox, statusCollapseIcon, statusExpandIcon);
+            
+            // Open config on first load
+            configMenuButton.click();
+        });
+    </script>
+</body>
+</html>
