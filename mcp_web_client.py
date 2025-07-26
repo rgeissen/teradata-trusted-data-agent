@@ -7,6 +7,7 @@ import re
 import uuid
 import logging
 import shutil
+import argparse # Added for command-line arguments
 from quart import Quart, request, jsonify, render_template, Response
 from quart_cors import cors
 import hypercorn.asyncio
@@ -30,28 +31,29 @@ import google.generativeai as genai
 app = Quart(__name__)
 app = cors(app, allow_origin="*") # Enable CORS for all origins
 
+# --- App Configuration ---
+class AppConfig:
+    MODELS_UNLOCKED = False
+
+APP_CONFIG = AppConfig()
+CERTIFIED_MODEL = "gemini-1.5-flash"
+
 tools_context = None
 prompts_context = None
-# This will be the GenerativeModel object
 llm = None
+mcp_client = None
 mcp_tools = {}
 mcp_prompts = {}
 structured_tools = {}
 structured_prompts = {}
 structured_resources = {}
-# Global for pre-classified tool scopes
 tool_scopes = {}
 
 TOOL_COLUMN_TYPE_REQUIREMENTS = {
     "qlty_univariateStatistics": ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL", "FLOAT", "NUMBER", "BYTEINT"],
 }
 
-
-# This dictionary will store active chat sessions, keyed by a unique session ID.
 SESSIONS = {}
-# This will hold the MCP client instance, which is persistent.
-mcp_client = None
-
 
 # --- Helper for Server-Sent Events ---
 def _format_sse(data: dict, event: str = None) -> str:
@@ -63,7 +65,6 @@ def _format_sse(data: dict, event: str = None) -> str:
 
 # --- Core Logic ---
 
-# --- OutputFormatter Class ---
 class OutputFormatter:
     """
     Parses raw LLM output and structured tool data to generate professional,
@@ -75,9 +76,6 @@ class OutputFormatter:
         self.processed_data_indices = set()
 
     def _sanitize_summary(self) -> str:
-        """
-        Removes known raw data patterns and robustly converts markdown to HTML.
-        """
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
         clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", self.raw_summary)
         
@@ -86,11 +84,8 @@ class OutputFormatter:
         in_list = False
 
         def process_line_markdown(line):
-            """Applies common markdown conversions to a line of text."""
-            # Process flexible bolding for keys: `**word**`, `***word:***`, `*word:*`
             line = re.sub(r'\*{2,3}(.*?):\*{1,3}', r'<strong>\1:</strong>', line)
             line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
-            # Process code snippets: `code`
             line = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', line)
             return line
 
@@ -102,15 +97,13 @@ class OutputFormatter:
                     in_list = False
                 continue
 
-            # Handle list items
             if line.startswith(('* ', '- ')):
                 if not in_list:
                     html_output += '<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4">'
                     in_list = True
-                content = line[2:] # Strip the list marker
+                content = line[2:]
                 processed_content = process_line_markdown(content)
                 html_output += f'<li>{processed_content}</li>'
-            # Handle headers
             elif line.startswith('# '):
                 if in_list: html_output += '</ul>'; in_list = False
                 content = line[2:]
@@ -119,7 +112,6 @@ class OutputFormatter:
                 if in_list: html_output += '</ul>'; in_list = False
                 content = line[3:]
                 html_output += f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{content}</h4>'
-            # Handle paragraphs and other text
             else:
                 if in_list:
                     html_output += '</ul>'
@@ -133,22 +125,14 @@ class OutputFormatter:
         return html_output
 
     def _render_ddl(self, tool_result: dict, index: int) -> str:
-        """Renders a DDL result into a professional SQL code block."""
-        if not isinstance(tool_result, dict) or "results" not in tool_result:
-            return ""
-        
+        if not isinstance(tool_result, dict) or "results" not in tool_result: return ""
         results = tool_result.get("results")
-        if not isinstance(results, list) or not results:
-            return ""
-
+        if not isinstance(results, list) or not results: return ""
         ddl_text = results[0].get('Request Text', 'DDL not available.')
         ddl_text_sanitized = ddl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        
         metadata = tool_result.get("metadata", {})
         table_name = metadata.get("table", "DDL")
-        
         self.processed_data_indices.add(index)
-        
         return f"""
         <div class="response-card">
             <div class="sql-code-block">
@@ -165,17 +149,11 @@ class OutputFormatter:
         """
 
     def _render_table(self, tool_result: dict, index: int, default_title: str) -> str:
-        """Renders list-of-dict data into a professional HTML table."""
-        if not isinstance(tool_result, dict) or "results" not in tool_result:
-            return ""
-            
+        if not isinstance(tool_result, dict) or "results" not in tool_result: return ""
         results = tool_result.get("results")
-        if not isinstance(results, list) or not results or not all(isinstance(item, dict) for item in results):
-            return ""
-            
+        if not isinstance(results, list) or not results or not all(isinstance(item, dict) for item in results): return ""
         metadata = tool_result.get("metadata", {})
         title = metadata.get("table_name", default_title)
-        
         headers = results[0].keys()
         html = f"""
         <div class="response-card">
@@ -193,55 +171,38 @@ class OutputFormatter:
                 html += f"<td>{sanitized_cell}</td>"
             html += "</tr>"
         html += "</tbody></table></div></div>"
-        
         self.processed_data_indices.add(index)
         return html
 
     def render(self) -> str:
-        """
-        Orchestrates the rendering of the summary and all collected data.
-        """
         final_html = ""
-
-        # 1. Render the sanitized summary first
         clean_summary_html = self._sanitize_summary()
         if clean_summary_html:
             final_html += f'<div class="response-card summary-card">{clean_summary_html}</div>'
 
-        # 2. Iterate through all collected data and render each piece
         for i, tool_result in enumerate(self.collected_data):
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
-
             metadata = tool_result.get("metadata", {})
             tool_name = metadata.get("tool_name")
-
             if tool_name == 'base_tableDDL':
                 final_html += self._render_ddl(tool_result, i)
             elif tool_name in ['base_tablePreview', 'qlty_columnSummary', 'base_tableList', 'base_columnDescription', 'read_query_sqlalchemy']:
                 final_html += self._render_table(tool_result, i, f"Query Result")
-            # Add other specific tool renderers here if needed
-            elif "results" in tool_result: # Generic fallback for other tools
+            elif "results" in tool_result:
                  final_html += self._render_table(tool_result, i, f"Result for {tool_name}")
 
-
-        # 3. If no content was generated, provide a default message.
         if not final_html.strip():
             return "<p>The agent completed its work but did not produce a visible output.</p>"
-
         return final_html
 
 async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -> str:
-    # ... (This function remains unchanged)
-    if not llm: raise RuntimeError("LLM is not initialized.")
+    if not llm: raise RuntimeError("LLM is not initialized. Please configure the LLM provider in the settings.")
     
     llm_logger = logging.getLogger("llm_conversation")
-
     try:
         full_log_message = ""
-        # Use the raw history from the genai object for the LLM call
         history_for_llm = SESSIONS[session_id]['chat'].history if session_id and session_id in SESSIONS else chat_history
-
         if history_for_llm:
             formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_llm]
             formatted_history = "\n".join(formatted_lines)
@@ -261,16 +222,12 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -
         response_text = response.text.strip()
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
         return response_text
-
     except Exception as e:
         app.logger.error(f"Error calling LLM API: {e}", exc_info=True)
         llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
         return None
 
-
 async def invoke_mcp_tool(command: dict) -> any:
-    # ... (This function remains unchanged)
-    """Looks up and invokes a tool within a new, temporary session."""
     global mcp_client
     if not mcp_client:
         return {"error": "MCP client is not connected. Please configure the connection first."}
@@ -303,7 +260,6 @@ async def invoke_mcp_tool(command: dict) -> any:
             call_tool_result = await temp_session.call_tool(tool_name, args)
             app.logger.info(f"Successfully invoked tool. Raw response: {call_tool_result}")
             
-            # The result's content is a list containing a TextContent object.
             if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
                 text_content = call_tool_result.content[0]
                 if hasattr(text_content, 'text') and isinstance(text_content.text, str):
@@ -313,17 +269,13 @@ async def invoke_mcp_tool(command: dict) -> any:
                         app.logger.error(f"Tool '{tool_name}' returned a string that is not valid JSON: {text_content.text}")
                         return {"error": "Tool returned non-JSON string", "data": text_content.text}
             
-            # Fallback for unexpected result types
             app.logger.error(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
             return {"error": "Unexpected tool result format from MCP server."}
-
     except Exception as e:
         app.logger.error(f"Error during tool invocation for '{tool_name}': {e}", exc_info=True)
         return {"error": f"An exception occurred while invoking tool '{tool_name}'."}
 
-
 class AgentState(Enum):
-    # ... (This class remains unchanged)
     DECIDING = auto()
     EXECUTING_TOOL = auto()
     SUMMARIZING = auto()
@@ -344,7 +296,6 @@ class PlanExecutor:
         self.iteration_context = None
 
     async def run(self):
-        # ... (This function remains unchanged)
         for i in range(self.max_steps):
             if self.state in [AgentState.DONE, AgentState.ERROR]: break
             
@@ -373,7 +324,6 @@ class PlanExecutor:
             async for event in self._handle_summarizing(): yield event
 
     async def _handle_deciding(self):
-        # ... (This function is modified)
         if re.search(r'FINAL_ANSWER:', self.next_action_str, re.IGNORECASE):
             self.state = AgentState.SUMMARIZING
             return
@@ -421,7 +371,6 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
 
     async def _execute_standard_tool(self):
-        # ... (This function remains unchanged)
         tool_name = self.current_command.get("tool_name")
         yield _format_sse({"step": f"Calling tool: {tool_name}", "details": self.current_command}, "tool_result")
         tool_result = await invoke_mcp_tool(self.current_command)
@@ -455,7 +404,6 @@ class PlanExecutor:
         await self._get_next_action_from_llm(tool_result_str=tool_result_str)
 
     async def _execute_column_iteration(self):
-        # ... (This function remains unchanged)
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
         base_args = base_command.get("arguments", base_command.get("parameters", {}))
@@ -519,11 +467,9 @@ class PlanExecutor:
 
 
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
-        # ... (This function remains unchanged)
         prompt_for_next_step = "" 
         
         if self.active_prompt_plan:
-            # This is the new generic, plan-aware reasoning prompt
             app.logger.info("Applying generic plan-aware reasoning for next step.")
             last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
             prompt_for_next_step = (
@@ -539,7 +485,6 @@ class PlanExecutor:
                 "   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.\n"
             )
         elif self.iteration_context:
-            # This is the existing iteration logic, which remains unchanged
             ctx = self.iteration_context
             current_item_name = ctx["items"][ctx["item_index"]]
             last_tool_failed = tool_result_str and '"error":' in tool_result_str.lower()
@@ -565,7 +510,7 @@ class PlanExecutor:
                     except ValueError:
                         pass 
 
-                if ctx["action_count_for_item"] >= 4: # Heuristic: 4 steps in Phase 2
+                if ctx["action_count_for_item"] >= 4:
                     ctx["item_index"] += 1
                     ctx["action_count_for_item"] = 0
                     if ctx["item_index"] >= len(ctx["items"]):
@@ -578,7 +523,7 @@ class PlanExecutor:
                             "Your response **MUST** start with `FINAL_ANSWER:`."
                         )
                     else:
-                         current_item_name = ctx["items"][ctx["item_index"]] # Update to the new item
+                         current_item_name = ctx["items"][ctx["item_index"]]
                          prompt_for_next_step = (
                             f"You have finished all steps for the previous item. Now, begin Phase 2 for the **next item**: `{current_item_name}`. "
                             "According to the original plan, what is the first step for this new item?"
@@ -596,14 +541,12 @@ class PlanExecutor:
                         "2. Execute the correct next step. Provide a tool call in a `json` block or perform the required text generation."
                     )
         else:
-            # Default behavior for single-step actions
             prompt_for_next_step = (
                 "Based on the history, what is the next action to complete the user's request? "
                 "If you have enough information, your response **MUST** start with `FINAL_ANSWER:`. "
                 "Otherwise, provide the JSON for the next tool call."
             )
         
-        # The tool result is always appended to provide context for the next decision
         if tool_result_str:
             final_prompt_to_llm = f"{prompt_for_next_step}\n\nThe last tool execution returned the following result. Use this to inform your next action:\n\n{tool_result_str}"
         else:
@@ -616,7 +559,6 @@ class PlanExecutor:
 
 
     async def _handle_summarizing(self):
-        # ... (This function remains unchanged)
         llm_response = self.next_action_str
         summary_text = ""
 
@@ -644,15 +586,12 @@ class PlanExecutor:
             else:
                 summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
-        # Use the new OutputFormatter
         formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
         final_html = formatter.render()
 
-        # Append the final answer to our display history
         SESSIONS[self.session_id]['history'].append({'role': 'assistant', 'content': final_html})
         yield _format_sse({"final_answer": final_html}, "final_answer")
         self.state = AgentState.DONE
-
 
 # --- Web Server Routes ---
 
@@ -662,43 +601,41 @@ async def index():
 
 @app.route("/tools")
 async def get_tools():
+    if not mcp_client: return jsonify({"error": "Not configured"}), 400
     return jsonify(structured_tools)
 
 @app.route("/prompts")
 async def get_prompts():
+    if not mcp_client: return jsonify({"error": "Not configured"}), 400
     return jsonify(structured_prompts)
 
 @app.route("/resources")
 async def get_resources_route():
+    if not mcp_client: return jsonify({"error": "Not configured"}), 400
     return jsonify(structured_resources)
-
-# --- Session History Endpoints ---
 
 @app.route("/sessions", methods=["GET"])
 async def get_sessions():
-    """Returns a list of all session summaries."""
     session_summaries = [
         {"id": sid, "name": s_data["name"], "created_at": s_data["created_at"]}
         for sid, s_data in SESSIONS.items()
     ]
-    # Sort by creation date, newest first
     session_summaries.sort(key=lambda x: x["created_at"], reverse=True)
     return jsonify(session_summaries)
 
 @app.route("/session/<session_id>", methods=["GET"])
 async def get_session_history(session_id):
-    """Returns the full chat history for a given session."""
     if session_id in SESSIONS:
         return jsonify(SESSIONS[session_id]["history"])
     return jsonify({"error": "Session not found"}), 404
 
 @app.route("/session", methods=["POST"])
 async def new_session():
-    # --- THIS IS THE MODIFIED FUNCTION ---
     global llm, tools_context, prompts_context
+    if not llm or not mcp_client:
+        return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     try:
         session_id = str(uuid.uuid4())
-        
         system_prompt = (
             "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.\n\n"
             "--- **Core Reasoning Hierarchy** ---\n"
@@ -724,19 +661,16 @@ async def new_session():
             f"{tools_context}\n\n"
             f"{prompts_context}\n\n"
         )
-        
         initial_history = [
             {"role": "user", "parts": [{"text": system_prompt}]},
             {"role": "model", "parts": [{"text": "Understood. I will follow all instructions, paying special attention to context, parameter inference, tool arguments, and SQL generation rules."}]}
         ]
-        
         SESSIONS[session_id] = {
             "chat": llm.start_chat(history=initial_history),
-            "history": [], # This will store the simplified history for the UI
+            "history": [],
             "name": "New Chat",
             "created_at": datetime.now().isoformat()
         }
-        
         app.logger.info(f"Created new session: {session_id}")
         return jsonify({"session_id": session_id, "name": SESSIONS[session_id]["name"]})
     except Exception as e:
@@ -760,17 +694,14 @@ async def ask_stream():
         app.logger.info(f"Received stream request for session {session_id}: {user_input}")
 
         try:
-            # Add user message to both histories
             SESSIONS[session_id]['history'].append({'role': 'user', 'content': user_input})
             
-            # Update session name if it's the first message
             if SESSIONS[session_id]['name'] == 'New Chat':
                 SESSIONS[session_id]['name'] = user_input[:40] + '...' if len(user_input) > 40 else user_input
                 yield _format_sse({"session_name_update": {"id": session_id, "name": SESSIONS[session_id]['name']}}, "session_update")
 
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
-            # Pass the raw user input to the LLM
             llm_reasoning_and_command = await call_llm_api(user_input, session_id)
             
             executor = PlanExecutor(session_id=session_id, initial_instruction=llm_reasoning_and_command, original_user_input=user_input)
@@ -782,7 +713,6 @@ async def ask_stream():
             yield _format_sse({"error": "An unexpected server error occurred.", "details": str(e)}, "error")
 
     return Response(stream_generator(user_input, session_id), mimetype="text/event-stream")
-
 
 @app.route("/invoke_prompt_stream", methods=["POST"])
 async def invoke_prompt_stream():
@@ -808,7 +738,6 @@ async def invoke_prompt_stream():
         ```
         """
         try:
-            # The user message is now the prompt execution itself
             await SESSIONS[session_id]['chat'].send_message_async(user_input)
             
             executor = PlanExecutor(session_id=session_id, initial_instruction=initial_instruction, original_user_input=user_input)
@@ -820,9 +749,7 @@ async def invoke_prompt_stream():
 
     return Response(stream_generator(), mimetype="text/event-stream")
 
-
 def classify_tool_scopes(tools: list) -> dict:
-    # ... (This function remains unchanged)
     scopes = {}
     for tool in tools:
         arg_names = set(tool.args.keys())
@@ -832,7 +759,6 @@ def classify_tool_scopes(tools: list) -> dict:
     return scopes
 
 def classify_prompt_scopes(prompts: list) -> dict:
-    # ... (This function remains unchanged)
     scopes = {}
     for prompt in prompts:
         arg_names = {arg.name for arg in prompt.arguments}
@@ -843,7 +769,6 @@ def classify_prompt_scopes(prompts: list) -> dict:
 
 
 async def load_and_categorize_resources():
-    # ... (This function remains unchanged)
     global tools_context, structured_tools, structured_prompts, prompts_context, mcp_tools, mcp_prompts, tool_scopes
     
     if not mcp_client:
@@ -947,42 +872,116 @@ async def load_and_categorize_resources():
                 structured_prompts = { "All Prompts": serializable_prompts }
 
 
-@app.route("/connect_mcp", methods=["POST"])
-async def connect_mcp():
-    # ... (This function remains unchanged)
-    global mcp_client
+# --- NEW AND MODIFIED ENDPOINTS ---
+
+async def get_models_for_provider(provider: str, api_key: str):
+    """Fetches a list of available models for a given provider."""
+    if provider == "Google":
+        if not api_key:
+            raise ValueError("API Key is required to fetch Google models.")
+        try:
+            genai.configure(api_key=api_key)
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            clean_models = [name.split('/')[-1] for name in models]
+            
+            # Structure the response based on the lock status
+            structured_model_list = []
+            for model_name in clean_models:
+                is_certified = APP_CONFIG.MODELS_UNLOCKED or model_name == CERTIFIED_MODEL
+                structured_model_list.append({"name": model_name, "certified": is_certified})
+            
+            return structured_model_list
+        except Exception as e:
+            app.logger.error(f"Failed to fetch Google models: {e}")
+            if "API key not valid" in str(e):
+                raise ValueError("The provided Google API Key is not valid.")
+            raise ConnectionError("Could not connect to Google API to fetch models.")
+    else:
+        raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
+
+@app.route("/models", methods=["POST"])
+async def get_models():
+    """Endpoint to dynamically fetch models for a provider."""
+    try:
+        data = await request.get_json()
+        provider = data.get("provider")
+        api_key = data.get("apiKey")
+        models = await get_models_for_provider(provider, api_key)
+        return jsonify({"status": "success", "models": models})
+    except (ValueError, NotImplementedError, ConnectionError) as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Unexpected error fetching models: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": "An unexpected server error occurred."}), 500
+
+
+async def initialize_llm(provider: str, model: str, api_key: str):
+    """Initializes the global LLM client based on provider and credentials."""
+    global llm
+    if provider == "Google":
+        if not api_key:
+            raise ValueError("API Key is required for Google provider.")
+        try:
+            genai.configure(api_key=api_key)
+            temp_llm = genai.GenerativeModel(model)
+            # Test the connection with a simple, non-costly call
+            await temp_llm.generate_content_async("test", generation_config={"max_output_tokens": 5})
+            llm = temp_llm # Assign to global only after successful test
+            app.logger.info(f"Successfully initialized and tested Google LLM model: {model}")
+            return True, "LLM connection successful."
+        except Exception as e:
+            llm = None
+            app.logger.error(f"Failed to initialize Google LLM: {e}", exc_info=True)
+            # Try to extract a more user-friendly error message
+            error_str = str(e)
+            if "API key not valid" in error_str:
+                raise ValueError("The provided Google API Key is not valid. Please check and try again.")
+            raise ValueError(f"LLM connection failed: {e}")
+    else:
+        raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
+
+@app.route("/configure", methods=["POST"])
+async def configure_services():
+    """A unified endpoint to configure both MCP and LLM services."""
+    global mcp_client, llm
     data = await request.get_json()
+    
+    # --- LLM Configuration ---
+    llm_provider = data.get("provider")
+    llm_model = data.get("model")
+    llm_api_key = data.get("apiKey")
+    
+    try:
+        await initialize_llm(llm_provider, llm_model, llm_api_key)
+    except (ValueError, NotImplementedError) as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"An unexpected error occurred during LLM initialization: {e}"}), 500
+
+    # --- MCP Configuration ---
     mcp_host = data.get("host", "127.0.0.1")
     mcp_port = data.get("port", "8001")
     mcp_path = data.get("path", "/mcp/")
     
-    if mcp_client:
-        await mcp_client.close()
-
     mcp_server_url = f"http://{mcp_host}:{mcp_port}{mcp_path}"
     mcp_client = MultiServerMCPClient({"mcp_server": {"url": mcp_server_url, "transport": "streamable_http"}})
     
     try:
         await load_and_categorize_resources()
-        return jsonify({"status": "success", "message": "MCP resources loaded successfully."})
+        return jsonify({"status": "success", "message": "MCP and LLM configured successfully."})
     except Exception as e:
-        app.logger.error(f"Failed to load MCP resources: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        app.logger.error(f"Failed to load MCP resources after LLM init: {e}", exc_info=True)
+        # Reset LLM since the full config failed
+        llm = None
+        mcp_client = None
+        return jsonify({"status": "error", "message": f"LLM connection succeeded, but failed to load MCP resources: {e}"}), 500
 
 
 @app.after_serving
 async def shutdown():
-    # ... (This function remains unchanged)
-    global mcp_client
-    if mcp_client:
-        await mcp_client.close()
-    app.logger.info("MCP client closed.")
-
+    app.logger.info("Server shutting down.")
 
 async def main():
-    # ... (This function remains unchanged)
-    global llm
-
     LOG_DIR = "logs"
     if os.path.exists(LOG_DIR): shutil.rmtree(LOG_DIR)
     os.makedirs(LOG_DIR)
@@ -994,39 +993,32 @@ async def main():
     llm_logger.addHandler(llm_log_handler)
     llm_logger.propagate = False
 
-    load_dotenv()
-    
-    try:
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key: raise ValueError("GEMINI_API_KEY not found. Please export it in your shell environment.")
-        genai.configure(api_key=api_key)
-        llm = genai.GenerativeModel('gemini-1.5-flash')
-    except Exception as e:
-        print(f"Fatal Error initializing LLM: {e}")
-        sys.exit(1)
-
     print("\n--- Starting Hypercorn Server for Quart App ---")
-    print("Web client initialized and ready. Navigate to [http://127.0.0.1:5000](http://127.0.0.1:5000)")
+    print("Web client initialized and ready. Navigate to http://127.0.0.1:5000")
     config = Config()
     config.bind = ["127.0.0.1:5000"]
     config.accesslog = "-"
     config.errorlog = "-"
     await hypercorn.asyncio.serve(app, config)
 
-
 if __name__ == "__main__":
-    # ... (This function remains unchanged)
-    # Get the absolute path to the directory where the script resides
+    # --- Command-Line Argument Parser ---
+    parser = argparse.ArgumentParser(description="Run the Trusted Data Agent web client.")
+    parser.add_argument(
+        "--unlock-models",
+        action="store_true",
+        help="Allow selection of all available models, not just the certified one."
+    )
+    args = parser.parse_args()
+
+    if args.unlock_models:
+        APP_CONFIG.MODELS_UNLOCKED = True
+        print("\n--- DEVELOPMENT MODE: All models will be selectable. ---")
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     templates_dir = os.path.join(script_dir, 'templates')
-    template_file_path = os.path.join(templates_dir, 'index.html')
-
-    # Check for the templates directory and file using the corrected, absolute path
     if not os.path.exists(templates_dir):
         os.makedirs(templates_dir)
-    if not os.path.exists(template_file_path):
-        # This warning will now only appear if the file is truly missing from the correct location.
-        print(f"Warning: '{template_file_path}' not found.")
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

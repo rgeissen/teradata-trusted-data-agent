@@ -36,21 +36,21 @@
         .category-panel::-webkit-scrollbar,
         #status-window-content::-webkit-scrollbar,
         #session-list::-webkit-scrollbar,
-        .table-container::-webkit-scrollbar { /* Added table-container */
+        .table-container::-webkit-scrollbar {
             width: 6px; 
         }
         #chat-container::-webkit-scrollbar-track,
         .category-panel::-webkit-scrollbar-track,
         #status-window-content::-webkit-scrollbar-track,
         #session-list::-webkit-scrollbar-track,
-        .table-container::-webkit-scrollbar-track { /* Added table-container */
+        .table-container::-webkit-scrollbar-track {
             background: transparent; 
         }
         #chat-container::-webkit-scrollbar-thumb,
         .category-panel::-webkit-scrollbar-thumb,
         #status-window-content::-webkit-scrollbar-thumb,
         #session-list::-webkit-scrollbar-thumb,
-        .table-container::-webkit-scrollbar-thumb { /* Added table-container */
+        .table-container::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.2); 
             border-radius: 3px; 
         }
@@ -118,7 +118,6 @@
             opacity: 0.7;
         }
 
-        /* --- Professional Output Component Styles --- */
         .response-card {
             background-color: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -179,14 +178,12 @@
             background-color: #10b981;
         }
 
-        /* --- MODIFIED: Table Styling --- */
         .table-container {
             overflow-x: auto;
             max-width: 100%;
             border-radius: 0.5rem;
             border: 1px solid rgba(255, 255, 255, 0.2);
-            /* NEW: Add max-height and vertical scroll */
-            max-height: 500px; /* Limits visible height to approx. 10-12 rows */
+            max-height: 500px;
             overflow-y: auto;
         }
         .assistant-table {
@@ -203,7 +200,6 @@
         .assistant-table th {
             background-color: rgba(241, 95, 34, 0.2);
             font-weight: bold;
-            /* NEW: Make header sticky */
             position: sticky;
             top: 0;
             z-index: 10;
@@ -212,7 +208,6 @@
             background-color: rgba(255, 255, 255, 0.05);
         }
 
-        /* --- Collapsible Panels --- */
         #status-window, #session-history-panel {
             transition: width 0.3s ease-in-out, padding 0.3s ease-in-out, border 0.3s ease-in-out;
             flex-shrink: 0;
@@ -238,11 +233,10 @@
             border-left: 4px solid var(--teradata-orange);
         }
 
-        /* --- Collapsible Header --- */
         #tool-header {
             transition: max-height 0.4s ease-in-out, padding 0.4s ease-in-out, border-bottom-width 0.4s ease-in-out, opacity 0.3s ease-in-out;
             overflow: hidden;
-            max-height: 500px; /* Set a large enough max-height for open state */
+            max-height: 500px;
         }
         #tool-header.collapsed {
             max-height: 0;
@@ -252,7 +246,6 @@
             opacity: 0;
         }
 
-        /* --- Menu Bar --- */
         .menu-item {
             position: relative;
         }
@@ -265,6 +258,11 @@
         }
         .dropdown-menu.open {
             display: block;
+        }
+        
+        select:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
     </style>
@@ -320,7 +318,6 @@
 
         <!-- Center Content: Chat and Header -->
         <div id="main-content" class="flex flex-col h-full flex-1 min-w-0 relative">
-             <!-- MODIFICATION: Reverted button container to original layout -->
              <div id="top-buttons-container" class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-30 pointer-events-none">
                 <button id="toggle-history-button" title="Toggle History Panel" class="p-2 rounded-full bg-gray-800/50 hover:bg-teradata-orange transition-colors pointer-events-auto">
                     <svg id="history-expand-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -349,7 +346,6 @@
             </div>
 
             <!-- Capabilities Header Panel -->
-            <!-- MODIFICATION: Added pt-16 to create space for the buttons above -->
             <header id="tool-header" class="relative bg-[#262626] rounded-b-2xl shadow-2xl z-20 flex flex-col flex-shrink-0 border-b border-white/10 pt-16">
                 <nav id="resource-tabs" class="flex justify-center items-center gap-x-4 p-3 border-b border-white/10">
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white active" data-type="tools">Tools</button>
@@ -382,7 +378,7 @@
                 <footer class="p-4">
                     <div class="max-w-4xl mx-auto">
                         <form id="chat-form" class="flex items-center gap-3 glass-panel rounded-xl p-2">
-                            <input type="text" id="user-input" placeholder="Ask about databases, tables, users..."
+                            <input type="text" id="user-input" placeholder="Please configure the application first..."
                                 class="flex-1 p-3 bg-transparent border-none rounded-lg focus:outline-none text-white placeholder-gray-400"
                                 autocomplete="off" disabled />
                             <button type="submit" id="submit-button"
@@ -412,7 +408,6 @@
     <div id="info-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="info-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 class="text-xl font-bold mb-4 header-title">About This Project</h3>
-            <!-- UPDATED CONTENT START -->
             <div class="text-gray-300 space-y-4 text-sm">
                 <div>
                     <h4 class="font-semibold text-white mb-1">Overview</h4>
@@ -429,7 +424,6 @@
                     <p class="font-semibold text-white">Rainer Geissendoerfer, World Wide Data Architecture, Teradata</p>
                 </div>
             </div>
-            <!-- UPDATED CONTENT END -->
             <div class="flex justify-end mt-6">
                 <button id="info-modal-close" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Close</button>
             </div>
@@ -438,21 +432,53 @@
 
     <!-- Config Modal -->
     <div id="config-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
-        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
-            <h3 class="text-xl font-bold mb-4 header-title">MCP Server Configuration</h3>
+        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-2xl p-6 transform scale-95 opacity-0">
+            <h3 class="text-xl font-bold mb-4 header-title">Configuration</h3>
             <form id="config-form">
-                <div class="space-y-4 mb-6">
-                    <div>
-                        <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Host</label>
-                        <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <!-- MCP Server Configuration -->
+                    <div class="space-y-4 p-4 border border-white/10 rounded-lg">
+                        <h4 class="font-bold text-lg text-white">MCP Server</h4>
+                        <div>
+                            <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Host</label>
+                            <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                        </div>
+                        <div>
+                            <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Port</label>
+                            <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                        </div>
+                        <div>
+                            <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Path</label>
+                            <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                        </div>
                     </div>
-                    <div>
-                        <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Port</label>
-                        <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                    </div>
-                    <div>
-                        <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Path</label>
-                        <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    <!-- LLM Provider Configuration -->
+                    <div class="space-y-4 p-4 border border-white/10 rounded-lg">
+                        <h4 class="font-bold text-lg text-white">LLM Provider</h4>
+                        <div>
+                            <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">Provider</label>
+                            <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                <option value="Google">Google</option>
+                                <option value="Azure" disabled>Microsoft Azure (coming soon)</option>
+                                <option value="Amazon" disabled>Amazon Bedrock (coming soon)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">Model</label>
+                            <div class="flex items-center gap-2">
+                                <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                    <option value="">-- Enter API Key and Refresh --</option>
+                                </select>
+                                <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
+                                    <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
+                                    <svg id="refresh-spinner" class="w-5 h-5 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                            <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
+                        </div>
                     </div>
                 </div>
                 <div id="config-status" class="text-sm min-h-[1.25rem] mb-4"></div>
@@ -460,7 +486,7 @@
                     <button type="button" id="config-modal-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Close</button>
                     <button type="submit" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold flex items-center">
                         <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Load and Test Connection</span>
+                        <span>Connect and Load</span>
                     </button>
                 </div>
             </form>
@@ -540,7 +566,10 @@
         const configForm = document.getElementById('config-form');
         const configStatus = document.getElementById('config-status');
         const configLoadingSpinner = document.getElementById('config-loading-spinner');
-
+        const refreshModelsButton = document.getElementById('refresh-models-button');
+        const refreshIcon = document.getElementById('refresh-icon');
+        const refreshSpinner = document.getElementById('refresh-spinner');
+        const llmModelSelect = document.getElementById('llm-model');
 
         // Window Menu
         const windowMenuButton = document.getElementById('window-menu-button');
@@ -552,12 +581,10 @@
         let currentlySelectedResource = null;
         let eventSource = null;
 
-        // NEW: Copy to clipboard function
         function copyToClipboard(button) {
             const codeBlock = button.closest('.sql-code-block').querySelector('code');
             const textToCopy = codeBlock.innerText;
             
-            // Use a temporary textarea element to copy the text
             const textArea = document.createElement('textarea');
             textArea.value = textToCopy;
             document.body.appendChild(textArea);
@@ -595,7 +622,6 @@
             messageContainer.appendChild(author);
             
             const messageContent = document.createElement('div');
-            // The content is now expected to be pre-formatted HTML from the backend
             messageContent.innerHTML = content; 
             messageContainer.appendChild(messageContent);
 
@@ -603,7 +629,6 @@
             wrapper.appendChild(role === 'user' ? icon : messageContainer);
 
             chatLog.appendChild(wrapper);
-            // MODIFIED: Scroll to the START of the new message bubble
             wrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         
@@ -933,7 +958,7 @@
             sessionItem.appendChild(nameSpan);
 
             sessionItem.addEventListener('click', () => loadSession(sessionId));
-            sessionList.prepend(sessionItem); // Add new sessions to the top
+            sessionList.prepend(sessionItem);
         }
 
         async function loadAllSessions() {
@@ -943,10 +968,8 @@
                 sessionList.innerHTML = '';
                 if (sessions && sessions.length > 0) {
                     sessions.forEach(s => addSessionToList(s.id, s.name));
-                    // Automatically load the most recent session
                     loadSession(sessions[0].id);
                 } else {
-                    // If no sessions exist, create a new one
                     await startNewSession();
                 }
             } catch (e) {
@@ -1034,7 +1057,6 @@
             if (e.target === promptModalOverlay) closePromptModal();
         });
 
-        // --- Window Toggle Logic ---
         function setupPanelToggle(button, panel, checkbox, collapseIcon, expandIcon) {
             const toggle = (isOpen) => {
                 const isCollapsed = !isOpen;
@@ -1050,7 +1072,6 @@
             }
         }
 
-        // --- Menu Logic ---
         windowMenuButton.addEventListener('click', (e) => {
             e.stopPropagation();
             windowDropdownMenu.classList.toggle('open');
@@ -1061,7 +1082,6 @@
             }
         });
 
-        // --- Info Modal Logic ---
         infoButton.addEventListener('click', () => {
             infoModalOverlay.classList.remove('hidden', 'opacity-0');
             infoModalContent.classList.remove('scale-95', 'opacity-0');
@@ -1077,7 +1097,6 @@
             }
         });
 
-        // --- Config Modal Logic ---
         configMenuButton.addEventListener('click', () => {
             configModalOverlay.classList.remove('hidden', 'opacity-0');
             configModalContent.classList.remove('scale-95', 'opacity-0');
@@ -1087,6 +1106,7 @@
             configModalContent.classList.add('scale-95', 'opacity-0');
             setTimeout(() => configModalOverlay.classList.add('hidden'), 300);
         });
+        
         configForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             configLoadingSpinner.classList.remove('hidden');
@@ -1096,10 +1116,15 @@
             const formData = new FormData(e.target);
             const config = Object.fromEntries(formData.entries());
             
-            localStorage.setItem('mcpConfig', JSON.stringify(config));
+            const mcpConfig = {
+                host: config.host,
+                port: config.port,
+                path: config.path
+            };
+            localStorage.setItem('mcpConfig', JSON.stringify(mcpConfig));
 
             try {
-                const res = await fetch('/connect_mcp', {
+                const res = await fetch('/configure', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(config)
@@ -1108,15 +1133,18 @@
                 const result = await res.json();
 
                 if (res.ok) {
-                    configStatus.textContent = 'Success! Resources loaded.';
+                    configStatus.textContent = 'Success! All services connected and resources loaded.';
                     configStatus.className = 'text-sm text-green-400';
                     await loadResources('tools');
                     await loadResources('prompts');
                     await loadResources('resources');
-                    setTimeout(configModalClose.click(), 1500);
-                    await loadAllSessions();
+                    setTimeout(() => {
+                        configModalClose.click();
+                        userInput.placeholder = "Ask about databases, tables, users...";
+                        loadAllSessions();
+                    }, 1500);
                 } else {
-                    throw new Error(result.message || 'Connection failed.');
+                    throw new Error(result.message || 'Configuration failed.');
                 }
             } catch (error) {
                 configStatus.textContent = `Error: ${error.message}`;
@@ -1126,6 +1154,60 @@
             }
         });
 
+        async function fetchModels() {
+            const provider = document.getElementById('llm-provider').value;
+            const apiKey = document.getElementById('llm-api-key').value;
+
+            if (!apiKey) {
+                configStatus.textContent = 'API Key is required to fetch models.';
+                configStatus.className = 'text-sm text-yellow-400';
+                return;
+            }
+
+            refreshIcon.classList.add('hidden');
+            refreshSpinner.classList.remove('hidden');
+            refreshModelsButton.disabled = true;
+            configStatus.textContent = 'Fetching models...';
+            configStatus.className = 'text-sm text-gray-400';
+
+            try {
+                const response = await fetch('/models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, apiKey })
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    llmModelSelect.innerHTML = ''; // Clear existing options
+                    result.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        if (model.certified) {
+                            option.textContent = model.name;
+                        } else {
+                            option.textContent = `${model.name} (support evaluated)`;
+                            option.disabled = true;
+                        }
+                        llmModelSelect.appendChild(option);
+                    });
+                    configStatus.textContent = `Successfully fetched ${result.models.length} models.`;
+                    configStatus.className = 'text-sm text-green-400';
+                } else {
+                    throw new Error(result.message || 'Failed to fetch models.');
+                }
+            } catch (error) {
+                configStatus.textContent = `Error: ${error.message}`;
+                configStatus.className = 'text-sm text-red-400';
+                llmModelSelect.innerHTML = '<option value="">-- Could not fetch models --</option>';
+            } finally {
+                refreshIcon.classList.remove('hidden');
+                refreshSpinner.classList.add('hidden');
+                refreshModelsButton.disabled = false;
+            }
+        }
+
+        refreshModelsButton.addEventListener('click', fetchModels);
 
         document.addEventListener('DOMContentLoaded', () => {
             const savedConfig = JSON.parse(localStorage.getItem('mcpConfig'));
@@ -1139,8 +1221,6 @@
                 document.getElementById('mcp-path').value = '/mcp/';
             }
 
-
-            // Set initial checkbox states based on panel classes
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
             setupPanelToggle(toggleHistoryButton, sessionHistoryPanel, toggleHistoryCheckbox, historyCollapseIcon, historyExpandIcon);
 
@@ -1150,9 +1230,8 @@
             toggleStatusCheckbox.checked = !statusWindow.classList.contains('collapsed');
             setupPanelToggle(toggleStatusButton, statusWindow, toggleStatusCheckbox, statusCollapseIcon, statusExpandIcon);
             
-            // Open config on first load
             configMenuButton.click();
         });
     </script>
 </body>
-</ht
+</html>

@@ -2,7 +2,7 @@
 
 **A transparent, AI-powered conversational interface for Teradata databases.**
 
-The Trusted Data Agent is a sophisticated web application designed to showcase and facilitate AI-powered interaction with a Teradata database system. Its primary goal is to act as the perfect "study buddy" for developers, data analysts, and architects who are exploring the integration of Large Language Models (LLMs) with enterprise data platforms. It provides complete, real-time transparency into the conversational flow between the user, the AI agent, the Teradata Multi-Capability Platform (MCP) server, and the underlying database.
+The Trusted Data Agent is a sophisticated web application designed to showcase and facilitate AI-powered interaction with a Teradata database system. Its primary goal is to act as the perfect "study buddy" for developers, data analysts, and architects who are exploring the integration of Large Language Models (LLMs) with enterprise data platforms. It provides complete, real-time transparency into the conversational flow between the user, the AI agent, the Teradata Model Context Protocol (MCP) server, and the underlying database.
 
 *(Replace with an actual screenshot of the application)*
 
@@ -54,7 +54,7 @@ The application operates on a client-server model, with a clear separation of co
 1.  **Frontend (`index.html`):** A single-page application built with HTML, Tailwind CSS, and vanilla JavaScript. It captures user input and uses Server-Sent Events (SSE) to receive real-time updates from the backend, creating a dynamic and responsive experience.
 2.  **Backend (`mcp_web_client.py`):** A powerful asynchronous web server built with **Quart**. It serves the frontend, manages user sessions, and orchestrates the entire AI workflow.
 3.  **LLM (Google Gemini):** The reasoning engine of the agent. The backend sends structured prompts (including conversation history and available tools) to the Gemini API, which decides the next best action.
-4.  **Teradata MCP Server:** The bridge to the database. It exposes database functionalities (like listing tables, describing columns, checking data quality) as a secure, well-defined API of "tools" that the AI agent can call.
+4.  **Teradata MCP Server:** The bridge to the database. MCP stands for **Model Context Protocol**. It exposes database functionalities (like listing tables, describing columns, checking data quality) as a secure, well-defined API of "tools" that the AI agent can call.
 
 ## Key Features
 
