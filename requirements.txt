@@ -2,5 +2,5 @@ quart
 quart-cors
 hypercorn
 python-dotenv
-langchain-mcp-adapters
 google-generativeai
+langchain-mcp-adapters

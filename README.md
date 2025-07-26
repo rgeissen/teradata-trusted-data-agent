@@ -1,135 +1,172 @@
-# MCP (Model Context Protocol) Web Client
+# Trusted Data Agent
 
-## 1. Introduction
+**A transparent, AI-powered conversational interface for Teradata databases.**
 
-This application is a Python-based web client that provides an interactive, user-friendly interface for interacting with an MCP (Model Context Protocol) server. It acts as a bridge between a user's natural language requests and a suite of backend tools, prompts, and resources exposed by the MCP server.
+The Trusted Data Agent is a sophisticated web application designed to showcase and facilitate AI-powered interaction with a Teradata database system. Its primary goal is to act as the perfect "study buddy" for developers, data analysts, and architects who are exploring the integration of Large Language Models (LLMs) with enterprise data platforms. It provides complete, real-time transparency into the conversational flow between the user, the AI agent, the Teradata Multi-Capability Platform (MCP) server, and the underlying database.
 
-The client leverages a powerful Large Language Model (LLM), specifically Google's Gemini 1.5 Flash, to interpret user intent, select the appropriate tool or prompt, and generate the necessary commands. The results are then streamed back to the user in a clear, conversational format. This creates a dynamic "natural language shell" for complex backend systems, particularly geared towards managing a Teradata database environment.
+*(Replace with an actual screenshot of the application)*
 
-## 2. Core Features
+---
 
-* **Natural Language to Tool Execution**: Translates plain English requests (e.g., "list all the databases") into specific JSON-based tool commands that the MCP server can execute.
-* **Interactive Chat Interface**: Provides a web-based chat UI where users can have an ongoing conversation with the system. Each chat is managed in a separate, stateful session.
-* **Dynamic Tool, Prompt, and Resource Discovery**: On startup, the client automatically queries the MCP server to load and display all available tools, prompts, and resources.
-* **LLM-Powered Categorization**: Uses the Gemini LLM to intelligently group the discovered tools, prompts, and resources into logical categories, making them easier for users to browse.
-* **Streaming Responses**: Utilizes Server-Sent Events (SSE) to provide real-time, step-by-step feedback to the user as a request is processed. This includes the LLM's reasoning, the tool being called, the execution result, and the final summary.
-* **Pre-defined Prompt Execution**: Allows users to invoke complex, pre-defined prompts on the MCP server with specific arguments, simplifying multi-step or frequently used operations.
-* **Session Management**: Supports multiple concurrent user sessions, each with its own independent chat history and context.
+## Table of Contents
+- [Overview](#overview)
+- [How It Works: Architecture](#how-it-works-architecture)
+- [Key Features](#key-features)
+- [Installation and Setup Guide](#installation-and-setup-guide)
+  - [Prerequisites](#prerequisites)
+  - [Step 1: Clone the Repository](#step-1-clone-the-repository)
+  - [Step 2: Set Up Dependencies](#step-2-set-up-dependencies)
+  - [Step 3: Configure API Key](#step-3-configure-api-key)
+- [Running the Application](#running-the-application)
+- [User Guide](#user-guide)
+  - [First-Time Setup: Connecting to MCP](#first-time-setup-connecting-to-mcp)
+  - [Navigating the Interface](#navigating-the-interface)
+  - [Starting a Conversation](#starting-a-conversation)
+- [Troubleshooting](#troubleshooting)
+- [Author & Contributions](#author--contributions)
 
-## 3. System Architecture & Workflow
+---
 
-The application operates in a multi-step flow to process a user's request:
+## Overview
 
-1.  **User Input**: The user enters a request in the web UI (e.g., "How many tables are in the 'sales' database?").
-2.  **LLM Command Generation**: The web client sends the user's request to the Gemini LLM, along with a list of available tools. The LLM determines the correct tool to use (e.g., `base_readQuery`) and generates a JSON command object (e.g., `{"tool_name": "base_readQuery", "arguments": {"sql": "SELECT COUNT(*) FROM DBC.TablesV WHERE DatabaseName = 'sales';"}}`).
-3.  **Tool Invocation**: The client parses the JSON command and sends it to the `invoke_mcp_tool` function, which executes the corresponding tool via the `langchain_mcp_adapters` library.
-4.  **Result Execution**: The MCP server receives the command, executes it against the target system (e.g., Teradata), and returns a JSON result to the web client.
-5.  **LLM Summarization**: The client sends the raw JSON result back to the LLM and asks it to generate a user-friendly, natural language summary (e.g., "There are 57 tables in the 'sales' database.").
-6.  **Stream to UI**: Each of these steps (LLM thought, tool call, result, final answer) is streamed back to the user's web browser in real-time.
+In a world increasingly driven by data, the ability to interact with complex database systems in a simple, intuitive way is paramount. The Trusted Data Agent bridges this gap by providing a natural language interface for your Teradata system. Instead of writing complex SQL queries, you can simply ask questions. The AI agent then:
 
-## 4. Requirements
+1.  **Understands** your request.
+2.  **Formulates a plan** to find the answer.
+3.  **Uses a suite of tools** (exposed by the MCP Server) to interact with the database.
+4.  **Synthesizes the results** into a clear, human-readable response.
 
-### 4.1. Python Environment
-This application requires **Python 3.9** or newer.
+What makes this agent unique is its commitment to transparency. The **Live Status** panel shows you every thought, every tool call, and every piece of data the agent uses, making it an unparalleled educational tool for understanding how AI agents operate in a real-world data environment.
 
-### 4.2. Python Libraries
+## How It Works: Architecture
 
-You will need to install the following Python libraries. You can use the provided `requirements.txt` file and install them using `pip install -r requirements.txt`.
+The application operates on a client-server model, with a clear separation of concerns between the user interface and the backend logic.
 
 ```
-quart
-quart-cors
-hypercorn
-python-dotenv
-langchain-mcp-adapters
-google-generativeai
++-----------+      +-------------------------+      +------------------+      +--------------------+      +------------------+
+|           |      |                         |      |                  |      |                    |      |                  |
+| End User  | <--> |  Frontend (index.html)  | <--> | Backend (Python) | <--> | Google Gemini LLM  | <--> | Teradata MCP     |
+|           |      |     (HTML, JS, CSS)     |      |   (Quart Server) |      | (Reasoning Engine) |      | Server (Tools)   |
+|           |      |                         |      |                  |      |                    |      |                  |
++-----------+      +-------------------------+      +------------------+      +--------------------+      +------------------+
 ```
 
-### 4.3. External Dependencies
+1.  **Frontend (`index.html`):** A single-page application built with HTML, Tailwind CSS, and vanilla JavaScript. It captures user input and uses Server-Sent Events (SSE) to receive real-time updates from the backend, creating a dynamic and responsive experience.
+2.  **Backend (`mcp_web_client.py`):** A powerful asynchronous web server built with **Quart**. It serves the frontend, manages user sessions, and orchestrates the entire AI workflow.
+3.  **LLM (Google Gemini):** The reasoning engine of the agent. The backend sends structured prompts (including conversation history and available tools) to the Gemini API, which decides the next best action.
+4.  **Teradata MCP Server:** The bridge to the database. It exposes database functionalities (like listing tables, describing columns, checking data quality) as a secure, well-defined API of "tools" that the AI agent can call.
 
-* **MCP Server**: A running instance of the MCP server is required. The client is configured via the `.env` file to connect to the server.
-* **Google Gemini API Key**: The application requires a valid API key for the Gemini LLM, which must be set as a shell environment variable.
-* **Web Browser**: A modern web browser that supports Server-Sent Events (e.g., Chrome, Firefox, Safari, Edge).
+## Key Features
 
-## 5. Usage
+* **Intuitive Conversational UI:** Ask questions in plain English to query and analyze your database.
+* **Complete Transparency:** The **Live Status** panel provides a real-time, step-by-step stream of the agent's thought process, tool selections, and API results.
+* **Dynamic Capability Loading:** Automatically discovers and displays all available **Tools**, **Prompts**, and **Resources** from the connected MCP Server.
+* **Rich Data Rendering:** Intelligently formats and displays various data types, including query results in interactive tables and SQL DDL in highlighted code blocks.
+* **Persistent Session History:** Keeps a record of your conversations, allowing you to switch between different lines of inquiry.
+* **Interactive Workspace:** Features collapsible side and top panels to customize your view and focus on what matters.
+* **Easy Configuration:** A simple startup modal allows you to configure the connection to your MCP Server.
 
-1.  **Clone the Repository**:
+## Installation and Setup Guide
+
+Follow these instructions to get the Trusted Data Agent running on your local machine.
+
+### Prerequisites
+
+Before you begin, ensure you have the following:
+
+* **Python 3.8+** and `pip`.
+* Access to a running **Teradata MCP Server**. You will need its host, port, and path.
+* A **Google Gemini API Key**. You can obtain one from the [Google AI Studio](https://aistudio.google.com/app/apikey).
+
+### Step 1: Clone the Repository
+
+The Trusted Data Agent is available on GitHub. Clone the repository to your local machine:
+
+```bash
+git clone [https://github.com/rgeissen/teradata-trusted-data-agent.git](https://github.com/rgeissen/teradata-trusted-data-agent.git)
+cd teradata-trusted-data-agent
+```
+
+### Step 2: Set Up Dependencies
+
+It is highly recommended to use a Python virtual environment to manage dependencies. This project includes a `requirements.txt` file to simplify the process.
+
+1.  **Create and activate a virtual environment:**
     ```bash
-    git clone <your-repo-url>
-    cd <your-repo-directory>
+    # For macOS/Linux
+    python3 -m venv venv
+    source venv/bin/activate
+
+    # For Windows
+    python -m venv venv
+    .\venv\Scripts\activate
     ```
 
-2.  **Install Dependencies**:
+2.  **Install the required packages from `requirements.txt`:**
     ```bash
     pip install -r requirements.txt
     ```
 
-3.  **Set Environment Variable**: Set your Gemini API key as a shell environment variable. This is more secure than saving it in a file.
+### Step 3: Configure API Key
 
-    *On macOS/Linux:*
-    ```bash
-    export GEMINI_API_KEY="YOUR_API_KEY_HERE"
+The application loads your Gemini API key from a `.env` file for security.
+
+1.  Create a file named `.env` in the root of the project directory.
+2.  Add your API key to this file:
     ```
-    *On Windows (Command Prompt):*
-    ```powershell
-    set GEMINI_API_KEY="YOUR_API_KEY_HERE"
+    GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
     ```
-    *On Windows (PowerShell):*
-    ```powershell
-    $env:GEMINI_API_KEY="YOUR_API_KEY_HERE"
-    ```
+    Replace `YOUR_GEMINI_API_KEY_HERE` with your actual key.
 
-4.  **Configure MCP Server**: Ensure you have a `.env` file with the correct connection details for your MCP server.
+## Running the Application
 
-5.  **Start the MCP Server**: Ensure your MCP server instance is running and accessible. The client will connect to the URL configured in your `.env` file (`http://<MCP_HOST>:<MCP_PORT><MCP_PATH>`).
+With the setup complete, you can now start the backend server.
 
-    For the `streamable-http` transport protocol to work, the MCP server must also be started with the correct settings. You can do this by setting the environment variables before running the server.
-
-    *Example on macOS/Linux:*
-    ```bash
-    export MCP_PORT=8001
-    export MCP_TRANSPORT=streamable-http
-    uv run teradata-mcp-server
-    ```
-
-6.  **Run the Web Client**: Execute the main Python script from your terminal:
+1.  **Run the Python script:**
     ```bash
     python mcp_web_client.py
     ```
 
-7.  **Access the UI**: Once the server starts, you will see a message like:
-    ```
-    --- Starting Hypercorn Server for Quart App ---
-    Web client initialized and ready. Navigate to [http://127.0.0.1:5000](http://127.0.0.1:5000)
-    ```
-    Open your web browser and navigate to `http://127.0.0.1:5000` to begin using the application.
+2.  **Access the UI:**
+    Once the server is running, you will see a confirmation in your terminal. Open your web browser and navigate to:
+    [http://127.0.0.1:5000](http://127.0.0.1:5000)
 
-## 6. API Endpoints
+## User Guide
 
-The Quart web server exposes the following RESTful API endpoints:
+### First-Time Setup: Connecting to MCP
 
-* **`GET /`**:
-    * **Description**: Serves the main `index.html` chat interface.
-* **`GET /tools`**:
-    * **Description**: Returns a categorized JSON object of all tools loaded from the MCP server.
-* **`GET /prompts`**:
-    * **Description**: Returns a categorized JSON object of all prompts loaded from the MCP server.
-* **`GET /resources`**:
-    * **Description**: Returns a categorized JSON object of all resources loaded from the MCP server.
-* **`POST /session`**:
-    * **Description**: Creates a new, unique chat session with the LLM.
-* **`POST /ask_stream`**:
-    * **Description**: The main endpoint for processing a user's natural language request.
-* **`POST /invoke_prompt_stream`**:
-    * **Description**: Executes a pre-defined prompt with arguments and streams the results.
+The first time you launch the application, a configuration modal will appear.
+1.  **Host:** Enter the IP address or hostname of your MCP Server (e.g., `127.0.0.1`).
+2.  **Port:** Enter the port the MCP Server is running on (e.g., `8001`).
+3.  **Path:** Enter the base path for the MCP API (e.g., `/mcp/`).
+4.  Click **"Load and Test Connection"**. The application will attempt to connect and load the available capabilities. If successful, the modal will close, and the chat input will become active.
 
-## 7. Project Structure
+### Navigating the Interface
 
-```
-.
-├── .env                    # Environment variables file for MCP server
-├── mcp_web_client.py       # Main Quart application file
-├── templates/
-│   └── index.html          # Frontend HTML, CSS, and JavaScript
-└── requirements.txt        # Python dependencies
-```
+The UI is divided into several key areas:
+* **Capabilities Panel (Top):** Browse available Tools, Prompts, and Resources. Clicking on a prompt allows you to run it directly with arguments.
+* **Chat Window (Center):** The main area for your conversation with the agent.
+* **Live Status Panel (Right):** A real-time log of the agent's internal state and actions. This is crucial for understanding *how* the agent arrives at its answers.
+* **History Panel (Left):** A list of your past and current conversations. Click "New Chat" to start a fresh session.
+
+### Starting a Conversation
+
+Simply type your question into the input box at the bottom and press Enter. Try starting with simple requests and gradually increase complexity.
+
+**Example Prompts:**
+* *"List all tables in the `DEMO_Customer360_db` database."*
+* *"What is the business description for the `equipment` table?"*
+* *"Show me a preview of that table."*
+* *"Now, can you check the data quality for the `equipment_id` column?"*
+
+## Troubleshooting
+
+* **Connection Error on Startup:** If the configuration modal shows an error, double-check that your MCP Server is running and that the Host, Port, and Path are correct. Check for firewall issues that might be blocking the connection.
+* **LLM Errors:** If you see errors related to the language model, ensure your `.env` file is correctly formatted and contains a valid Gemini API key.
+* **"No Tools Available":** This indicates the backend connected to the MCP Server, but the server itself reported having no available tools. Check your MCP Server configuration.
+
+## Author & Contributions
+
+* **Author/Initiator:** Rainer Geissendoerfer, World Wide Data Architecture, Teradata.
+* **Source Code & Contributions:** The Trusted Data Agent is open source, and contributions are highly welcome. Please visit the main Git repository to report issues or submit pull requests.
+    * **Git Repository:** [https://github.com/rgeissen/teradata-trusted-data-agent.git](https://github.com/rgeissen/teradata-trusted-data-agent.git)

@@ -271,6 +271,7 @@
 </head>
 <body class="flex h-screen flex-col">
 
+    <!-- Top Navigation Bar -->
     <nav class="w-full bg-black/30 backdrop-blur-md border-b border-white/10 px-4 py-2 flex items-center justify-between flex-shrink-0 z-40">
         <div class="flex items-center gap-x-4">
             <h1 class="header-title text-xl font-bold text-white">Trusted Data Agent</h1>
@@ -302,7 +303,9 @@
         </div>
     </nav>
 
+    <!-- Main Content Area -->
     <div class="flex flex-1 min-h-0">
+        <!-- Session History Panel (Left) -->
         <aside id="session-history-panel" class="w-1/4 max-w-xs h-full flex flex-col glass-panel rounded-r-2xl shadow-2xl border-r border-white/10 collapsed">
             <header class="p-4 border-b border-white/10 flex justify-between items-center flex-shrink-0">
                 <h2 class="header-title text-lg font-bold text-white">History</h2>
@@ -315,7 +318,9 @@
             </div>
         </aside>
 
+        <!-- Center Content: Chat and Header -->
         <div id="main-content" class="flex flex-col h-full flex-1 min-w-0 relative">
+             <!-- MODIFICATION: Reverted button container to original layout -->
              <div id="top-buttons-container" class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-30 pointer-events-none">
                 <button id="toggle-history-button" title="Toggle History Panel" class="p-2 rounded-full bg-gray-800/50 hover:bg-teradata-orange transition-colors pointer-events-auto">
                     <svg id="history-expand-icon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -343,7 +348,9 @@
                 </button>
             </div>
 
-            <header id="tool-header" class="relative bg-[#262626] rounded-b-2xl shadow-2xl z-20 flex flex-col flex-shrink-0 border-b border-white/10 collapsed">
+            <!-- Capabilities Header Panel -->
+            <!-- MODIFICATION: Added pt-16 to create space for the buttons above -->
+            <header id="tool-header" class="relative bg-[#262626] rounded-b-2xl shadow-2xl z-20 flex flex-col flex-shrink-0 border-b border-white/10 pt-16">
                 <nav id="resource-tabs" class="flex justify-center items-center gap-x-4 p-3 border-b border-white/10">
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white active" data-type="tools">Tools</button>
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="prompts">Prompts</button>
@@ -365,11 +372,13 @@
                 </div>
             </header>
 
+            <!-- Chat Container -->
             <div class="flex-1 flex flex-col min-h-0">
-                 <main id="chat-container" class="flex-1 overflow-y-auto p-6 pt-16">
+                 <main id="chat-container" class="flex-1 overflow-y-auto p-6">
                     <div id="chat-log" class="max-w-4xl mx-auto space-y-8"></div>
                 </main>
 
+                <!-- Chat Input Footer -->
                 <footer class="p-4">
                     <div class="max-w-4xl mx-auto">
                         <form id="chat-form" class="flex items-center gap-3 glass-panel rounded-xl p-2">
@@ -388,7 +397,8 @@
             </div>
         </div>
 
-        <aside id="status-window" class="w-1/3 max-w-md h-full flex flex-col glass-panel rounded-l-2xl shadow-2xl border-l border-white/10 collapsed">
+        <!-- Live Status Panel (Right) -->
+        <aside id="status-window" class="w-1/3 max-w-md h-full flex flex-col glass-panel rounded-l-2xl shadow-2xl border-l border-white/10">
             <header class="p-4 border-b border-white/10 flex justify-center items-center">
                 <h2 id="status-title" class="header-title text-lg font-bold text-white">Live Status</h2>
             </header>
@@ -402,6 +412,7 @@
     <div id="info-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="info-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 class="text-xl font-bold mb-4 header-title">About This Project</h3>
+            <!-- UPDATED CONTENT START -->
             <div class="text-gray-300 space-y-4 text-sm">
                 <div>
                     <h4 class="font-semibold text-white mb-1">Overview</h4>
@@ -409,15 +420,16 @@
                 </div>
                 <div>
                     <h4 class="font-semibold text-white mb-1">Source Code & Contributions</h4>
-                    <p>The project currently resides as a subdirectory of the general Teradata MCP Server Engagement (main git project). It is open source and contributions are welcome. Please visit the main git project to report issues or submit pull requests. You will find the Trusted Data Agent as a subfolder in the `test` directory of the main git project.</p>
-                    <p class="mt-2"><strong>Git Repository:</strong> <a href="https://github.com/Teradata/teradata-mcp-server" target="_blank" class="text-teradata-orange hover:underline">https://github.com/Teradata/teradata-mcp-server</a></p>
+                    <p>The Trusted Data Agent is open source and contributions are welcome. Please visit the main git project to report issues or submit pull requests.</p>
+                    <p class="mt-2"><strong>Git Repository:</strong> <a href="https://github.com/rgeissen/teradata-trusted-data-agent.git" target="_blank" class="text-teradata-orange hover:underline">https://github.com/rgeissen/teradata-trusted-data-agent.git</a></p>
                 </div>
                 <hr class="border-white/10 my-4">
                 <div>
-                    <p class="text-xs text-gray-400">Trusted Data Client Author/Initiator</p>
+                    <p class="text-xs text-gray-400">Trusted Data Agent Author/Initiator</p>
                     <p class="font-semibold text-white">Rainer Geissendoerfer, World Wide Data Architecture, Teradata</p>
                 </div>
             </div>
+            <!-- UPDATED CONTENT END -->
             <div class="flex justify-end mt-6">
                 <button id="info-modal-close" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Close</button>
             </div>
@@ -455,6 +467,7 @@
         </div>
     </div>
 
+    <!-- Prompt Modal -->
     <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="prompt-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 id="prompt-modal-title" class="text-xl font-bold mb-4"></h3>
@@ -468,6 +481,7 @@
         </div>
     </div>
 
+    <!-- JavaScript Logic -->
     <script>
         // All JavaScript logic is now included and corrected
         const chatLog = document.getElementById('chat-log');
@@ -1141,4 +1155,4 @@
         });
     </script>
 </body>
-</html>
+</ht
