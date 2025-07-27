@@ -1358,6 +1358,12 @@
                     chartStatusDot.classList.add('connected');
                     await loadResources('charts');
                     
+                    // --- FIX START: Refresh all other resource tabs after connecting chart server ---
+                    await loadResources('tools');
+                    await loadResources('prompts');
+                    await loadResources('resources');
+                    // --- FIX END ---
+                    
                     // After connecting chart server, potentially update system prompt
                     await handleIntensityChange();
 

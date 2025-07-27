@@ -851,7 +851,6 @@ def classify_prompt_scopes(prompts: list) -> dict:
     return scopes
 
 
-# --- MODIFICATION START: Replaced the entire function with the logic from the working file ---
 async def load_and_categorize_teradata_resources():
     global tools_context, structured_tools, structured_prompts, prompts_context, mcp_tools, mcp_prompts, tool_scopes, structured_resources
     
@@ -867,6 +866,8 @@ async def load_and_categorize_teradata_resources():
         tool_scopes = classify_tool_scopes(loaded_tools)
         tools_context = "--- Available Tools ---\n" + "\n".join([f"- `{tool.name}`: {tool.description}" for tool in loaded_tools])
         
+        app.logger.info(f"[DEBUG] Loaded {len(loaded_tools)} tools from Teradata MCP Server.")
+        
         # Categorize Tools for UI
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
         categorization_prompt = (
@@ -876,6 +877,7 @@ async def load_and_categorize_teradata_resources():
             f"--- Tool List ---\n{tool_list_for_prompt}"
         )
         categorized_tools_str = await call_llm_api(categorization_prompt)
+        app.logger.info(f"[DEBUG] LLM Tool Categorization Raw Response:\n{categorized_tools_str}")
         try:
             cleaned_str = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL).group(0)
             categorized_tools = json.loads(cleaned_str)
@@ -884,33 +886,22 @@ async def load_and_categorize_teradata_resources():
             app.logger.warning(f"Could not categorize tools for UI. Falling back. Error: {e}")
             structured_tools = {"All Tools": [{"name": tool.name, "description": tool.description} for tool in loaded_tools]}
 
-        # Load Resources
-        loaded_resources = await load_mcp_resources(temp_session)
-        if loaded_resources:
-            mcp_resources = {res.name: res for res in loaded_resources}
-            resource_list_for_prompt = "\n".join([f"- {res.name}: {res.description}" for res in loaded_resources])
-            categorization_prompt_for_resources = (
-                "You are a helpful assistant that organizes a list of Teradata database resources (like databases or tables) into logical categories. "
-                "Your response MUST be a single, valid JSON object.\n\n"
-                f"--- Resource List ---\n{resource_list_for_prompt}"
-            )
-            categorized_resources_str = await call_llm_api(categorization_prompt_for_resources)
-            try:
-                cleaned_str = re.search(r'\{.*\}', categorized_resources_str, re.DOTALL).group(0)
-                categorized_resources = json.loads(cleaned_str)
-                structured_resources = {category: [{"name": name, "description": mcp_resources[name].description} for name in res_names if name in mcp_resources] for category, res_names in categorized_resources.items()}
-            except Exception as e:
-                app.logger.warning(f"Could not categorize resources. Falling back. Error: {e}")
-                structured_resources = {"All Resources": [{"name": res.name, "description": res.description} for res in loaded_resources]}
-
         # Load and Process Prompts
         loaded_prompts = []
         try:
+            app.logger.info("[DEBUG] >>> Attempting to call temp_session.list_prompts()")
             list_prompts_result = await temp_session.list_prompts()
-            loaded_prompts = list_prompts_result.prompts
-            app.logger.info(f"Successfully loaded {len(loaded_prompts)} prompts.")
+            app.logger.info(f"[DEBUG] >>> temp_session.list_prompts() returned object of type: {type(list_prompts_result)}")
+            app.logger.info(f"[DEBUG] >>> Full return object: {list_prompts_result}")
+            
+            if hasattr(list_prompts_result, 'prompts'):
+                loaded_prompts = list_prompts_result.prompts
+                app.logger.info(f"[DEBUG] >>> Extracted .prompts attribute. Count: {len(loaded_prompts)}")
+            else:
+                app.logger.warning("[DEBUG] >>> The result from list_prompts() does NOT have a .prompts attribute.")
+
         except Exception as e:
-            app.logger.warning(f"WARNING: Could not load prompts from MCP server. Error: {e}")
+            app.logger.error(f"CRITICAL ERROR while loading prompts: {e}", exc_info=True)
 
         if loaded_prompts:
             mcp_prompts = {prompt.name: prompt for prompt in loaded_prompts}
@@ -926,6 +917,7 @@ async def load_and_categorize_teradata_resources():
                 f"--- Prompt List ---\n{prompt_list_for_prompt}"
             )
             categorized_prompts_str = await call_llm_api(categorization_prompt_for_prompts)
+            app.logger.info(f"[DEBUG] LLM Prompt Categorization Raw Response:\n{categorized_prompts_str}")
             try:
                 cleaned_str = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL).group(0)
                 categorized_prompts = json.loads(cleaned_str)
@@ -936,7 +928,6 @@ async def load_and_categorize_teradata_resources():
         else:
             prompts_context = "--- No Prompts Available ---"
             structured_prompts = {}
-# --- MODIFICATION END ---
 
 
 async def load_and_categorize_chart_resources():
@@ -946,9 +937,11 @@ async def load_and_categorize_chart_resources():
 
     async with mcp_client.session("chart_mcp_server") as temp_session:
         app.logger.info("--- Loading Chart tools... ---")
+        
         loaded_charts = await load_mcp_tools(temp_session)
-        # Add diagnostic logging
-        app.logger.info(f"Found {len(loaded_charts)} chart tools from the chart server.")
+        
+        app.logger.info(f"[DEBUG] Loaded {len(loaded_charts)} charts from Chart MCP Server.")
+
         if not loaded_charts:
             app.logger.warning("The chart server returned 0 tools. Please ensure it is configured correctly.")
 
@@ -966,6 +959,7 @@ async def load_and_categorize_chart_resources():
             f"--- Chart Tool List ---\n{chart_list_for_prompt}"
         )
         categorized_charts_str = await call_llm_api(categorization_prompt)
+        app.logger.info(f"[DEBUG] LLM Chart Categorization Raw Response:\n{categorized_charts_str}")
         try:
             cleaned_str = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL).group(0)
             categorized_charts = json.loads(cleaned_str)
@@ -973,6 +967,7 @@ async def load_and_categorize_chart_resources():
         except Exception as e:
             app.logger.warning(f"Could not categorize charts for UI. Error: {e}")
             structured_charts = {"All Charts": [{"name": tool.name, "description": tool.description} for tool in loaded_charts]}
+
 
 @app.route("/system_prompt/<model_name>", methods=["GET"])
 async def get_default_system_prompt(model_name):
@@ -1060,6 +1055,13 @@ async def main():
     if os.path.exists(LOG_DIR): shutil.rmtree(LOG_DIR)
     os.makedirs(LOG_DIR)
 
+    # --- FIX START: Configure the app's logger to print to the console ---
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    app.logger.addHandler(handler)
+    app.logger.setLevel(logging.INFO)
+    # --- FIX END ---
+
     llm_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversations.log"))
     llm_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
     llm_logger = logging.getLogger("llm_conversation")
@@ -1086,6 +1088,7 @@ if __name__ == "__main__":
 
     if args.unlock_models:
         APP_CONFIG.MODELS_UNLOCKED = True
+        # --- FIX: Corrected the unterminated string literal ---
         print("\n--- DEVELOPMENT MODE: All models will be selectable. ---")
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
