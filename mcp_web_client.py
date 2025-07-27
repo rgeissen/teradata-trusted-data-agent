@@ -851,22 +851,23 @@ def classify_prompt_scopes(prompts: list) -> dict:
     return scopes
 
 
+# --- MODIFICATION START: Replaced the entire function with the logic from the working file ---
 async def load_and_categorize_teradata_resources():
-    # --- MODIFICATION START: Added 'structured_resources' to global declaration ---
-    global tools_context, structured_tools, structured_prompts, structured_resources, prompts_context, mcp_tools, mcp_prompts, tool_scopes
-    # --- MODIFICATION END ---
+    global tools_context, structured_tools, structured_prompts, prompts_context, mcp_tools, mcp_prompts, tool_scopes, structured_resources
     
     if not mcp_client:
         raise Exception("MCP Client not initialized.")
 
     async with mcp_client.session("teradata_mcp_server") as temp_session:
-        app.logger.info("--- Loading Teradata tools and prompts... ---")
+        app.logger.info("--- Loading Teradata tools, prompts, and resources... ---")
         
+        # Load Tools
         loaded_tools = await load_mcp_tools(temp_session)
         mcp_tools = {tool.name: tool for tool in loaded_tools}
         tool_scopes = classify_tool_scopes(loaded_tools)
         tools_context = "--- Available Tools ---\n" + "\n".join([f"- `{tool.name}`: {tool.description}" for tool in loaded_tools])
-
+        
+        # Categorize Tools for UI
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
         categorization_prompt = (
             "You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. "
@@ -874,17 +875,16 @@ async def load_and_categorize_teradata_resources():
             "and the values should be an array of tool names belonging to that category.\n\n"
             f"--- Tool List ---\n{tool_list_for_prompt}"
         )
-        
         categorized_tools_str = await call_llm_api(categorization_prompt)
         try:
             cleaned_str = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL).group(0)
             categorized_tools = json.loads(cleaned_str)
             structured_tools = {category: [{"name": name, "description": mcp_tools[name].description} for name in tool_names if name in mcp_tools] for category, tool_names in categorized_tools.items()}
         except Exception as e:
-            app.logger.warning(f"Could not categorize tools for UI. Error: {e}")
+            app.logger.warning(f"Could not categorize tools for UI. Falling back. Error: {e}")
             structured_tools = {"All Tools": [{"name": tool.name, "description": tool.description} for tool in loaded_tools]}
-        
-        # --- MODIFICATION START: Added logic to load and categorize 'Resources' ---
+
+        # Load Resources
         loaded_resources = await load_mcp_resources(temp_session)
         if loaded_resources:
             mcp_resources = {res.name: res for res in loaded_resources}
@@ -900,48 +900,44 @@ async def load_and_categorize_teradata_resources():
                 categorized_resources = json.loads(cleaned_str)
                 structured_resources = {category: [{"name": name, "description": mcp_resources[name].description} for name in res_names if name in mcp_resources] for category, res_names in categorized_resources.items()}
             except Exception as e:
-                app.logger.warning(f"Could not categorize resources. Error: {e}")
+                app.logger.warning(f"Could not categorize resources. Falling back. Error: {e}")
                 structured_resources = {"All Resources": [{"name": res.name, "description": res.description} for res in loaded_resources]}
-        # --- MODIFICATION END ---
 
+        # Load and Process Prompts
         loaded_prompts = []
         try:
-            # FIX: Revert to using the correct list_prompts() method
             list_prompts_result = await temp_session.list_prompts()
             loaded_prompts = list_prompts_result.prompts
-            if loaded_prompts:
-                mcp_prompts = {prompt.name: prompt for prompt in loaded_prompts}
-                prompts_context = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description}" for p in loaded_prompts])
-                app.logger.info(f"Successfully loaded {len(loaded_prompts)} prompts.")
-            else:
-                app.logger.warning("Prompt loading from Teradata server returned an empty list.")
-                prompts_context = "--- No Prompts Available ---"
+            app.logger.info(f"Successfully loaded {len(loaded_prompts)} prompts.")
         except Exception as e:
-            app.logger.error(f"CRITICAL: Could not load prompts from Teradata MCP server. Error: {e}", exc_info=True)
-            prompts_context = "--- No Prompts Available ---"
+            app.logger.warning(f"WARNING: Could not load prompts from MCP server. Error: {e}")
 
         if loaded_prompts:
+            mcp_prompts = {prompt.name: prompt for prompt in loaded_prompts}
+            prompts_context = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description}" for p in loaded_prompts])
+            
+            # Categorize Prompts for UI
             serializable_prompts = [{"name": p.name, "description": p.description, "arguments": [arg.model_dump() for arg in p.arguments]} for p in loaded_prompts]
             prompt_list_for_prompt = "\n".join([f"- {p['name']}: {p['description']}" for p in serializable_prompts])
             categorization_prompt_for_prompts = (
                 "You are a helpful assistant that organizes lists of technical prompts for a **Teradata database system** into logical categories for a user interface. "
-                "Your response MUST be a single, valid JSON object.\n\n"
+                "Your response MUST be a single, valid JSON object. The keys should be the category names, "
+                "and the values should be an array of prompt names belonging to that category.\n\n"
                 f"--- Prompt List ---\n{prompt_list_for_prompt}"
             )
             categorized_prompts_str = await call_llm_api(categorization_prompt_for_prompts)
             try:
                 cleaned_str = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL).group(0)
                 categorized_prompts = json.loads(cleaned_str)
-                # --- MODIFICATION START: Added check for empty JSON from LLM ---
-                if not categorized_prompts:
-                    raise ValueError("LLM returned an empty JSON object for prompt categorization.")
-                # --- MODIFICATION END ---
                 structured_prompts = {category: [p for p in serializable_prompts if p['name'] in prompt_names] for category, prompt_names in categorized_prompts.items()}
             except Exception as e:
-                # --- MODIFICATION START: Improved logging message ---
-                app.logger.warning(f"Could not categorize prompts, falling back to a single category. Error: {e}")
-                # --- MODIFICATION END ---
-                structured_prompts = { "All Prompts": serializable_prompts }
+                app.logger.warning(f"Could not categorize prompts. Falling back. Error: {e}")
+                structured_prompts = {"All Prompts": serializable_prompts}
+        else:
+            prompts_context = "--- No Prompts Available ---"
+            structured_prompts = {}
+# --- MODIFICATION END ---
+
 
 async def load_and_categorize_chart_resources():
     global charts_context, structured_charts, mcp_charts
