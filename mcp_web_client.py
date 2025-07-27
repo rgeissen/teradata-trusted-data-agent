@@ -341,10 +341,10 @@ async def invoke_mcp_tool(command: dict) -> any:
                 if 'db_name' in args: del args["db_name"]
     
     try:
-        app.logger.info(f"Creating temporary session on '{server_name}' to invoke tool '{tool_name}'")
+        app.logger.debug(f"Creating temporary session on '{server_name}' to invoke tool '{tool_name}'")
         async with mcp_client.session(server_name) as temp_session:
             call_tool_result = await temp_session.call_tool(tool_name, args)
-            app.logger.info(f"Successfully invoked tool '{tool_name}'. Raw response: {call_tool_result}")
+            app.logger.debug(f"Successfully invoked tool '{tool_name}'. Raw response: {call_tool_result}")
             
             if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
                 text_content = call_tool_result.content[0]
