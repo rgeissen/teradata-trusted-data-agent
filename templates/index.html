@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trusted Data Agent</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Added G2Plot library for charting -->
     <script src="https://unpkg.com/@antv/g2plot@latest/dist/g2plot.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap');
@@ -301,13 +300,11 @@
 </head>
 <body class="flex h-screen flex-col">
 
-    <!-- Top Navigation Bar -->
     <nav class="w-full bg-black/30 backdrop-blur-md border-b border-white/10 px-4 py-2 flex items-center justify-between flex-shrink-0 z-40">
         <div class="flex items-center gap-x-4">
             <h1 class="header-title text-xl font-bold text-white">Trusted Data Agent</h1>
         </div>
         <div class="flex items-center gap-x-4">
-            <!-- Connection Status Dots -->
             <div class="flex items-center gap-x-2" title="Teradata MCP Server Status">
                 <div id="teradata-status-dot" class="connection-dot disconnected"></div>
                 <span class="text-sm text-gray-300">Teradata</span>
@@ -346,9 +343,7 @@
         </div>
     </nav>
 
-    <!-- Main Content Area -->
     <div class="flex flex-1 min-h-0">
-        <!-- Session History Panel (Left) -->
         <aside id="session-history-panel" class="w-1/4 max-w-xs h-full flex flex-col glass-panel rounded-r-2xl shadow-2xl border-r border-white/10 collapsed">
             <header class="p-4 border-b border-white/10 flex justify-between items-center flex-shrink-0">
                 <h2 class="header-title text-lg font-bold text-white">History</h2>
@@ -357,11 +352,9 @@
                 </button>
             </header>
             <div id="session-list" class="flex-1 p-2 overflow-y-auto space-y-2">
-                <!-- Session items will be dynamically inserted here -->
-            </div>
+                </div>
         </aside>
 
-        <!-- Center Content: Chat and Header -->
         <div id="main-content" class="flex flex-col h-full flex-1 min-w-0 relative">
              <div id="top-buttons-container" class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-30 pointer-events-none">
                 <button id="toggle-history-button" title="Toggle History Panel" class="p-2 rounded-full bg-gray-800/50 hover:bg-teradata-orange transition-colors pointer-events-auto">
@@ -390,7 +383,6 @@
                 </button>
             </div>
 
-            <!-- Capabilities Header Panel -->
             <header id="tool-header" class="relative bg-[#262626] rounded-b-2xl shadow-2xl z-20 flex flex-col flex-shrink-0 border-b border-white/10 pt-16">
                 <nav id="resource-tabs" class="flex justify-center items-center gap-x-4 p-3 border-b border-white/10">
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white active" data-type="tools">Tools</button>
@@ -418,13 +410,11 @@
                 </div>
             </header>
 
-            <!-- Chat Container -->
             <div class="flex-1 flex flex-col min-h-0">
                  <main id="chat-container" class="flex-1 overflow-y-auto p-6">
                     <div id="chat-log" class="max-w-4xl mx-auto space-y-8"></div>
                 </main>
 
-                <!-- Chat Input Footer -->
                 <footer class="p-4">
                     <div class="max-w-4xl mx-auto">
                         <form id="chat-form" class="flex items-center gap-3 glass-panel rounded-xl p-2">
@@ -443,7 +433,6 @@
             </div>
         </div>
 
-        <!-- Live Status Panel (Right) -->
         <aside id="status-window" class="w-1/3 max-w-md h-full flex flex-col glass-panel rounded-l-2xl shadow-2xl border-l border-white/10">
             <header class="p-4 border-b border-white/10 flex justify-center items-center">
                 <h2 id="status-title" class="header-title text-lg font-bold text-white">Live Status</h2>
@@ -454,7 +443,6 @@
         </aside>
     </div>
 
-    <!-- Info Modal -->
     <div id="info-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="info-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 class="text-xl font-bold mb-4 header-title">About This Project</h3>
@@ -480,7 +468,6 @@
         </div>
     </div>
 
-    <!-- Config Modal -->
     <div id="config-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-6xl p-8 transform scale-95 opacity-0">
             <div class="flex justify-between items-center mb-6">
@@ -494,7 +481,6 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-                <!-- Card 1: Core Services (Teradata & LLM) -->
                 <div class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
                     <div class="flex-grow">
                         <div class="flex items-center mb-4">
@@ -554,7 +540,6 @@
                     </div>
                 </div>
 
-                <!-- Card 2: Charting Engine -->
                 <div id="charting-engine-card" class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
                     <fieldset id="charting-fieldset">
                         <div class="flex-grow">
@@ -602,7 +587,6 @@
         </div>
     </div>
 
-    <!-- System Prompt Editor Modal -->
     <div id="prompt-editor-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="prompt-editor-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-3xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
             <div class="flex justify-between items-center mb-4">
@@ -620,7 +604,6 @@
         </div>
     </div>
     
-    <!-- Generic Confirmation Modal -->
     <div id="confirm-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="confirm-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 id="confirm-modal-title" class="text-xl font-bold mb-4">Confirm Action</h3>
@@ -633,7 +616,6 @@
     </div>
 
 
-    <!-- Prompt Modal -->
     <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="prompt-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 id="prompt-modal-title" class="text-xl font-bold mb-4"></h3>
@@ -647,7 +629,6 @@
         </div>
     </div>
 
-    <!-- JavaScript Logic -->
     <script>
         // --- START: FULLY RESTORED AND ENHANCED JAVASCRIPT ---
         const chatLog = document.getElementById('chat-log');
@@ -1322,15 +1303,17 @@
             }
         });
 
+        function closeConfigModal() {
+            configModalOverlay.classList.add('opacity-0');
+            configModalContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => configModalOverlay.classList.add('hidden'), 300);
+        }
+
         configMenuButton.addEventListener('click', () => {
             configModalOverlay.classList.remove('hidden', 'opacity-0');
             configModalContent.classList.remove('scale-95', 'opacity-0');
         });
-        configModalClose.addEventListener('click', () => {
-            configModalOverlay.classList.add('opacity-0');
-            configModalContent.classList.add('scale-95', 'opacity-0');
-            setTimeout(() => configModalOverlay.classList.add('hidden'), 300);
-        });
+        configModalClose.addEventListener('click', closeConfigModal);
         
         configForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -1379,7 +1362,7 @@
                     loadAllSessions();
 
                     if (chartingFieldset.disabled) {
-                        setTimeout(configModalClose, 1000);
+                        setTimeout(closeConfigModal, 1000);
                     }
                 } else {
                     throw new Error(result.message || 'Configuration failed.');
@@ -1425,7 +1408,7 @@
                     await loadResources('resources');
                     
                     await handleIntensityChange();
-                    setTimeout(configModalClose, 1000);
+                    setTimeout(closeConfigModal, 1000);
 
                 } else {
                     throw new Error(result.message || 'Chart server configuration failed.');
