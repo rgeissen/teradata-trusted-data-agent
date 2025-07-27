@@ -852,7 +852,9 @@ def classify_prompt_scopes(prompts: list) -> dict:
 
 
 async def load_and_categorize_teradata_resources():
-    global tools_context, structured_tools, structured_prompts, prompts_context, mcp_tools, mcp_prompts, tool_scopes
+    # --- MODIFICATION START: Added 'structured_resources' to global declaration ---
+    global tools_context, structured_tools, structured_prompts, structured_resources, prompts_context, mcp_tools, mcp_prompts, tool_scopes
+    # --- MODIFICATION END ---
     
     if not mcp_client:
         raise Exception("MCP Client not initialized.")
@@ -864,22 +866,6 @@ async def load_and_categorize_teradata_resources():
         mcp_tools = {tool.name: tool for tool in loaded_tools}
         tool_scopes = classify_tool_scopes(loaded_tools)
         tools_context = "--- Available Tools ---\n" + "\n".join([f"- `{tool.name}`: {tool.description}" for tool in loaded_tools])
-
-        loaded_prompts = []
-        try:
-            # FIX: Revert to using the correct list_prompts() method
-            list_prompts_result = await temp_session.list_prompts()
-            loaded_prompts = list_prompts_result.prompts
-            if loaded_prompts:
-                mcp_prompts = {prompt.name: prompt for prompt in loaded_prompts}
-                prompts_context = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description}" for p in loaded_prompts])
-                app.logger.info(f"Successfully loaded {len(loaded_prompts)} prompts.")
-            else:
-                app.logger.warning("Prompt loading from Teradata server returned an empty list.")
-                prompts_context = "--- No Prompts Available ---"
-        except Exception as e:
-            app.logger.error(f"CRITICAL: Could not load prompts from Teradata MCP server. Error: {e}", exc_info=True)
-            prompts_context = "--- No Prompts Available ---"
 
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
         categorization_prompt = (
@@ -898,6 +884,42 @@ async def load_and_categorize_teradata_resources():
             app.logger.warning(f"Could not categorize tools for UI. Error: {e}")
             structured_tools = {"All Tools": [{"name": tool.name, "description": tool.description} for tool in loaded_tools]}
         
+        # --- MODIFICATION START: Added logic to load and categorize 'Resources' ---
+        loaded_resources = await load_mcp_resources(temp_session)
+        if loaded_resources:
+            mcp_resources = {res.name: res for res in loaded_resources}
+            resource_list_for_prompt = "\n".join([f"- {res.name}: {res.description}" for res in loaded_resources])
+            categorization_prompt_for_resources = (
+                "You are a helpful assistant that organizes a list of Teradata database resources (like databases or tables) into logical categories. "
+                "Your response MUST be a single, valid JSON object.\n\n"
+                f"--- Resource List ---\n{resource_list_for_prompt}"
+            )
+            categorized_resources_str = await call_llm_api(categorization_prompt_for_resources)
+            try:
+                cleaned_str = re.search(r'\{.*\}', categorized_resources_str, re.DOTALL).group(0)
+                categorized_resources = json.loads(cleaned_str)
+                structured_resources = {category: [{"name": name, "description": mcp_resources[name].description} for name in res_names if name in mcp_resources] for category, res_names in categorized_resources.items()}
+            except Exception as e:
+                app.logger.warning(f"Could not categorize resources. Error: {e}")
+                structured_resources = {"All Resources": [{"name": res.name, "description": res.description} for res in loaded_resources]}
+        # --- MODIFICATION END ---
+
+        loaded_prompts = []
+        try:
+            # FIX: Revert to using the correct list_prompts() method
+            list_prompts_result = await temp_session.list_prompts()
+            loaded_prompts = list_prompts_result.prompts
+            if loaded_prompts:
+                mcp_prompts = {prompt.name: prompt for prompt in loaded_prompts}
+                prompts_context = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description}" for p in loaded_prompts])
+                app.logger.info(f"Successfully loaded {len(loaded_prompts)} prompts.")
+            else:
+                app.logger.warning("Prompt loading from Teradata server returned an empty list.")
+                prompts_context = "--- No Prompts Available ---"
+        except Exception as e:
+            app.logger.error(f"CRITICAL: Could not load prompts from Teradata MCP server. Error: {e}", exc_info=True)
+            prompts_context = "--- No Prompts Available ---"
+
         if loaded_prompts:
             serializable_prompts = [{"name": p.name, "description": p.description, "arguments": [arg.model_dump() for arg in p.arguments]} for p in loaded_prompts]
             prompt_list_for_prompt = "\n".join([f"- {p['name']}: {p['description']}" for p in serializable_prompts])
@@ -910,9 +932,15 @@ async def load_and_categorize_teradata_resources():
             try:
                 cleaned_str = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL).group(0)
                 categorized_prompts = json.loads(cleaned_str)
+                # --- MODIFICATION START: Added check for empty JSON from LLM ---
+                if not categorized_prompts:
+                    raise ValueError("LLM returned an empty JSON object for prompt categorization.")
+                # --- MODIFICATION END ---
                 structured_prompts = {category: [p for p in serializable_prompts if p['name'] in prompt_names] for category, prompt_names in categorized_prompts.items()}
             except Exception as e:
-                app.logger.warning(f"Could not categorize prompts. Error: {e}")
+                # --- MODIFICATION START: Improved logging message ---
+                app.logger.warning(f"Could not categorize prompts, falling back to a single category. Error: {e}")
+                # --- MODIFICATION END ---
                 structured_prompts = { "All Prompts": serializable_prompts }
 
 async def load_and_categorize_chart_resources():

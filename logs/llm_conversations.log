@@ -1,4 +1,4 @@
-2025-07-27 13:00:00,095 - --- Current User Prompt ---
+2025-07-27 13:41:26,348 - --- Current User Prompt ---
 You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. Your response MUST be a single, valid JSON object. The keys should be the category names, and the values should be an array of tool names belonging to that category.
 
 --- Tool List ---
@@ -85,7 +85,7 @@ You are a helpful assistant that organizes lists of technical tools for a **Tera
         Query result as a formatted response.
     
 
-2025-07-27 13:00:04,392 - --- RESPONSE ---
+2025-07-27 13:41:30,447 - --- RESPONSE ---
 ```json
 {
   "Basic Database Operations": [
@@ -150,75 +150,10 @@ You are a helpful assistant that organizes lists of technical tools for a **Tera
     "fs_getAvailableEntities",
     "fs_createDataset"
   ],
-  "User Management": [
-    "get_cust_activeUsers"
-  ],
-  "System Information": [
-    "get_td_serverInfo"
-  ],
-  "Cube Metrics": [
+  "Utility": [
+    "get_cust_activeUsers",
+    "get_td_serverInfo",
     "get_cube_cube_db_space_metrics"
-  ]
-}
-```
---------------------------------------------------
-
-2025-07-27 13:00:04,393 - --- Current User Prompt ---
-You are a helpful assistant that organizes lists of technical prompts for a **Teradata database system** into logical categories for a user interface. Your response MUST be a single, valid JSON object.
-
---- Prompt List ---
-- base_query: Create a SQL query against the database
-- base_tableBusinessDesc: Create a business description of the table and columns.
-- base_databaseBusinessDesc: Create a business description of the database.
-- dba_databaseHealthAssessment: Create a database health assessment for a Teradata system.
-- dba_userActivityAnalysis: Create a user activity analysis for a Teradata system.
-- dba_tableArchive: Create a table archive strategy for database tables.
-- dba_databaseLineage: Create a database lineage map for tables in a database.
-- dba_tableDropImpact: Assess the impact of dropping a table.
-- qlty_databaseQuality: Assess the data quality of a database.
-- rag_guidelines: 
-- cust_promptExample: my prompt description
-
-2025-07-27 13:00:06,417 - --- RESPONSE ---
-```json
-{
-  "categories": [
-    {
-      "name": "SQL Querying",
-      "prompts": [
-        "base_query"
-      ]
-    },
-    {
-      "name": "Database Administration (DBA)",
-      "prompts": [
-        "dba_databaseHealthAssessment",
-        "dba_userActivityAnalysis",
-        "dba_tableArchive",
-        "dba_databaseLineage",
-        "dba_tableDropImpact"
-      ]
-    },
-    {
-      "name": "Data Quality",
-      "prompts": [
-        "qlty_databaseQuality"
-      ]
-    },
-    {
-      "name": "Metadata & Business Description",
-      "prompts": [
-        "base_tableBusinessDesc",
-        "base_databaseBusinessDesc"
-      ]
-    },
-    {
-      "name": "Other/Uncategorized",
-      "prompts": [
-        "rag_guidelines", 
-        "cust_promptExample"
-      ]
-    }
   ]
 }
 ```
