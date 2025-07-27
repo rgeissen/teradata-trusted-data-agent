@@ -482,90 +482,117 @@
 
     <!-- Config Modal -->
     <div id="config-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
-        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-4xl p-6 transform scale-95 opacity-0">
-            <h3 class="text-xl font-bold mb-4 header-title">Configuration</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <!-- Teradata MCP Server Configuration -->
-                <form id="config-form" class="space-y-4 p-4 border border-white/10 rounded-lg">
-                    <h4 class="font-bold text-lg text-white">Teradata & LLM</h4>
-                    <div>
-                        <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">MCP Host</label>
-                        <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                    </div>
-                    <div>
-                        <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">MCP Port</label>
-                        <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                    </div>
-                    <div>
-                        <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">MCP Path</label>
-                        <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                    </div>
-                    <div>
-                        <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">LLM Provider</label>
-                        <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                            <option value="Google">Google</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">LLM API Key</label>
-                        <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
-                    </div>
-                     <div>
-                        <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
-                        <div class="flex items-center gap-2">
-                            <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                                <option value="">-- Enter API Key and Refresh --</option>
-                            </select>
-                            <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
-                                <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
-                                <svg id="refresh-spinner" class="w-5 h-5 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            </button>
+        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-6xl p-8 transform scale-95 opacity-0">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-bold header-title text-white">Application Configuration</h3>
+                <button type="button" id="config-modal-close" class="p-2 rounded-full text-gray-400 hover:bg-white/10 hover:text-white transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+                <!-- Card 1: Core Services (Teradata & LLM) -->
+                <div class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
+                    <div class="flex-grow">
+                        <div class="flex items-center mb-4">
+                            <div class="bg-teradata-orange/20 text-teradata-orange rounded-lg p-2 mr-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                            </div>
+                            <h4 class="font-bold text-lg text-white">Core Services</h4>
                         </div>
+                        <p class="text-sm text-gray-400 mb-6">Connect to the Teradata MCP Server and configure the Language Model. This is required for basic functionality.</p>
+                        <form id="config-form" class="space-y-4">
+                            <div>
+                                <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">MCP Host</label>
+                                <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                            </div>
+                            <div>
+                                <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">MCP Port</label>
+                                <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                            </div>
+                            <div>
+                                <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">MCP Path</label>
+                                <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                            </div>
+                            <div class="border-t border-white/10 my-4"></div>
+                            <div>
+                                <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">LLM Provider</label>
+                                <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                    <option value="Google">Google</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">LLM API Key</label>
+                                <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
+                            </div>
+                            <div>
+                                <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
+                                <div class="flex items-center gap-2">
+                                    <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                        <option value="">-- Enter API Key and Refresh --</option>
+                                    </select>
+                                    <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
+                                        <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
+                                        <svg id="refresh-spinner" class="w-5 h-5 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
                     </div>
-                    <button type="submit" class="w-full px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold flex items-center justify-center">
-                        <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Connect & Load</span>
-                    </button>
-                </form>
+                    <div class="pt-2">
+                        <button form="config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
+                            <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span>Connect & Load</span>
+                        </button>
+                    </div>
+                </div>
 
-                <!-- Chart Server Configuration -->
-                <form id="chart-config-form" class="space-y-4 p-4 border border-white/10 rounded-lg">
-                    <h4 class="font-bold text-lg text-white">Chart Server</h4>
-                    <div>
-                        <label for="chart-mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Host</label>
-                        <input type="text" id="chart-mcp-host" name="chart_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                <!-- Card 2: Charting Engine -->
+                <div class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
+                    <div class="flex-grow">
+                        <div class="flex items-center mb-4">
+                            <div class="bg-blue-500/20 text-blue-400 rounded-lg p-2 mr-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
+                            </div>
+                            <h4 class="font-bold text-lg text-white">Charting Engine</h4>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-6">Optionally, connect to a Chart Server to enable data visualization capabilities within the agent's responses.</p>
+                        <form id="chart-config-form" class="space-y-4">
+                            <div>
+                                <label for="chart-mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Host</label>
+                                <input type="text" id="chart-mcp-host" name="chart_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label for="chart-mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Port</label>
+                                <input type="text" id="chart-mcp-port" name="chart_port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label for="chart-mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Path</label>
+                                <input type="text" id="chart-mcp-path" name="chart_path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                            </div>
+                            <div class="border-t border-white/10 my-4"></div>
+                             <div>
+                                <label for="charting-intensity" class="block text-sm font-medium text-gray-300 mb-1">Charting Intensity</label>
+                                <select id="charting-intensity" name="charting_intensity" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                                    <option value="none">No Charting</option>
+                                    <option value="medium" selected>Medium Charting</option>
+                                    <option value="heavy">Heavy Charting</option>
+                                </select>
+                            </div>
+                        </form>
                     </div>
-                    <div>
-                        <label for="chart-mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Port</label>
-                        <input type="text" id="chart-mcp-port" name="chart_port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                    </div>
-                    <div>
-                        <label for="chart-mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Path</label>
-                        <input type="text" id="chart-mcp-path" name="chart_path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                    </div>
-                    <button type="submit" class="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center">
-                        <svg id="chart-config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Connect Chart Server</span>
-                    </button>
-                </form>
-
-                <!-- Charting Intensity Configuration -->
-                <div class="space-y-4 p-4 border border-white/10 rounded-lg">
-                    <h4 class="font-bold text-lg text-white">Charting Options</h4>
-                     <div>
-                        <label for="charting-intensity" class="block text-sm font-medium text-gray-300 mb-1">Charting Intensity</label>
-                        <select id="charting-intensity" name="charting_intensity" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                            <option value="none">No Charting</option>
-                            <option value="medium" selected>Medium Charting</option>
-                            <option value="heavy">Heavy Charting</option>
-                        </select>
+                    <div class="pt-2">
+                        <button form="chart-config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
+                            <svg id="chart-config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span>Connect & Load</span>
+                        </button>
                     </div>
                 </div>
             </div>
-            <div id="config-status" class="text-sm min-h-[1.25rem] mb-4 text-center"></div>
-            <div class="flex justify-end items-center">
-                <button type="button" id="config-modal-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Close</button>
-            </div>
+            <div id="config-status" class="text-sm min-h-[1.25rem] mt-6 text-center"></div>
         </div>
     </div>
 
