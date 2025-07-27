@@ -32,7 +32,8 @@ app = cors(app, allow_origin="*") # Enable CORS for all origins
 
 # --- App Configuration ---
 class AppConfig:
-    MODELS_UNLOCKED = False
+    ALL_MODELS_UNLOCKED = False
+    CHARTING_ENABLED = False
     TERADATA_MCP_CONNECTED = False
     CHART_MCP_CONNECTED = False
 
@@ -683,6 +684,13 @@ class PlanExecutor:
 async def index():
     return await render_template("index.html")
 
+@app.route("/app-config")
+async def get_app_config():
+    return jsonify({
+        "all_models_unlocked": APP_CONFIG.ALL_MODELS_UNLOCKED,
+        "charting_enabled": APP_CONFIG.CHARTING_ENABLED
+    })
+
 @app.route("/tools")
 async def get_tools():
     if not mcp_client: return jsonify({"error": "Not configured"}), 400
@@ -980,11 +988,18 @@ async def get_models():
     try:
         data = await request.get_json()
         api_key = data.get("apiKey")
-        genai.configure(api_key=api_key)
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        clean_models = [name.split('/')[-1] for name in models]
-        structured_model_list = [{"name": name, "certified": APP_CONFIG.MODELS_UNLOCKED or name == CERTIFIED_MODEL} for name in clean_models]
-        return jsonify({"status": "success", "models": structured_model_list})
+        provider = data.get("provider")
+
+        if provider == "Google":
+            genai.configure(api_key=api_key)
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            clean_models = [name.split('/')[-1] for name in models]
+            structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name == CERTIFIED_MODEL} for name in clean_models]
+            return jsonify({"status": "success", "models": structured_model_list})
+        else:
+            # Placeholder for other providers
+            return jsonify({"status": "success", "models": []})
+
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 400
 
@@ -995,10 +1010,15 @@ async def configure_services():
     
     try:
         # LLM Config
-        genai.configure(api_key=data.get("apiKey"))
-        llm = genai.GenerativeModel(data.get("model"))
-        await llm.generate_content_async("test")
-        
+        provider = data.get("provider")
+        if provider == "Google":
+            genai.configure(api_key=data.get("apiKey"))
+            llm = genai.GenerativeModel(data.get("model"))
+            await llm.generate_content_async("test") # Test call
+        else:
+            # In the future, initialize other providers here
+            raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
+
         # Teradata MCP Config
         mcp_server_url = f"http://{data.get('host')}:{data.get('port')}{data.get('path')}"
         SERVER_CONFIGS = {'teradata_mcp_server': {"url": mcp_server_url, "transport": "streamable_http"}}
@@ -1055,12 +1075,10 @@ async def main():
     if os.path.exists(LOG_DIR): shutil.rmtree(LOG_DIR)
     os.makedirs(LOG_DIR)
 
-    # --- FIX START: Configure the app's logger to print to the console ---
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     app.logger.addHandler(handler)
     app.logger.setLevel(logging.INFO)
-    # --- FIX END ---
 
     llm_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversations.log"))
     llm_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
@@ -1080,16 +1098,27 @@ async def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Trusted Data Agent web client.")
     parser.add_argument(
-        "--unlock-models",
+        "--all-models",
         action="store_true",
-        help="Allow selection of all available models, not just the certified one."
+        help="Allow selection of all available Google models, not just the certified one."
     )
+    parser.add_argument(
+        "--charting",
+        action="store_true",
+        help="Enable the charting engine configuration and capabilities."
+    )
+    # Deprecated but kept for backward compatibility
+    parser.add_argument("--unlock-models", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    if args.unlock_models:
-        APP_CONFIG.MODELS_UNLOCKED = True
-        # --- FIX: Corrected the unterminated string literal ---
-        print("\n--- DEVELOPMENT MODE: All models will be selectable. ---")
+    if args.all_models or args.unlock_models:
+        APP_CONFIG.ALL_MODELS_UNLOCKED = True
+        print("\n--- DEV MODE: All Google models will be selectable. ---")
+    
+    if args.charting:
+        APP_CONFIG.CHARTING_ENABLED = True
+        print("\n--- CHARTING ENABLED: Charting configuration and features are active. ---")
+
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     templates_dir = os.path.join(script_dir, 'templates')

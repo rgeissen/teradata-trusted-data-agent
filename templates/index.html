@@ -277,7 +277,7 @@
             display: block;
         }
         
-        select:disabled {
+        select:disabled, input:disabled, button:disabled, fieldset:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
@@ -321,7 +321,7 @@
                 <button id="config-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Config</button>
             </div>
             <div class="menu-item">
-                <button id="prompt-editor-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>System Prompt</button>
+                <button id="prompt-editor-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50" disabled>System Prompt</button>
             </div>
             <div class="menu-item">
                 <button id="window-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Window</button>
@@ -432,7 +432,7 @@
                                 class="flex-1 p-3 bg-transparent border-none rounded-lg focus:outline-none text-white placeholder-gray-400"
                                 autocomplete="off" disabled />
                             <button type="submit" id="submit-button"
-                                class="p-3 bg-[#F15F22] rounded-lg hover:bg-[#D9501A] disabled:bg-gray-600 disabled:cursor-not-allowed flex items-center justify-center w-12 h-12 transition-all duration-200 transform hover:scale-110"
+                                class="p-3 bg-[#F15F22] rounded-lg hover:bg-[#D9501A] disabled:bg-gray-600 flex items-center justify-center w-12 h-12 transition-all duration-200 transform hover:scale-110"
                                 disabled>
                                 <svg id="send-icon" class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                                 <svg id="loading-spinner" class="w-6 h-6 text-white animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -522,6 +522,10 @@
                                 <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">LLM Provider</label>
                                 <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
                                     <option value="Google">Google</option>
+                                    <option value="Anthropic" disabled>Anthropic (coming soon)</option>
+                                    <option value="OpenAI" disabled>OpenAI (coming soon)</option>
+                                    <option value="Cohere" disabled>Cohere (coming soon)</option>
+                                    <option value="Mistral" disabled>Mistral (coming soon)</option>
                                 </select>
                             </div>
                             <div>
@@ -532,7 +536,7 @@
                                 <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
                                 <div class="flex items-center gap-2">
                                     <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                                        <option value="">-- Enter API Key and Refresh --</option>
+                                        <option value="">-- Select Provider & Enter API Key --</option>
                                     </select>
                                     <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
                                         <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
@@ -551,45 +555,47 @@
                 </div>
 
                 <!-- Card 2: Charting Engine -->
-                <div class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
-                    <div class="flex-grow">
-                        <div class="flex items-center mb-4">
-                            <div class="bg-blue-500/20 text-blue-400 rounded-lg p-2 mr-4">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
+                <div id="charting-engine-card" class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
+                    <fieldset id="charting-fieldset">
+                        <div class="flex-grow">
+                            <div class="flex items-center mb-4">
+                                <div class="bg-blue-500/20 text-blue-400 rounded-lg p-2 mr-4">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
+                                </div>
+                                <h4 class="font-bold text-lg text-white">Charting Engine</h4>
                             </div>
-                            <h4 class="font-bold text-lg text-white">Charting Engine</h4>
+                            <p class="text-sm text-gray-400 mb-6">Optionally, connect to a Chart Server to enable data visualization capabilities within the agent's responses.</p>
+                            <form id="chart-config-form" class="space-y-4">
+                                <div>
+                                    <label for="chart-mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Host</label>
+                                    <input type="text" id="chart-mcp-host" name="chart_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                                </div>
+                                <div>
+                                    <label for="chart-mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Port</label>
+                                    <input type="text" id="chart-mcp-port" name="chart_port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                                </div>
+                                <div>
+                                    <label for="chart-mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Path</label>
+                                    <input type="text" id="chart-mcp-path" name="chart_path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                                </div>
+                                <div class="border-t border-white/10 my-4"></div>
+                                 <div>
+                                    <label for="charting-intensity" class="block text-sm font-medium text-gray-300 mb-1">Charting Intensity</label>
+                                    <select id="charting-intensity" name="charting_intensity" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                                        <option value="none">No Charting</option>
+                                        <option value="medium" selected>Medium Charting</option>
+                                        <option value="heavy">Heavy Charting</option>
+                                    </select>
+                                </div>
+                            </form>
                         </div>
-                        <p class="text-sm text-gray-400 mb-6">Optionally, connect to a Chart Server to enable data visualization capabilities within the agent's responses.</p>
-                        <form id="chart-config-form" class="space-y-4">
-                            <div>
-                                <label for="chart-mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Host</label>
-                                <input type="text" id="chart-mcp-host" name="chart_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                            </div>
-                            <div>
-                                <label for="chart-mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Port</label>
-                                <input type="text" id="chart-mcp-port" name="chart_port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                            </div>
-                            <div>
-                                <label for="chart-mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Path</label>
-                                <input type="text" id="chart-mcp-path" name="chart_path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                            </div>
-                            <div class="border-t border-white/10 my-4"></div>
-                             <div>
-                                <label for="charting-intensity" class="block text-sm font-medium text-gray-300 mb-1">Charting Intensity</label>
-                                <select id="charting-intensity" name="charting_intensity" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                                    <option value="none">No Charting</option>
-                                    <option value="medium" selected>Medium Charting</option>
-                                    <option value="heavy">Heavy Charting</option>
-                                </select>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="pt-2">
-                        <button form="chart-config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
-                            <svg id="chart-config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            <span>Connect & Load</span>
-                        </button>
-                    </div>
+                        <div class="pt-2">
+                            <button form="chart-config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
+                                <svg id="chart-config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                <span>Connect & Load</span>
+                            </button>
+                        </div>
+                    </fieldset>
                 </div>
             </div>
             <div id="config-status" class="text-sm min-h-[1.25rem] mt-6 text-center"></div>
@@ -697,11 +703,14 @@
         const refreshModelsButton = document.getElementById('refresh-models-button');
         const refreshIcon = document.getElementById('refresh-icon');
         const refreshSpinner = document.getElementById('refresh-spinner');
+        const llmProviderSelect = document.getElementById('llm-provider');
         const llmModelSelect = document.getElementById('llm-model');
         
         const chartConfigForm = document.getElementById('chart-config-form');
         const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
         const chartingIntensitySelect = document.getElementById('charting-intensity');
+        const chartingEngineCard = document.getElementById('charting-engine-card');
+        const chartingFieldset = document.getElementById('charting-fieldset');
 
         const teradataStatusDot = document.getElementById('teradata-status-dot');
         const chartStatusDot = document.getElementById('chart-status-dot');
@@ -725,15 +734,40 @@
         const confirmModalConfirm = document.getElementById('confirm-modal-confirm');
         const confirmModalCancel = document.getElementById('confirm-modal-cancel');
 
-
-        let activeSystemPrompt = '';
-        let isCustomPromptActive = false;
         let currentModel = '';
         let currentStatusId = 0;
         let currentSessionId = null;
         let resourceData = { tools: {}, prompts: {}, resources: {}, charts: {} };
         let currentlySelectedResource = null;
         let eventSource = null;
+        
+        // --- System Prompt Management ---
+        function getSystemPrompts() {
+            try {
+                const prompts = localStorage.getItem('userSystemPrompts');
+                return prompts ? JSON.parse(prompts) : {};
+            } catch (e) {
+                console.error("Could not parse system prompts from localStorage", e);
+                return {};
+            }
+        }
+
+        function saveSystemPromptForModel(modelName, promptText, isCustom) {
+            const prompts = getSystemPrompts();
+            prompts[modelName] = { prompt: promptText, isCustom: isCustom };
+            localStorage.setItem('userSystemPrompts', JSON.stringify(prompts));
+        }
+
+        function getSystemPromptForModel(modelName) {
+            const prompts = getSystemPrompts();
+            return prompts[modelName]?.prompt || null;
+        }
+
+        function isPromptCustomForModel(modelName) {
+            const prompts = getSystemPrompts();
+            return prompts[modelName]?.isCustom || false;
+        }
+
 
         function copyToClipboard(button) {
             const codeBlock = button.closest('.sql-code-block').querySelector('code');
@@ -919,7 +953,6 @@
                                 }
                             } else if (eventName === 'tool_result') {
                                 updateStatusWindow("Tool Execution Result", eventData.details);
-                                // FIX: Add a guard clause to check if eventData.tool_name exists
                                 if (eventData.tool_name) {
                                     const toolType = eventData.tool_name.startsWith('chart_') ? 'charts' : 'tools';
                                     highlightResource(eventData.tool_name, toolType);
@@ -1069,8 +1102,9 @@
         }
 
         async function startNewSession() {
-            if (!activeSystemPrompt) {
-                addMessage('assistant', 'Cannot start a new session. The system prompt is not loaded. Please re-configure.');
+            const activePrompt = getSystemPromptForModel(currentModel);
+            if (!activePrompt) {
+                addMessage('assistant', 'Cannot start a new session. The system prompt is not loaded for the current model. Please re-configure.');
                 return;
             }
             chatLog.innerHTML = '';
@@ -1083,7 +1117,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        system_prompt: activeSystemPrompt,
+                        system_prompt: activePrompt,
                         charting_intensity: chartingIntensity
                     })
                 });
@@ -1330,13 +1364,10 @@
                     teradataStatusDot.classList.add('connected');
                     currentModel = config.model;
                     
-                    const chartingIntensity = chartingIntensitySelect.value;
-                    const promptRes = await fetch(`/system_prompt/${currentModel}?charting_intensity=${chartingIntensity}`);
-                    const promptData = await promptRes.json();
-                    activeSystemPrompt = promptData.system_prompt || '';
-                    localStorage.setItem('activeSystemPrompt', activeSystemPrompt);
-                    isCustomPromptActive = false;
-                    localStorage.setItem('isCustomPromptActive', 'false');
+                    const activePrompt = getSystemPromptForModel(currentModel);
+                    if (!activePrompt) {
+                        await resetSystemPrompt(true); // Force fetch and save default
+                    }
 
                     promptEditorButton.disabled = false;
 
@@ -1346,6 +1377,10 @@
                     
                     userInput.placeholder = "Ask about databases, tables, users...";
                     loadAllSessions();
+
+                    if (chartingFieldset.disabled) {
+                        setTimeout(configModalClose, 1000);
+                    }
                 } else {
                     throw new Error(result.message || 'Configuration failed.');
                 }
@@ -1385,14 +1420,12 @@
                     chartStatusDot.classList.add('connected');
                     await loadResources('charts');
                     
-                    // --- FIX START: Refresh all other resource tabs after connecting chart server ---
                     await loadResources('tools');
                     await loadResources('prompts');
                     await loadResources('resources');
-                    // --- FIX END ---
                     
-                    // After connecting chart server, potentially update system prompt
                     await handleIntensityChange();
+                    setTimeout(configModalClose, 1000);
 
                 } else {
                     throw new Error(result.message || 'Chart server configuration failed.');
@@ -1408,7 +1441,7 @@
         });
 
         async function fetchModels() {
-            const provider = document.getElementById('llm-provider').value;
+            const provider = llmProviderSelect.value;
             const apiKey = document.getElementById('llm-api-key').value;
 
             if (!apiKey) {
@@ -1461,10 +1494,11 @@
         }
 
         refreshModelsButton.addEventListener('click', fetchModels);
+        llmProviderSelect.addEventListener('change', fetchModels);
 
         function openPromptEditor() {
             promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentModel}</code>`;
-            promptEditorTextarea.value = activeSystemPrompt;
+            promptEditorTextarea.value = getSystemPromptForModel(currentModel);
             promptEditorOverlay.classList.remove('hidden', 'opacity-0');
             promptEditorContent.classList.remove('scale-95', 'opacity-0');
         }
@@ -1475,13 +1509,9 @@
             setTimeout(() => promptEditorOverlay.classList.add('hidden'), 300);
         }
 
-        function saveSystemPrompt() {
+        function saveSystemPromptChanges() {
             const newPrompt = promptEditorTextarea.value;
-            activeSystemPrompt = newPrompt;
-            isCustomPromptActive = true;
-            
-            localStorage.setItem('activeSystemPrompt', newPrompt);
-            localStorage.setItem('isCustomPromptActive', 'true');
+            saveSystemPromptForModel(currentModel, newPrompt, true);
 
             promptEditorStatus.textContent = 'Saved!';
             promptEditorStatus.className = 'text-sm text-green-400';
@@ -1494,11 +1524,9 @@
                 const res = await fetch(`/system_prompt/${currentModel}?charting_intensity=${chartingIntensity}`);
                 const data = await res.json();
                 if (data.system_prompt) {
-                    activeSystemPrompt = data.system_prompt;
+                    saveSystemPromptForModel(currentModel, data.system_prompt, false);
                     promptEditorTextarea.value = data.system_prompt;
-                    isCustomPromptActive = false;
-                    localStorage.setItem('activeSystemPrompt', activeSystemPrompt);
-                    localStorage.setItem('isCustomPromptActive', 'false');
+
                     if (!force) {
                         promptEditorStatus.textContent = 'Reset to default and saved!';
                         promptEditorStatus.className = 'text-sm text-yellow-400';
@@ -1540,7 +1568,7 @@
         }
         
         async function handleIntensityChange() {
-             if (isCustomPromptActive) {
+             if (isPromptCustomForModel(currentModel)) {
                 showConfirmation(
                     'Reset System Prompt?',
                     'Changing the charting intensity requires resetting the system prompt to a new default to include updated instructions. Your custom changes will be lost. Do you want to continue?',
@@ -1561,10 +1589,26 @@
 
         promptEditorButton.addEventListener('click', openPromptEditor);
         promptEditorClose.addEventListener('click', closePromptEditor);
-        promptEditorSave.addEventListener('click', saveSystemPrompt);
+        promptEditorSave.addEventListener('click', saveSystemPromptChanges);
         promptEditorReset.addEventListener('click', () => resetSystemPrompt(false));
         
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const res = await fetch('/app-config');
+                const appConfig = await res.json();
+                
+                chartingFieldset.disabled = !appConfig.charting_enabled;
+                if (!appConfig.charting_enabled) {
+                    chartingEngineCard.classList.add('opacity-50');
+                    chartingEngineCard.title = "Charting is disabled. Start the server with the --charting flag to enable it.";
+                }
+
+            } catch (e) {
+                console.error("Could not fetch app config", e);
+                chartingFieldset.disabled = true;
+                chartingEngineCard.classList.add('opacity-50');
+            }
+
             const savedMcpConfig = JSON.parse(localStorage.getItem('mcpConfig'));
             if (savedMcpConfig) {
                 document.getElementById('mcp-host').value = savedMcpConfig.host || '127.0.0.1';
@@ -1587,10 +1631,6 @@
                 document.getElementById('chart-mcp-path').value = '/mcp';
             }
             
-            isCustomPromptActive = localStorage.getItem('isCustomPromptActive') === 'true';
-            activeSystemPrompt = localStorage.getItem('activeSystemPrompt') || '';
-
-
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
             setupPanelToggle(toggleHistoryButton, sessionHistoryPanel, toggleHistoryCheckbox, historyCollapseIcon, historyExpandIcon);
 
