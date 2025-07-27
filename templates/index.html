@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trusted Data Agent</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Added G2Plot library for charting -->
+    <script src="https://unpkg.com/@antv/g2plot@latest/dist/g2plot.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap');
         
@@ -26,12 +28,13 @@
         }
 
         .glass-panel {
-            background: rgba(51, 51, 51, 0.5); /* #333333 with alpha */
+            background: rgba(51, 51, 51, 0.5);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
+        /* Scrollbar styling */
         #chat-container::-webkit-scrollbar,
         .category-panel::-webkit-scrollbar,
         #status-window-content::-webkit-scrollbar,
@@ -101,13 +104,15 @@
             color: var(--teradata-orange);
         }
 
-        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay { transition: opacity 0.3s ease-in-out; }
-        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
-        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden { pointer-events: none; opacity: 0; }
+        /* Modal transitions */
+        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay, #confirm-modal-overlay { transition: opacity 0.3s ease-in-out; }
+        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content, #confirm-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden, #confirm-modal-overlay.hidden { pointer-events: none; opacity: 0; }
         #prompt-modal-overlay.hidden #prompt-modal-content,
         #info-modal-overlay.hidden #info-modal-content,
         #config-modal-overlay.hidden #config-modal-content,
-        #prompt-editor-overlay.hidden #prompt-editor-content { transform: scale(0.95); opacity: 0; }
+        #prompt-editor-overlay.hidden #prompt-editor-content,
+        #confirm-modal-overlay.hidden #confirm-modal-content { transform: scale(0.95); opacity: 0; }
         
         .status-step {
             transition: all 0.3s ease-in-out;
@@ -211,6 +216,14 @@
         .assistant-table tr:nth-child(even) {
             background-color: rgba(255, 255, 255, 0.05);
         }
+        
+        /* Chart container styling */
+        .chart-render-target {
+            min-height: 400px;
+            width: 100%;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+        }
 
         #status-window, #session-history-panel {
             transition: width 0.3s ease-in-out, padding 0.3s ease-in-out, border 0.3s ease-in-out;
@@ -269,6 +282,21 @@
             cursor: not-allowed;
         }
 
+        /* Connection status dot styling */
+        .connection-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            transition: background-color 0.3s ease;
+        }
+        .connection-dot.disconnected {
+            background-color: #6b7280; /* gray-500 */
+        }
+        .connection-dot.connected {
+            background-color: #10b981; /* green-500 */
+            box-shadow: 0 0 8px #10b981;
+        }
+
     </style>
 </head>
 <body class="flex h-screen flex-col">
@@ -278,15 +306,25 @@
         <div class="flex items-center gap-x-4">
             <h1 class="header-title text-xl font-bold text-white">Trusted Data Agent</h1>
         </div>
-        <div class="flex items-center gap-x-2">
+        <div class="flex items-center gap-x-4">
+            <!-- Connection Status Dots -->
+            <div class="flex items-center gap-x-2" title="Teradata MCP Server Status">
+                <div id="teradata-status-dot" class="connection-dot disconnected"></div>
+                <span class="text-sm text-gray-300">Teradata</span>
+            </div>
+            <div class="flex items-center gap-x-2" title="Chart MCP Server Status">
+                <div id="chart-status-dot" class="connection-dot disconnected"></div>
+                <span class="text-sm text-gray-300">Chart</span>
+            </div>
+            
             <div class="menu-item">
-                <button id="config-menu-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Config</button>
+                <button id="config-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Config</button>
             </div>
             <div class="menu-item">
-                <button id="prompt-editor-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>System Prompt</button>
+                <button id="prompt-editor-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>System Prompt</button>
             </div>
             <div class="menu-item">
-                <button id="window-menu-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Window</button>
+                <button id="window-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Window</button>
                 <div id="window-dropdown-menu" class="dropdown-menu mt-2 w-56 rounded-md shadow-lg glass-panel p-1">
                     <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
                         <span>History Panel</span>
@@ -303,7 +341,7 @@
                 </div>
             </div>
             <div class="menu-item">
-                <button id="info-button" class="px-4 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Info</button>
+                <button id="info-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Info</button>
             </div>
         </div>
     </nav>
@@ -358,6 +396,7 @@
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white active" data-type="tools">Tools</button>
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="prompts">Prompts</button>
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="resources">Resources</button>
+                    <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="charts" style="display: none;">Charts</button>
                 </nav>
                 <div id="panels-container" class="flex-1 min-h-0">
                     <div id="tools-panel" class="resource-panel flex flex-col h-full">
@@ -371,6 +410,10 @@
                     <div id="resources-panel" class="resource-panel flex-col h-full" style="display: none;">
                         <nav id="resources-categories" class="flex justify-center items-center gap-x-2 p-3 border-b border-white/10"></nav>
                         <div id="resources-panels-container" class="flex-1 min-h-0 overflow-y-auto p-2"></div>
+                    </div>
+                    <div id="charts-panel" class="resource-panel flex-col h-full" style="display: none;">
+                        <nav id="charts-categories" class="flex justify-center items-center gap-x-2 p-3 border-b border-white/10"></nav>
+                        <div id="charts-panels-container" class="flex-1 min-h-0 overflow-y-auto p-2"></div>
                     </div>
                 </div>
             </header>
@@ -439,64 +482,90 @@
 
     <!-- Config Modal -->
     <div id="config-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
-        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-2xl p-6 transform scale-95 opacity-0">
+        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-4xl p-6 transform scale-95 opacity-0">
             <h3 class="text-xl font-bold mb-4 header-title">Configuration</h3>
-            <form id="config-form">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <!-- MCP Server Configuration -->
-                    <div class="space-y-4 p-4 border border-white/10 rounded-lg">
-                        <h4 class="font-bold text-lg text-white">MCP Server</h4>
-                        <div>
-                            <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Host</label>
-                            <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                        </div>
-                        <div>
-                            <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Port</label>
-                            <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                        </div>
-                        <div>
-                            <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Path</label>
-                            <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                        </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <!-- Teradata MCP Server Configuration -->
+                <form id="config-form" class="space-y-4 p-4 border border-white/10 rounded-lg">
+                    <h4 class="font-bold text-lg text-white">Teradata & LLM</h4>
+                    <div>
+                        <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">MCP Host</label>
+                        <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
                     </div>
-                    <!-- LLM Provider Configuration -->
-                    <div class="space-y-4 p-4 border border-white/10 rounded-lg">
-                        <h4 class="font-bold text-lg text-white">LLM Provider</h4>
-                        <div>
-                            <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">Provider</label>
-                            <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                                <option value="Google">Google</option>
-                                <option value="Azure" disabled>Microsoft Azure (coming soon)</option>
-                                <option value="Amazon" disabled>Amazon Bedrock (coming soon)</option>
+                    <div>
+                        <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">MCP Port</label>
+                        <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                    <div>
+                        <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">MCP Path</label>
+                        <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                    <div>
+                        <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">LLM Provider</label>
+                        <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                            <option value="Google">Google</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">LLM API Key</label>
+                        <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
+                    </div>
+                     <div>
+                        <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
+                        <div class="flex items-center gap-2">
+                            <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                <option value="">-- Enter API Key and Refresh --</option>
                             </select>
-                        </div>
-                        <div>
-                            <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">Model</label>
-                            <div class="flex items-center gap-2">
-                                <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                                    <option value="">-- Enter API Key and Refresh --</option>
-                                </select>
-                                <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
-                                    <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
-                                    <svg id="refresh-spinner" class="w-5 h-5 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                </button>
-                            </div>
-                        </div>
-                        <div>
-                            <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">API Key</label>
-                            <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
+                            <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
+                                <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
+                                <svg id="refresh-spinner" class="w-5 h-5 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            </button>
                         </div>
                     </div>
-                </div>
-                <div id="config-status" class="text-sm min-h-[1.25rem] mb-4"></div>
-                <div class="flex justify-between items-center">
-                    <button type="button" id="config-modal-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Close</button>
-                    <button type="submit" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold flex items-center">
+                    <button type="submit" class="w-full px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold flex items-center justify-center">
                         <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <span>Connect and Load</span>
+                        <span>Connect & Load</span>
                     </button>
+                </form>
+
+                <!-- Chart Server Configuration -->
+                <form id="chart-config-form" class="space-y-4 p-4 border border-white/10 rounded-lg">
+                    <h4 class="font-bold text-lg text-white">Chart Server</h4>
+                    <div>
+                        <label for="chart-mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Host</label>
+                        <input type="text" id="chart-mcp-host" name="chart_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                    <div>
+                        <label for="chart-mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Port</label>
+                        <input type="text" id="chart-mcp-port" name="chart_port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                    <div>
+                        <label for="chart-mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Path</label>
+                        <input type="text" id="chart-mcp-path" name="chart_path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                    </div>
+                    <button type="submit" class="w-full px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center">
+                        <svg id="chart-config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span>Connect Chart Server</span>
+                    </button>
+                </form>
+
+                <!-- Charting Intensity Configuration -->
+                <div class="space-y-4 p-4 border border-white/10 rounded-lg">
+                    <h4 class="font-bold text-lg text-white">Charting Options</h4>
+                     <div>
+                        <label for="charting-intensity" class="block text-sm font-medium text-gray-300 mb-1">Charting Intensity</label>
+                        <select id="charting-intensity" name="charting_intensity" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                            <option value="none">No Charting</option>
+                            <option value="medium" selected>Medium Charting</option>
+                            <option value="heavy">Heavy Charting</option>
+                        </select>
+                    </div>
                 </div>
-            </form>
+            </div>
+            <div id="config-status" class="text-sm min-h-[1.25rem] mb-4 text-center"></div>
+            <div class="flex justify-end items-center">
+                <button type="button" id="config-modal-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Close</button>
+            </div>
         </div>
     </div>
 
@@ -504,7 +573,6 @@
     <div id="prompt-editor-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="prompt-editor-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-3xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
             <div class="flex justify-between items-center mb-4">
-                <!-- MODIFICATION: Added ID to the title -->
                 <h3 id="prompt-editor-title" class="text-xl font-bold header-title">System Prompt Editor</h3>
                 <div id="prompt-editor-status" class="text-sm"></div>
             </div>
@@ -518,6 +586,19 @@
             </div>
         </div>
     </div>
+    
+    <!-- Generic Confirmation Modal -->
+    <div id="confirm-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="confirm-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
+            <h3 id="confirm-modal-title" class="text-xl font-bold mb-4">Confirm Action</h3>
+            <p id="confirm-modal-body" class="text-gray-300 mb-6"></p>
+            <div class="flex justify-end gap-3">
+                <button type="button" id="confirm-modal-cancel" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Cancel</button>
+                <button type="button" id="confirm-modal-confirm" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Confirm</button>
+            </div>
+        </div>
+    </div>
+
 
     <!-- Prompt Modal -->
     <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
@@ -535,7 +616,7 @@
 
     <!-- JavaScript Logic -->
     <script>
-        // --- START: FULLY RESTORED JAVASCRIPT ---
+        // --- START: FULLY RESTORED AND ENHANCED JAVASCRIPT ---
         const chatLog = document.getElementById('chat-log');
         const chatForm = document.getElementById('chat-form');
         const userInput = document.getElementById('user-input');
@@ -590,6 +671,13 @@
         const refreshIcon = document.getElementById('refresh-icon');
         const refreshSpinner = document.getElementById('refresh-spinner');
         const llmModelSelect = document.getElementById('llm-model');
+        
+        const chartConfigForm = document.getElementById('chart-config-form');
+        const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
+        const chartingIntensitySelect = document.getElementById('charting-intensity');
+
+        const teradataStatusDot = document.getElementById('teradata-status-dot');
+        const chartStatusDot = document.getElementById('chart-status-dot');
 
         const windowMenuButton = document.getElementById('window-menu-button');
         const windowDropdownMenu = document.getElementById('window-dropdown-menu');
@@ -597,18 +685,26 @@
         const promptEditorButton = document.getElementById('prompt-editor-button');
         const promptEditorOverlay = document.getElementById('prompt-editor-overlay');
         const promptEditorContent = document.getElementById('prompt-editor-content');
-        const promptEditorTitle = document.getElementById('prompt-editor-title'); // MODIFICATION: Added title element
+        const promptEditorTitle = document.getElementById('prompt-editor-title');
         const promptEditorTextarea = document.getElementById('prompt-editor-textarea');
         const promptEditorSave = document.getElementById('prompt-editor-save');
         const promptEditorReset = document.getElementById('prompt-editor-reset');
         const promptEditorClose = document.getElementById('prompt-editor-close');
         const promptEditorStatus = document.getElementById('prompt-editor-status');
+        
+        const confirmModalOverlay = document.getElementById('confirm-modal-overlay');
+        const confirmModalTitle = document.getElementById('confirm-modal-title');
+        const confirmModalBody = document.getElementById('confirm-modal-body');
+        const confirmModalConfirm = document.getElementById('confirm-modal-confirm');
+        const confirmModalCancel = document.getElementById('confirm-modal-cancel');
+
 
         let activeSystemPrompt = '';
+        let isCustomPromptActive = false;
         let currentModel = '';
         let currentStatusId = 0;
         let currentSessionId = null;
-        let resourceData = { tools: {}, prompts: {}, resources: {} };
+        let resourceData = { tools: {}, prompts: {}, resources: {}, charts: {} };
         let currentlySelectedResource = null;
         let eventSource = null;
 
@@ -632,6 +728,20 @@
                 console.error('Failed to copy text: ', err);
             }
             document.body.removeChild(textArea);
+        }
+
+        function renderChart(containerId, spec) {
+            try {
+                const chartSpec = typeof spec === 'string' ? JSON.parse(spec) : spec;
+                const plot = new G2Plot[chartSpec.type](containerId, chartSpec.options);
+                plot.render();
+            } catch (e) {
+                console.error("Failed to render chart:", e);
+                const container = document.getElementById(containerId);
+                if (container) {
+                    container.innerHTML = `<div class="p-4 text-red-400">Error rendering chart: ${e.message}</div>`;
+                }
+            }
         }
 
         function addMessage(role, content) {
@@ -660,6 +770,15 @@
             wrapper.appendChild(role === 'user' ? icon : messageContainer);
 
             chatLog.appendChild(wrapper);
+            
+            // Find and render any charts in the new message
+            const chartContainers = messageContent.querySelectorAll('.chart-render-target');
+            chartContainers.forEach(container => {
+                if (container.dataset.spec) {
+                    renderChart(container.id, container.dataset.spec);
+                }
+            });
+
             wrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         
@@ -773,8 +892,10 @@
                                 }
                             } else if (eventName === 'tool_result') {
                                 updateStatusWindow("Tool Execution Result", eventData.details);
+                                // FIX: Add a guard clause to check if eventData.tool_name exists
                                 if (eventData.tool_name) {
-                                    highlightResource(eventData.tool_name, 'tools');
+                                    const toolType = eventData.tool_name.startsWith('chart_') ? 'charts' : 'tools';
+                                    highlightResource(eventData.tool_name, toolType);
                                 }
                             } else if (eventName === 'final_answer') {
                                 addMessage('assistant', eventData.final_answer);
@@ -930,10 +1051,14 @@
             addMessage('assistant', "Starting a new conversation... Please wait.");
             toggleLoading(true);
             try {
+                const chartingIntensity = chartingIntensitySelect.value;
                 const res = await fetch('/session', { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ system_prompt: activeSystemPrompt })
+                    body: JSON.stringify({ 
+                        system_prompt: activeSystemPrompt,
+                        charting_intensity: chartingIntensity
+                    })
                 });
                 const data = await res.json();
                 if (res.ok && data.session_id) {
@@ -1149,8 +1274,8 @@
         configForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             configLoadingSpinner.classList.remove('hidden');
-            configStatus.textContent = 'Connecting...';
-            configStatus.className = 'text-sm text-yellow-400';
+            configStatus.textContent = 'Connecting to Teradata & LLM...';
+            configStatus.className = 'text-sm text-yellow-400 text-center';
 
             const formData = new FormData(e.target);
             const config = Object.fromEntries(formData.entries());
@@ -1172,39 +1297,80 @@
                 const result = await res.json();
 
                 if (res.ok) {
-                    configStatus.textContent = 'Success! All services connected and resources loaded.';
-                    configStatus.className = 'text-sm text-green-400';
-                    currentModel = config.model; // Set the current model
+                    configStatus.textContent = 'Success! Teradata & LLM services connected.';
+                    configStatus.className = 'text-sm text-green-400 text-center';
+                    teradataStatusDot.classList.remove('disconnected');
+                    teradataStatusDot.classList.add('connected');
+                    currentModel = config.model;
                     
-                    // Load custom or default system prompt
-                    const customPrompts = JSON.parse(localStorage.getItem('customSystemPrompts')) || {};
-                    if (customPrompts[currentModel]) {
-                        activeSystemPrompt = customPrompts[currentModel];
-                    } else {
-                        const promptRes = await fetch(`/system_prompt/${currentModel}`);
-                        const promptData = await promptRes.json();
-                        activeSystemPrompt = promptData.system_prompt || '';
-                    }
-                    
-                    promptEditorButton.disabled = false; // Enable the prompt editor button
+                    const chartingIntensity = chartingIntensitySelect.value;
+                    const promptRes = await fetch(`/system_prompt/${currentModel}?charting_intensity=${chartingIntensity}`);
+                    const promptData = await promptRes.json();
+                    activeSystemPrompt = promptData.system_prompt || '';
+                    localStorage.setItem('activeSystemPrompt', activeSystemPrompt);
+                    isCustomPromptActive = false;
+                    localStorage.setItem('isCustomPromptActive', 'false');
+
+                    promptEditorButton.disabled = false;
 
                     await loadResources('tools');
                     await loadResources('prompts');
                     await loadResources('resources');
-                    setTimeout(() => {
-                        configModalClose.click();
-                        userInput.placeholder = "Ask about databases, tables, users...";
-                        loadAllSessions();
-                    }, 1500);
+                    
+                    userInput.placeholder = "Ask about databases, tables, users...";
+                    loadAllSessions();
                 } else {
                     throw new Error(result.message || 'Configuration failed.');
                 }
             } catch (error) {
                 configStatus.textContent = `Error: ${error.message}`;
-                configStatus.className = 'text-sm text-red-400';
+                configStatus.className = 'text-sm text-red-400 text-center';
                 promptEditorButton.disabled = true;
+                teradataStatusDot.classList.add('disconnected');
+                teradataStatusDot.classList.remove('connected');
             } finally {
                 configLoadingSpinner.classList.add('hidden');
+            }
+        });
+        
+        chartConfigForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            chartConfigLoadingSpinner.classList.remove('hidden');
+            configStatus.textContent = 'Connecting to Chart Server...';
+            configStatus.className = 'text-sm text-yellow-400 text-center';
+            
+            const formData = new FormData(e.target);
+            const config = Object.fromEntries(formData.entries());
+            
+            localStorage.setItem('chartMcpConfig', JSON.stringify(config));
+
+            try {
+                const res = await fetch('/configure_chart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    configStatus.textContent = 'Success! Chart server connected and resources loaded.';
+                    configStatus.className = 'text-sm text-green-400 text-center';
+                    chartStatusDot.classList.remove('disconnected');
+                    chartStatusDot.classList.add('connected');
+                    await loadResources('charts');
+                    
+                    // After connecting chart server, potentially update system prompt
+                    await handleIntensityChange();
+
+                } else {
+                    throw new Error(result.message || 'Chart server configuration failed.');
+                }
+            } catch (error) {
+                configStatus.textContent = `Error: ${error.message}`;
+                configStatus.className = 'text-sm text-red-400 text-center';
+                chartStatusDot.classList.add('disconnected');
+                chartStatusDot.classList.remove('connected');
+            } finally {
+                chartConfigLoadingSpinner.classList.add('hidden');
             }
         });
 
@@ -1214,7 +1380,7 @@
 
             if (!apiKey) {
                 configStatus.textContent = 'API Key is required to fetch models.';
-                configStatus.className = 'text-sm text-yellow-400';
+                configStatus.className = 'text-sm text-yellow-400 text-center';
                 return;
             }
 
@@ -1222,7 +1388,7 @@
             refreshSpinner.classList.remove('hidden');
             refreshModelsButton.disabled = true;
             configStatus.textContent = 'Fetching models...';
-            configStatus.className = 'text-sm text-gray-400';
+            configStatus.className = 'text-sm text-gray-400 text-center';
 
             try {
                 const response = await fetch('/models', {
@@ -1233,7 +1399,7 @@
                 const result = await response.json();
 
                 if (response.ok) {
-                    llmModelSelect.innerHTML = ''; // Clear existing options
+                    llmModelSelect.innerHTML = '';
                     result.models.forEach(model => {
                         const option = document.createElement('option');
                         option.value = model.name;
@@ -1246,13 +1412,13 @@
                         llmModelSelect.appendChild(option);
                     });
                     configStatus.textContent = `Successfully fetched ${result.models.length} models.`;
-                    configStatus.className = 'text-sm text-green-400';
+                    configStatus.className = 'text-sm text-green-400 text-center';
                 } else {
                     throw new Error(result.message || 'Failed to fetch models.');
                 }
             } catch (error) {
                 configStatus.textContent = `Error: ${error.message}`;
-                configStatus.className = 'text-sm text-red-400';
+                configStatus.className = 'text-sm text-red-400 text-center';
                 llmModelSelect.innerHTML = '<option value="">-- Could not fetch models --</option>';
             } finally {
                 refreshIcon.classList.remove('hidden');
@@ -1264,7 +1430,6 @@
         refreshModelsButton.addEventListener('click', fetchModels);
 
         function openPromptEditor() {
-            // MODIFICATION: Update title with the current model name
             promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentModel}</code>`;
             promptEditorTextarea.value = activeSystemPrompt;
             promptEditorOverlay.classList.remove('hidden', 'opacity-0');
@@ -1280,49 +1445,118 @@
         function saveSystemPrompt() {
             const newPrompt = promptEditorTextarea.value;
             activeSystemPrompt = newPrompt;
+            isCustomPromptActive = true;
             
-            const customPrompts = JSON.parse(localStorage.getItem('customSystemPrompts')) || {};
-            customPrompts[currentModel] = newPrompt;
-            localStorage.setItem('customSystemPrompts', JSON.stringify(customPrompts));
+            localStorage.setItem('activeSystemPrompt', newPrompt);
+            localStorage.setItem('isCustomPromptActive', 'true');
 
             promptEditorStatus.textContent = 'Saved!';
             promptEditorStatus.className = 'text-sm text-green-400';
             setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
         }
 
-        async function resetSystemPrompt() {
+        async function resetSystemPrompt(force = false) {
             try {
-                const res = await fetch(`/system_prompt/${currentModel}`);
+                const chartingIntensity = chartingIntensitySelect.value;
+                const res = await fetch(`/system_prompt/${currentModel}?charting_intensity=${chartingIntensity}`);
                 const data = await res.json();
                 if (data.system_prompt) {
+                    activeSystemPrompt = data.system_prompt;
                     promptEditorTextarea.value = data.system_prompt;
-                    saveSystemPrompt(); // Save the reset prompt
-                    promptEditorStatus.textContent = 'Reset to default and saved!';
-                    promptEditorStatus.className = 'text-sm text-yellow-400';
-                    setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
+                    isCustomPromptActive = false;
+                    localStorage.setItem('activeSystemPrompt', activeSystemPrompt);
+                    localStorage.setItem('isCustomPromptActive', 'false');
+                    if (!force) {
+                        promptEditorStatus.textContent = 'Reset to default and saved!';
+                        promptEditorStatus.className = 'text-sm text-yellow-400';
+                        setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
+                    }
                 }
             } catch (e) {
                 promptEditorStatus.textContent = 'Error resetting prompt.';
                 promptEditorStatus.className = 'text-sm text-red-400';
             }
         }
+        
+        function showConfirmation(title, body, onConfirm) {
+            confirmModalTitle.textContent = title;
+            confirmModalBody.textContent = body;
+            
+            confirmModalOverlay.classList.remove('hidden', 'opacity-0');
+            confirmModalContent.classList.remove('scale-95', 'opacity-0');
+
+            const confirmHandler = () => {
+                onConfirm();
+                closeConfirmation();
+            };
+
+            const cancelHandler = () => {
+                closeConfirmation();
+            };
+            
+            const closeConfirmation = () => {
+                confirmModalOverlay.classList.add('opacity-0');
+                confirmModalContent.classList.add('scale-95', 'opacity-0');
+                setTimeout(() => confirmModalOverlay.classList.add('hidden'), 300);
+                confirmModalConfirm.removeEventListener('click', confirmHandler);
+                confirmModalCancel.removeEventListener('click', cancelHandler);
+            };
+
+            confirmModalConfirm.addEventListener('click', confirmHandler, { once: true });
+            confirmModalCancel.addEventListener('click', cancelHandler, { once: true });
+        }
+        
+        async function handleIntensityChange() {
+             if (isCustomPromptActive) {
+                showConfirmation(
+                    'Reset System Prompt?',
+                    'Changing the charting intensity requires resetting the system prompt to a new default to include updated instructions. Your custom changes will be lost. Do you want to continue?',
+                    () => {
+                        resetSystemPrompt(true); // force reset without status message
+                        configStatus.textContent = 'Charting intensity updated and system prompt was reset to default.';
+                        configStatus.className = 'text-sm text-yellow-400 text-center';
+                    }
+                );
+            } else {
+                await resetSystemPrompt(true); // Just reset without bothering the user
+                configStatus.textContent = 'Charting intensity updated.';
+                configStatus.className = 'text-sm text-green-400 text-center';
+            }
+        }
+
+        chartingIntensitySelect.addEventListener('change', handleIntensityChange);
 
         promptEditorButton.addEventListener('click', openPromptEditor);
         promptEditorClose.addEventListener('click', closePromptEditor);
         promptEditorSave.addEventListener('click', saveSystemPrompt);
-        promptEditorReset.addEventListener('click', resetSystemPrompt);
+        promptEditorReset.addEventListener('click', () => resetSystemPrompt(false));
         
         document.addEventListener('DOMContentLoaded', () => {
-            const savedConfig = JSON.parse(localStorage.getItem('mcpConfig'));
-            if (savedConfig) {
-                document.getElementById('mcp-host').value = savedConfig.host || '127.0.0.1';
-                document.getElementById('mcp-port').value = savedConfig.port || '8001';
-                document.getElementById('mcp-path').value = savedConfig.path || '/mcp/';
+            const savedMcpConfig = JSON.parse(localStorage.getItem('mcpConfig'));
+            if (savedMcpConfig) {
+                document.getElementById('mcp-host').value = savedMcpConfig.host || '127.0.0.1';
+                document.getElementById('mcp-port').value = savedMcpConfig.port || '8001';
+                document.getElementById('mcp-path').value = savedMcpConfig.path || '/mcp/';
             } else {
                  document.getElementById('mcp-host').value = '127.0.0.1';
                 document.getElementById('mcp-port').value = '8001';
                 document.getElementById('mcp-path').value = '/mcp/';
             }
+            
+            const savedChartConfig = JSON.parse(localStorage.getItem('chartMcpConfig'));
+            if (savedChartConfig) {
+                document.getElementById('chart-mcp-host').value = savedChartConfig.chart_host || '127.0.0.1';
+                document.getElementById('chart-mcp-port').value = savedChartConfig.chart_port || '1122';
+                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/mcp';
+            } else {
+                document.getElementById('chart-mcp-host').value = '127.0.0.1';
+                document.getElementById('chart-mcp-port').value = '1122';
+                document.getElementById('chart-mcp-path').value = '/mcp';
+            }
+            
+            isCustomPromptActive = localStorage.getItem('isCustomPromptActive') === 'true';
+            activeSystemPrompt = localStorage.getItem('activeSystemPrompt') || '';
+
 
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
             setupPanelToggle(toggleHistoryButton, sessionHistoryPanel, toggleHistoryCheckbox, historyCollapseIcon, historyExpandIcon);

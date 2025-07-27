@@ -7,12 +7,11 @@ import re
 import uuid
 import logging
 import shutil
-import argparse # Added for command-line arguments
+import argparse
 from quart import Quart, request, jsonify, render_template, Response
 from quart_cors import cors
 import hypercorn.asyncio
 from hypercorn.config import Config
-from dotenv import load_dotenv
 from enum import Enum, auto
 from datetime import datetime
 
@@ -34,55 +33,79 @@ app = cors(app, allow_origin="*") # Enable CORS for all origins
 # --- App Configuration ---
 class AppConfig:
     MODELS_UNLOCKED = False
+    TERADATA_MCP_CONNECTED = False
+    CHART_MCP_CONNECTED = False
 
 APP_CONFIG = AppConfig()
 CERTIFIED_MODEL = "gemini-1.5-flash"
 
-# --- NEW: Default System Prompts Mapping ---
-DEFAULT_SYSTEM_PROMPTS = {
-    "gemini-1.5-flash": (
-        "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.\n\n"
-        "--- **Core Reasoning Hierarchy** ---\n"
-        "1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.\n"
-        "2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.\n"
-        "3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.\n\n"
-        "--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---\n"
-        "You **MUST** remember and reuse information from previous turns.\n"
-        "**Example of CORRECT Inference:**\n"
-        "    -   USER (Turn 1): \"what is the business description for the `equipment` table in database `DEMO_Customer360_db`?\"\n"
-        "    -   ASSISTANT (Turn 1): (Executes the request)\n"
-        "    -   USER (Turn 2): \"ok now what is the quality of that table?\"\n"
-        "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters.\"\n"
-        "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.\n\n"
-        "--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---\n"
-        "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names. For example, if a tool is defined to accept a parameter named `sql`, you MUST use `\"sql\": \"...\"` in your JSON. Using a guess like `\"query\": \"...\"` or `\"sql_query\": \"...\"` will fail.\n\n"
-        "--- **CRITICAL RULE: SQL GENERATION** ---\n"
-        "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`). Do **NOT** pass the database name as a separate `db_name` argument to `base_readQuery`.\n\n"
-        "--- **Response Formatting** ---\n"
-        "-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.\n"
-        "-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.\n"
-        "-   **Clarifying Question:** Only ask if information is truly missing.\n\n"
-        "{tools_context}\n\n"
-        "{prompts_context}\n\n"
+# --- System Prompt Templates ---
+BASE_SYSTEM_PROMPT = (
+    "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.\n\n"
+    "--- **Core Reasoning Hierarchy** ---\n"
+    "1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.\n"
+    "2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.\n"
+    "3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.\n\n"
+    "--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---\n"
+    "You **MUST** remember and reuse information from previous turns.\n"
+    "**Example of CORRECT Inference:**\n"
+    "    -   USER (Turn 1): \"what is the business description for the `equipment` table in database `DEMO_Customer360_db`?\"\n"
+    "    -   ASSISTANT (Turn 1): (Executes the request)\n"
+    "    -   USER (Turn 2): \"ok now what is the quality of that table?\"\n"
+    "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters.\"\n"
+    "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.\n\n"
+    "--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---\n"
+    "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.\n\n"
+    "--- **CRITICAL RULE: SQL GENERATION** ---\n"
+    "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).\n\n"
+    "{charting_instructions}\n\n"
+    "--- **Response Formatting** ---\n"
+    "-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.\n"
+    "-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.\n"
+    "-   **Clarifying Question:** Only ask if information is truly missing.\n\n"
+    "{tools_context}\n\n"
+    "{prompts_context}\n\n"
+    "{charts_context}\n\n"
+)
+
+CHARTING_INSTRUCTIONS = {
+    "none": "--- **Charting Rules** ---\n- Charting is disabled. Do NOT use any charting tools.",
+    "medium": (
+        "--- **Charting Rules** ---\n"
+        "- After successfully gathering data with Teradata tools, consider if a visualization would enhance the answer.\n"
+        "- Use a chart tool if it provides a clear summary (e.g., bar chart for space usage, pie chart for distributions).\n"
+        "- Do not generate charts for simple data retrievals that are easily readable in a table.\n"
+        "- When you use a chart tool, tell the user in your final answer what the chart represents."
     ),
-    # Add other model prompts here in the future
+    "heavy": (
+        "--- **Charting Rules** ---\n"
+        "- You should actively look for opportunities to visualize data.\n"
+        "- After nearly every successful data-gathering operation, your next step should be to call an appropriate chart tool to visualize the results.\n"
+        "- Prefer visual answers over text-based tables whenever possible.\n"
+        "- When you use a chart tool, tell the user in your final answer what the chart represents."
+    )
 }
 
+# --- Globals ---
+tools_context = "--- No Tools Available ---"
+prompts_context = "--- No Prompts Available ---"
+charts_context = "--- No Charts Available ---"
 
-tools_context = None
-prompts_context = None
 llm = None
 mcp_client = None
+# This will store the configurations for all connected MCP servers
+SERVER_CONFIGS = {}
+
 mcp_tools = {}
 mcp_prompts = {}
+mcp_charts = {}
+
 structured_tools = {}
 structured_prompts = {}
 structured_resources = {}
-tool_scopes = {}
+structured_charts = {}
 
-TOOL_COLUMN_TYPE_REQUIREMENTS = {
-    "qlty_univariateStatistics": ["INTEGER", "SMALLINT", "BIGINT", "DECIMAL", "FLOAT", "NUMBER", "BYTEINT"],
-}
+tool_scopes = {}
 
 SESSIONS = {}
 
@@ -204,6 +227,17 @@ class OutputFormatter:
         html += "</tbody></table></div></div>"
         self.processed_data_indices.add(index)
         return html
+        
+    def _render_chart(self, chart_data: dict, index: int) -> str:
+        chart_id = f"chart-render-target-{uuid.uuid4()}"
+        # The data-spec attribute will hold the JSON string for the chart
+        chart_spec_json = json.dumps(chart_data.get("spec", {}))
+        self.processed_data_indices.add(index)
+        return f"""
+        <div class="response-card">
+            <div id="{chart_id}" class="chart-render-target" data-spec='{chart_spec_json}'></div>
+        </div>
+        """
 
     def render(self) -> str:
         final_html = ""
@@ -214,13 +248,18 @@ class OutputFormatter:
         for i, tool_result in enumerate(self.collected_data):
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
+            
+            # Check for chart type first
+            if tool_result.get("type") == "chart":
+                final_html += self._render_chart(tool_result, i)
+                continue
+
             metadata = tool_result.get("metadata", {})
             tool_name = metadata.get("tool_name")
+
             if tool_name == 'base_tableDDL':
                 final_html += self._render_ddl(tool_result, i)
-            elif tool_name in ['base_tablePreview', 'qlty_columnSummary', 'base_tableList', 'base_columnDescription', 'read_query_sqlalchemy']:
-                final_html += self._render_table(tool_result, i, f"Query Result")
-            elif "results" in tool_result:
+            elif tool_name and "results" in tool_result:
                  final_html += self._render_table(tool_result, i, f"Result for {tool_name}")
 
         if not final_html.strip():
@@ -228,7 +267,7 @@ class OutputFormatter:
         return final_html
 
 async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -> str:
-    if not llm: raise RuntimeError("LLM is not initialized. Please configure the LLM provider in the settings.")
+    if not llm: raise RuntimeError("LLM is not initialized.")
     
     llm_logger = logging.getLogger("llm_conversation")
     try:
@@ -246,9 +285,7 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -
         response = await chat_session.send_message_async(prompt)
 
         if not response or not hasattr(response, 'text'):
-            app.logger.error("LLM returned an empty or invalid response.")
-            llm_logger.error("--- RESPONSE (Empty or Invalid) ---\n" + "-"*50 + "\n")
-            return "Error: The language model returned an empty response."
+            raise RuntimeError("LLM returned an empty or invalid response.")
 
         response_text = response.text.strip()
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
@@ -261,47 +298,67 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -
 async def invoke_mcp_tool(command: dict) -> any:
     global mcp_client
     if not mcp_client:
-        return {"error": "MCP client is not connected. Please configure the connection first."}
+        return {"error": "MCP client is not connected."}
 
     tool_name = command.get("tool_name")
     args = command.get("arguments", command.get("parameters", {}))
 
-    if 'database_name' in args: args['db_name'] = args.pop('database_name')
-    if 'database' in args: args['db_name'] = args.pop('database')
-    if 'table' in args: args['table_name'] = args.pop('table')
+    # Determine which server to call
+    server_name = "teradata_mcp_server"
+    if tool_name in mcp_charts:
+        server_name = "chart_mcp_server"
+    elif tool_name not in mcp_tools:
+        return {"error": f"Tool '{tool_name}' not found in any connected server."}
 
-    LEGACY_TOOLS_MISSING_DB_PARAM = [
-        "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
-        "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
-        "qlty_rowsWithMissingValues"
-    ]
+    # Shim for legacy Teradata tools
+    if server_name == "teradata_mcp_server":
+        # Argument name normalization
+        if 'database_name' in args: args['db_name'] = args.pop('database_name')
+        if 'database' in args: args['db_name'] = args.pop('database')
+        if 'table' in args: args['table_name'] = args.pop('table')
 
-    if tool_name in LEGACY_TOOLS_MISSING_DB_PARAM:
-        app.logger.warning(f"Applying legacy tool shim for '{tool_name}'.")
-        db_name = args.get("db_name")
-        table_name = args.get("table_name")
-        if db_name and table_name and '.' not in table_name:
-            args["table_name"] = f"{db_name}.{table_name}"
-            app.logger.info(f"Shim modified 'table_name' to: '{args['table_name']}'")
-            if 'db_name' in args: del args["db_name"]
+        # FIX: Shim for col_name vs column_name
+        LEGACY_COL_NAME_TOOLS = [
+            "qlty_distinctCategories", "qlty_standardDeviation",
+            "qlty_univariateStatistics", "qlty_rowsWithMissingValues"
+        ]
+        if tool_name in LEGACY_COL_NAME_TOOLS:
+            if 'column_name' in args and 'col_name' not in args:
+                args['col_name'] = args.pop('column_name')
+
+        # Table name concatenation shim
+        LEGACY_TOOLS_MISSING_DB_PARAM = [
+            "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
+            "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
+            "qlty_rowsWithMissingValues"
+        ]
+        if tool_name in LEGACY_TOOLS_MISSING_DB_PARAM:
+            db_name = args.get("db_name")
+            table_name = args.get("table_name")
+            if db_name and table_name and '.' not in table_name:
+                args["table_name"] = f"{db_name}.{table_name}"
+                if 'db_name' in args: del args["db_name"]
     
     try:
-        app.logger.info(f"Creating temporary session to invoke tool '{tool_name}'")
-        async with mcp_client.session("mcp_server") as temp_session:
+        app.logger.info(f"Creating temporary session on '{server_name}' to invoke tool '{tool_name}'")
+        async with mcp_client.session(server_name) as temp_session:
             call_tool_result = await temp_session.call_tool(tool_name, args)
-            app.logger.info(f"Successfully invoked tool. Raw response: {call_tool_result}")
+            app.logger.info(f"Successfully invoked tool '{tool_name}'. Raw response: {call_tool_result}")
             
             if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
                 text_content = call_tool_result.content[0]
                 if hasattr(text_content, 'text') and isinstance(text_content.text, str):
                     try:
-                        return json.loads(text_content.text)
+                        parsed_json = json.loads(text_content.text)
+                        # If the tool call was to the chart server, wrap the result
+                        if server_name == "chart_mcp_server":
+                            return {"type": "chart", "spec": parsed_json, "metadata": {"tool_name": tool_name}}
+                        return parsed_json
                     except json.JSONDecodeError:
                         app.logger.error(f"Tool '{tool_name}' returned a string that is not valid JSON: {text_content.text}")
                         return {"error": "Tool returned non-JSON string", "data": text_content.text}
             
-            app.logger.error(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
-            return {"error": "Unexpected tool result format from MCP server."}
+            raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
     except Exception as e:
         app.logger.error(f"Error during tool invocation for '{tool_name}': {e}", exc_info=True)
         return {"error": f"An exception occurred while invoking tool '{tool_name}'."}
@@ -383,11 +440,9 @@ class PlanExecutor:
             if 'db_name' in arguments and 'database_name' not in arguments: arguments['database_name'] = arguments.pop('db_name')
 
             if not mcp_client:
-                yield _format_sse({"error": "MCP client is not connected."}, "error")
-                self.state = AgentState.ERROR
-                return
+                raise RuntimeError("MCP client is not connected.")
 
-            async with mcp_client.session("mcp_server") as temp_session:
+            async with mcp_client.session("teradata_mcp_server") as temp_session:
                 get_prompt_result = await temp_session.get_prompt(name=prompt_name, arguments=arguments)
             
             self.active_prompt_plan = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') else str(get_prompt_result)
@@ -420,7 +475,7 @@ class PlanExecutor:
             plan_text = self.active_prompt_plan.lower()
             is_iterative_plan = any(keyword in plan_text for keyword in ["cycle through", "for each", "iterate"])
             
-            if is_iterative_plan and tool_name == "base_tableList" and tool_result.get("status") == "success":
+            if is_iterative_plan and tool_name == "base_tableList" and isinstance(tool_result, dict) and tool_result.get("status") == "success":
                 items_to_iterate = [res.get("TableName") for res in tool_result.get("results", []) if res.get("TableName")]
                 if items_to_iterate:
                     self.iteration_context = {
@@ -441,40 +496,38 @@ class PlanExecutor:
         db_name = base_args.get("db_name")
         table_name = base_args.get("table_name")
 
-        yield _format_sse({"step": f"Column tool detected: {tool_name}", "details": "Fetching column list to begin iteration."})
+        # FIX: Check if a specific column was already provided by the LLM
+        specific_column = base_args.get("col_name") or base_args.get("column_name")
+        if specific_column:
+            yield _format_sse({"step": f"Executing for specific column: {specific_column}", "details": base_command}, "tool_result")
+            col_result = await invoke_mcp_tool(base_command)
+            yield _format_sse({"step": f"Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
+            self.collected_data.append(col_result)
+            tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
+            yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
+            await self._get_next_action_from_llm(tool_result_str=tool_result_str)
+            return # Exit the function after single execution
 
+        # If no specific column, proceed with iteration logic
+        yield _format_sse({"step": f"Column tool detected: {tool_name}", "details": "Fetching column list to begin iteration."})
         cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
         cols_result = await invoke_mcp_tool(cols_command)
 
-        if not (cols_result and cols_result.get('status') == 'success' and cols_result.get('results')):
+        if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
             raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
         
         all_columns = cols_result.get('results', [])
-        
         columns_to_iterate = all_columns
-        required_types = TOOL_COLUMN_TYPE_REQUIREMENTS.get(tool_name)
-        if required_types:
-            yield _format_sse({"step": "Filtering columns", "details": f"Tool {tool_name} requires types: {required_types}. Applying filter."})
-            columns_to_iterate = [col for col in all_columns if col.get("CType") in required_types]
-            yield _format_sse({"step": "Column list filtered", "details": f"Found {len(columns_to_iterate)} compatible columns to process."})
-        else:
-            yield _format_sse({"step": "Column list retrieved", "details": f"Found {len(all_columns)} columns to process."})
-
+        
         all_column_results = []
         for column_info in columns_to_iterate:
             col_name = column_info.get("ColumnName")
             iter_args = base_args.copy()
             iter_args['col_name'] = col_name
             
-            LEGACY_TOOLS_MISSING_DB_PARAM = [
-                "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
-                "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
-                "qlty_rowsWithMissingValues"
-            ]
-            if tool_name in LEGACY_TOOLS_MISSING_DB_PARAM:
-                if db_name and table_name and '.' not in table_name:
-                    iter_args["table_name"] = f"{db_name}.{table_name}"
-                    if 'db_name' in iter_args: del iter_args["db_name"]
+            if db_name and table_name and '.' not in table_name:
+                iter_args["table_name"] = f"{db_name}.{table_name}"
+                if 'db_name' in iter_args: del iter_args["db_name"]
 
             iter_command = {"tool_name": tool_name, "arguments": iter_args}
 
@@ -645,6 +698,12 @@ async def get_resources_route():
     if not mcp_client: return jsonify({"error": "Not configured"}), 400
     return jsonify(structured_resources)
 
+@app.route("/charts")
+async def get_charts():
+    if not APP_CONFIG.CHART_MCP_CONNECTED: return jsonify({"error": "Chart server not connected"}), 400
+    return jsonify(structured_charts)
+
+
 @app.route("/sessions", methods=["GET"])
 async def get_sessions():
     session_summaries = [
@@ -660,32 +719,36 @@ async def get_session_history(session_id):
         return jsonify(SESSIONS[session_id]["history"])
     return jsonify({"error": "Session not found"}), 404
 
+def get_full_system_prompt(base_prompt_text, charting_intensity_val):
+    global tools_context, prompts_context, charts_context
+    chart_instructions = CHARTING_INSTRUCTIONS.get(charting_intensity_val, CHARTING_INSTRUCTIONS['none'])
+    
+    final_charts_context = charts_context if APP_CONFIG.CHART_MCP_CONNECTED else CHARTING_INSTRUCTIONS['none']
+
+    return base_prompt_text.format(
+        charting_instructions=chart_instructions,
+        tools_context=tools_context,
+        prompts_context=prompts_context,
+        charts_context=final_charts_context
+    )
+
 @app.route("/session", methods=["POST"])
 async def new_session():
     global llm
-    if not llm or not mcp_client:
+    if not llm or not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     
-    data = await request.get_json(silent=True)
-    if data is None:
-        app.logger.error("Request to /session received with no JSON body.")
-        return jsonify({"error": "Request to create session must include a JSON body."}), 400
-
+    data = await request.get_json()
     system_prompt_from_client = data.get("system_prompt")
-    if not system_prompt_from_client:
-        return jsonify({"error": "A system prompt is required to start a session."}), 400
+    charting_intensity = data.get("charting_intensity", "none")
     
     try:
         session_id = str(uuid.uuid4())
-        
-        final_system_prompt = system_prompt_from_client.format(
-            tools_context=tools_context or "--- No Tools Available ---",
-            prompts_context=prompts_context or "--- No Prompts Available ---"
-        )
+        final_system_prompt = get_full_system_prompt(system_prompt_from_client, charting_intensity)
         
         initial_history = [
             {"role": "user", "parts": [{"text": final_system_prompt}]},
-            {"role": "model", "parts": [{"text": "Understood. I will follow all instructions, paying special attention to context, parameter inference, tool arguments, and SQL generation rules."}]}
+            {"role": "model", "parts": [{"text": "Understood. I will follow all instructions."}]}
         ]
         SESSIONS[session_id] = {
             "chat": llm.start_chat(history=initial_history),
@@ -693,7 +756,7 @@ async def new_session():
             "name": "New Chat",
             "created_at": datetime.now().isoformat()
         }
-        app.logger.info(f"Created new session: {session_id}")
+        app.logger.info(f"Created new session: {session_id} with charting: {charting_intensity}")
         return jsonify({"session_id": session_id, "name": SESSIONS[session_id]["name"]})
     except Exception as e:
         app.logger.error(f"Failed to create new session: {e}", exc_info=True)
@@ -712,8 +775,6 @@ async def ask_stream():
         if session_id not in SESSIONS:
             yield _format_sse({"error": "Invalid or expired session ID"}, "error")
             return
-
-        app.logger.info(f"Received stream request for session {session_id}: {user_input}")
 
         try:
             SESSIONS[session_id]['history'].append({'role': 'user', 'content': user_input})
@@ -790,218 +851,181 @@ def classify_prompt_scopes(prompts: list) -> dict:
     return scopes
 
 
-async def load_and_categorize_resources():
+async def load_and_categorize_teradata_resources():
     global tools_context, structured_tools, structured_prompts, prompts_context, mcp_tools, mcp_prompts, tool_scopes
     
     if not mcp_client:
         raise Exception("MCP Client not initialized.")
 
-    async with mcp_client.session("mcp_server") as temp_session:
-        app.logger.info("--- MCP CLIENT SESSION ACTIVE (for loading) ---")
-        
-        app.logger.info("--- Loading tools, prompts, and resources from MCP server... ---")
+    async with mcp_client.session("teradata_mcp_server") as temp_session:
+        app.logger.info("--- Loading Teradata tools and prompts... ---")
         
         loaded_tools = await load_mcp_tools(temp_session)
-        app.logger.info(f"Successfully loaded {len(loaded_tools)} tools.")
-        if not loaded_tools:
-            raise Exception("No tools were loaded from the server.")
-
         mcp_tools = {tool.name: tool for tool in loaded_tools}
-        
-        app.logger.info("\n--- Pre-classifying tool scopes using deterministic logic ---")
         tool_scopes = classify_tool_scopes(loaded_tools)
-        app.logger.info("Successfully classified tool scopes.")
-        
-        scoped_tools_categorized = {"database": [], "table": [], "column": []}
-        for tool in loaded_tools:
-            scope = tool_scopes.get(tool.name, "table")
-            scoped_tools_categorized[scope].append(f"- `{tool.name}`: {tool.description}")
-
-        tools_context = "--- Available Tools by Scope ---\n\n"
-        if scoped_tools_categorized["database"]: tools_context += "## Database Level Tools\n" + "\n".join(scoped_tools_categorized["database"]) + "\n\n"
-        if scoped_tools_categorized["table"]: tools_context += "## Table Level Tools\n" + "\n".join(scoped_tools_categorized["table"]) + "\n\n"
-        if scoped_tools_categorized["column"]: tools_context += "## Column Level Tools\n" + "\n".join(scoped_tools_categorized["column"]) + "\n\n"
+        tools_context = "--- Available Tools ---\n" + "\n".join([f"- `{tool.name}`: {tool.description}" for tool in loaded_tools])
 
         loaded_prompts = []
         try:
+            # FIX: Revert to using the correct list_prompts() method
             list_prompts_result = await temp_session.list_prompts()
             loaded_prompts = list_prompts_result.prompts
-            app.logger.info(f"Successfully loaded {len(loaded_prompts)} prompts.")
+            if loaded_prompts:
+                mcp_prompts = {prompt.name: prompt for prompt in loaded_prompts}
+                prompts_context = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description}" for p in loaded_prompts])
+                app.logger.info(f"Successfully loaded {len(loaded_prompts)} prompts.")
+            else:
+                app.logger.warning("Prompt loading from Teradata server returned an empty list.")
+                prompts_context = "--- No Prompts Available ---"
         except Exception as e:
-            app.logger.warning(f"WARNING: Could not load prompts. Error: {e}")
-
-        if loaded_prompts:
-            mcp_prompts = {prompt.name: prompt for prompt in loaded_prompts}
-            prompt_scopes = classify_prompt_scopes(loaded_prompts)
-            scoped_prompts_categorized = {"database": [], "table": [], "general": []}
-            for prompt in loaded_prompts:
-                scope = prompt_scopes.get(prompt.name, "general")
-                scoped_prompts_categorized[scope].append(f"- `{prompt.name}`: {prompt.description}")
-            
-            prompts_context = "--- Available Prompts by Scope ---\n\n"
-            if scoped_prompts_categorized["database"]: prompts_context += "## Database Level Prompts\n" + "\n".join(scoped_prompts_categorized["database"]) + "\n\n"
-            if scoped_prompts_categorized["table"]: prompts_context += "## Table Level Prompts\n" + "\n".join(scoped_prompts_categorized["table"]) + "\n\n"
-            if scoped_prompts_categorized["general"]: prompts_context += "## General Prompts\n" + "\n".join(scoped_prompts_categorized["general"]) + "\n\n"
-        else:
+            app.logger.error(f"CRITICAL: Could not load prompts from Teradata MCP server. Error: {e}", exc_info=True)
             prompts_context = "--- No Prompts Available ---"
 
-        app.logger.info("\n--- Categorizing tools for UI using the LLM ---")
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
-        
         categorization_prompt = (
             "You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. "
             "Your response MUST be a single, valid JSON object. The keys should be the category names, "
             "and the values should be an array of tool names belonging to that category.\n\n"
-            "Example Format:\n"
-            "{\n  \"Database & Schema\": [\"tool_db_create\"],\n  \"Data Quality\": [\"qlty_columnSummary\"]\n}\n\n"
-            "--- Tool List ---\n"
-            f"{tool_list_for_prompt}"
+            f"--- Tool List ---\n{tool_list_for_prompt}"
         )
         
         categorized_tools_str = await call_llm_api(categorization_prompt)
         try:
             cleaned_str = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL).group(0)
             categorized_tools = json.loads(cleaned_str)
-            
             structured_tools = {category: [{"name": name, "description": mcp_tools[name].description} for name in tool_names if name in mcp_tools] for category, tool_names in categorized_tools.items()}
-            app.logger.info("Successfully categorized tools for UI.")
         except Exception as e:
-            app.logger.warning(f"Warning: Could not categorize tools for UI. Error: {e}")
+            app.logger.warning(f"Could not categorize tools for UI. Error: {e}")
             structured_tools = {"All Tools": [{"name": tool.name, "description": tool.description} for tool in loaded_tools]}
         
         if loaded_prompts:
-            app.logger.info("\n--- Categorizing prompts using the LLM ---")
             serializable_prompts = [{"name": p.name, "description": p.description, "arguments": [arg.model_dump() for arg in p.arguments]} for p in loaded_prompts]
             prompt_list_for_prompt = "\n".join([f"- {p['name']}: {p['description']}" for p in serializable_prompts])
-            
             categorization_prompt_for_prompts = (
                 "You are a helpful assistant that organizes lists of technical prompts for a **Teradata database system** into logical categories for a user interface. "
-                "Your response MUST be a single, valid JSON object. The keys should be the category names, "
-                "and the values should be an array of prompt names belonging to that category.\n\n"
-                "Example Format:\n"
-                "{\n  \"Database Analysis\": [\"dba_databaseLineage\"],\n  \"Impact Analysis\": [\"dba_tableDropImpact\"]\n}\n\n"
-                "--- Prompt List ---\n"
-                f"{prompt_list_for_prompt}"
+                "Your response MUST be a single, valid JSON object.\n\n"
+                f"--- Prompt List ---\n{prompt_list_for_prompt}"
             )
             categorized_prompts_str = await call_llm_api(categorization_prompt_for_prompts)
             try:
                 cleaned_str = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL).group(0)
                 categorized_prompts = json.loads(cleaned_str)
                 structured_prompts = {category: [p for p in serializable_prompts if p['name'] in prompt_names] for category, prompt_names in categorized_prompts.items()}
-                app.logger.info("Successfully categorized prompts.")
             except Exception as e:
-                app.logger.warning(f"Warning: Could not categorize prompts. Error: {e}")
+                app.logger.warning(f"Could not categorize prompts. Error: {e}")
                 structured_prompts = { "All Prompts": serializable_prompts }
 
+async def load_and_categorize_chart_resources():
+    global charts_context, structured_charts, mcp_charts
+    if not mcp_client or not APP_CONFIG.CHART_MCP_CONNECTED:
+        raise Exception("Chart MCP Client not initialized or connected.")
 
-# --- NEW AND MODIFIED ENDPOINTS ---
+    async with mcp_client.session("chart_mcp_server") as temp_session:
+        app.logger.info("--- Loading Chart tools... ---")
+        loaded_charts = await load_mcp_tools(temp_session)
+        # Add diagnostic logging
+        app.logger.info(f"Found {len(loaded_charts)} chart tools from the chart server.")
+        if not loaded_charts:
+            app.logger.warning("The chart server returned 0 tools. Please ensure it is configured correctly.")
+
+        mcp_charts = {tool.name: tool for tool in loaded_charts}
+        charts_context = "--- Available Chart Tools ---\n" + "\n".join([f"- `{tool.name}`: {tool.description}" for tool in loaded_charts])
+        
+        if not loaded_charts:
+            structured_charts = {}
+            return
+
+        chart_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_charts])
+        categorization_prompt = (
+            "You are a helpful assistant that organizes lists of charting tools into logical categories for a user interface. "
+            "Your response MUST be a single, valid JSON object.\n\n"
+            f"--- Chart Tool List ---\n{chart_list_for_prompt}"
+        )
+        categorized_charts_str = await call_llm_api(categorization_prompt)
+        try:
+            cleaned_str = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL).group(0)
+            categorized_charts = json.loads(cleaned_str)
+            structured_charts = {category: [{"name": name, "description": mcp_charts[name].description} for name in tool_names if name in mcp_charts] for category, tool_names in categorized_charts.items()}
+        except Exception as e:
+            app.logger.warning(f"Could not categorize charts for UI. Error: {e}")
+            structured_charts = {"All Charts": [{"name": tool.name, "description": tool.description} for tool in loaded_charts]}
 
 @app.route("/system_prompt/<model_name>", methods=["GET"])
 async def get_default_system_prompt(model_name):
-    """Returns the default system prompt for a given model."""
-    prompt = DEFAULT_SYSTEM_PROMPTS.get(model_name)
-    if prompt:
-        return jsonify({"status": "success", "system_prompt": prompt})
-    else:
-        fallback_prompt = DEFAULT_SYSTEM_PROMPTS.get(CERTIFIED_MODEL, "No default prompt available.")
-        return jsonify({"status": "fallback", "system_prompt": fallback_prompt})
-
-
-async def get_models_for_provider(provider: str, api_key: str):
-    """Fetches a list of available models for a given provider."""
-    if provider == "Google":
-        if not api_key:
-            raise ValueError("API Key is required to fetch Google models.")
-        try:
-            genai.configure(api_key=api_key)
-            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            clean_models = [name.split('/')[-1] for name in models]
-            
-            structured_model_list = []
-            for model_name in clean_models:
-                is_certified = APP_CONFIG.MODELS_UNLOCKED or model_name == CERTIFIED_MODEL
-                structured_model_list.append({"name": model_name, "certified": is_certified})
-            
-            return structured_model_list
-        except Exception as e:
-            app.logger.error(f"Failed to fetch Google models: {e}")
-            if "API key not valid" in str(e):
-                raise ValueError("The provided Google API Key is not valid.")
-            raise ConnectionError("Could not connect to Google API to fetch models.")
-    else:
-        raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
+    charting_intensity_val = request.args.get("charting_intensity", "medium")
+    final_prompt = get_full_system_prompt(BASE_SYSTEM_PROMPT, charting_intensity_val)
+    return jsonify({"status": "success", "system_prompt": final_prompt})
 
 @app.route("/models", methods=["POST"])
 async def get_models():
-    """Endpoint to dynamically fetch models for a provider."""
     try:
         data = await request.get_json()
-        provider = data.get("provider")
         api_key = data.get("apiKey")
-        models = await get_models_for_provider(provider, api_key)
-        return jsonify({"status": "success", "models": models})
-    except (ValueError, NotImplementedError, ConnectionError) as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        genai.configure(api_key=api_key)
+        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        clean_models = [name.split('/')[-1] for name in models]
+        structured_model_list = [{"name": name, "certified": APP_CONFIG.MODELS_UNLOCKED or name == CERTIFIED_MODEL} for name in clean_models]
+        return jsonify({"status": "success", "models": structured_model_list})
     except Exception as e:
-        app.logger.error(f"Unexpected error fetching models: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": "An unexpected server error occurred."}), 500
-
-
-async def initialize_llm(provider: str, model: str, api_key: str):
-    """Initializes the global LLM client based on provider and credentials."""
-    global llm
-    if provider == "Google":
-        if not api_key:
-            raise ValueError("API Key is required for Google provider.")
-        try:
-            genai.configure(api_key=api_key)
-            temp_llm = genai.GenerativeModel(model)
-            await temp_llm.generate_content_async("test", generation_config={"max_output_tokens": 5})
-            llm = temp_llm
-            app.logger.info(f"Successfully initialized and tested Google LLM model: {model}")
-            return True, "LLM connection successful."
-        except Exception as e:
-            llm = None
-            app.logger.error(f"Failed to initialize Google LLM: {e}", exc_info=True)
-            error_str = str(e)
-            if "API key not valid" in error_str:
-                raise ValueError("The provided Google API Key is not valid. Please check and try again.")
-            raise ValueError(f"LLM connection failed: {e}")
-    else:
-        raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 @app.route("/configure", methods=["POST"])
 async def configure_services():
-    """A unified endpoint to configure both MCP and LLM services."""
-    global mcp_client, llm
+    global mcp_client, llm, SERVER_CONFIGS
     data = await request.get_json()
     
-    llm_provider = data.get("provider")
-    llm_model = data.get("model")
-    llm_api_key = data.get("apiKey")
-    
     try:
-        await initialize_llm(llm_provider, llm_model, llm_api_key)
-    except (ValueError, NotImplementedError) as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        # LLM Config
+        genai.configure(api_key=data.get("apiKey"))
+        llm = genai.GenerativeModel(data.get("model"))
+        await llm.generate_content_async("test")
+        
+        # Teradata MCP Config
+        mcp_server_url = f"http://{data.get('host')}:{data.get('port')}{data.get('path')}"
+        SERVER_CONFIGS = {'teradata_mcp_server': {"url": mcp_server_url, "transport": "streamable_http"}}
+        
+        mcp_client = MultiServerMCPClient(SERVER_CONFIGS)
+        
+        await load_and_categorize_teradata_resources()
+        APP_CONFIG.TERADATA_MCP_CONNECTED = True
+        return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
     except Exception as e:
-        return jsonify({"status": "error", "message": f"An unexpected error occurred during LLM initialization: {e}"}), 500
-
-    mcp_host = data.get("host", "127.0.0.1")
-    mcp_port = data.get("port", "8001")
-    mcp_path = data.get("path", "/mcp/")
-    
-    mcp_server_url = f"http://{mcp_host}:{mcp_port}{mcp_path}"
-    mcp_client = MultiServerMCPClient({"mcp_server": {"url": mcp_server_url, "transport": "streamable_http"}})
-    
-    try:
-        await load_and_categorize_resources()
-        return jsonify({"status": "success", "message": "MCP and LLM configured successfully."})
-    except Exception as e:
-        app.logger.error(f"Failed to load MCP resources after LLM init: {e}", exc_info=True)
         llm = None
         mcp_client = None
-        return jsonify({"status": "error", "message": f"LLM connection succeeded, but failed to load MCP resources: {e}"}), 500
+        SERVER_CONFIGS = {}
+        APP_CONFIG.TERADATA_MCP_CONNECTED = False
+        app.logger.error(f"Configuration failed: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Configuration failed: {e}"}), 500
+
+@app.route("/configure_chart", methods=["POST"])
+async def configure_chart_service():
+    global mcp_client, SERVER_CONFIGS
+    if not APP_CONFIG.TERADATA_MCP_CONNECTED:
+        return jsonify({"status": "error", "message": "Main MCP client not configured. Please connect to Teradata & LLM first."}), 400
+    
+    data = await request.get_json()
+    try:
+        chart_server_url = f"http://{data.get('chart_host')}:{data.get('chart_port')}{data.get('chart_path')}"
+        SERVER_CONFIGS['chart_mcp_server'] = {"url": chart_server_url, "transport": "streamable_http"}
+        
+        # Re-initialize the client with both server configurations
+        mcp_client = MultiServerMCPClient(SERVER_CONFIGS)
+        
+        APP_CONFIG.CHART_MCP_CONNECTED = True
+        
+        # Test connection by loading resources from the chart server
+        await load_and_categorize_chart_resources()
+        
+        return jsonify({"status": "success", "message": "Chart MCP server configured successfully."})
+    except Exception as e:
+        # If chart connection fails, remove it from configs and re-initialize client with just Teradata
+        if 'chart_mcp_server' in SERVER_CONFIGS:
+            del SERVER_CONFIGS['chart_mcp_server']
+        mcp_client = MultiServerMCPClient(SERVER_CONFIGS)
+        
+        APP_CONFIG.CHART_MCP_CONNECTED = False
+        app.logger.error(f"Chart configuration failed: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Chart server connection failed: {e}"}), 500
 
 @app.after_serving
 async def shutdown():
