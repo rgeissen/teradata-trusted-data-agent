@@ -1,4 +1,4 @@
-2025-07-28 15:23:24,448 - --- Current User Prompt ---
+2025-07-28 17:30:00,271 - --- Current User Prompt ---
 You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. Your response MUST be a single, valid JSON object. The keys should be the category names, and the values should be an array of tool names belonging to that category.
 
 --- Tool List ---
@@ -329,86 +329,88 @@ You are a helpful assistant that organizes lists of technical tools for a **Tera
 - fs_getAvailableEntities: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
 - fs_createDataset: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
 
-2025-07-28 15:23:28,928 - --- RESPONSE ---
+2025-07-28 17:30:05,901 - --- RESPONSE ---
 ```json
 {
-  "Database Metadata": [
-    "base_columnDescription",
-    "base_tableDDL",
-    "base_tablePreview",
-    "base_tableList",
-    "base_databaseList",
-    "dba_databaseVersion",
+  "Database Administration": [
     "dba_databaseSpace",
-    "dba_tableSpace",
-    "fs_getFeatureStoreConfig",
-    "fs_isFeatureStorePresent",
-    "fs_featureStoreContent",
-    "fs_getFeatureDataModel"
-  ],
-  "Database Querying": [
-    "base_readQuery",
-    "get_cube_sales_cube",
-    "get_cube_cust_cube_db_space_metrics"
-  ],
-  "Database Usage & Performance": [
-    "base_tableAffinity",
-    "base_tableUsage",
     "dba_resusageSummary",
+    "dba_tableSpace",
+    "dba_tableSqlList",
     "dba_tableUsageImpact",
-    "dba_userDelay",
+    "dba_userSqlList",
+    "dba_databaseVersion",
     "dba_flowControl",
     "dba_featureUsage",
-    "cust_activeUsers",
-    "cust_td_serverInfo",
-    "dba_sessionInfo"
+    "dba_userDelay",
+    "dba_sessionInfo",
+    "base_databaseList"
   ],
-  "SQL History & Auditing": [
-    "dba_tableSqlList",
-    "dba_userSqlList"
-  ],
-  "Data Quality": [
+  "Table & Column Exploration": [
+    "base_columnDescription",
+    "base_tableAffinity",
+    "base_tableDDL",
+    "base_tablePreview",
+    "base_tableUsage",
     "qlty_columnSummary",
     "qlty_distinctCategories",
     "qlty_missingValues",
     "qlty_negativeValues",
     "qlty_rowsWithMissingValues",
     "qlty_standardDeviation",
-    "qlty_univariateStatistics"
+    "qlty_univariateStatistics",
+    "base_tableList"
   ],
-  "Security": [
+  "Query & Execution": [
+    "base_readQuery"
+  ],
+  "Security & Access Control": [
     "sec_rolePermissions",
     "sec_userDbPermissions",
     "sec_userRoles"
-  ],
-  "Feature Store Management": [
-    "fs_setFeatureStoreConfig",
-    "fs_getDataDomains",
-    "fs_getFeatures",
-    "fs_getAvailableDatasets",
-    "fs_getAvailableEntities",
-    "fs_createDataset"
-  ],
-  "RAG (Retrieval Augmented Generation)": [
-    "rag_executeWorkflow",
-    "rag_executeWorkflow_ivsm",
-    "evs_similarity_search"
   ],
   "Sales & Customer Analytics": [
     "sales_top_customers",
     "sales_customer_profile"
   ],
-  "Template": [
+  "Cube Queries": [
+    "get_cube_sales_cube",
+    "get_cube_cust_cube_db_space_metrics"
+  ],
+  "User & System Information": [
+    "cust_activeUsers",
+    "cust_td_serverInfo"
+  ],
+  "RAG (Retrieval Augmented Generation)": [
+    "rag_executeWorkflow",
+    "rag_executeWorkflow_ivsm"
+  ],
+  "Vector Similarity Search": [
+    "evs_similarity_search"
+  ],
+  "Template Tools": [
     "tmpl_nameOfTool"
   ],
-  "Connection Management":[
+  "Feature Store Management": [
+    "fs_setFeatureStoreConfig",
+    "fs_getFeatureStoreConfig",
+    "fs_isFeatureStorePresent",
+    "fs_featureStoreContent",
+    "fs_getDataDomains",
+    "fs_getFeatures",
+    "fs_getAvailableDatasets",
+    "fs_getFeatureDataModel",
+    "fs_getAvailableEntities",
+    "fs_createDataset"
+  ],
+  "Connection Management": [
     "reconnect_to_database"
   ]
 }
 ```
 --------------------------------------------------
 
-2025-07-28 15:23:28,937 - --- Current User Prompt ---
+2025-07-28 17:30:05,916 - --- Current User Prompt ---
 You are a helpful assistant that organizes lists of technical prompts for a **Teradata database system** into logical categories for a user interface. Your response MUST be a single, valid JSON object. The keys should be the category names, and the values should be an array of prompt names belonging to that category.
 
 --- Prompt List ---
@@ -430,7 +432,7 @@ You are a helpful assistant that organizes lists of technical prompts for a **Te
 - base_tableBusinessDesc: You are a Teradata DBA who is an expert in describing the business use of tables in a database.
 - base_databaseBusinessDesc: You are a Teradata DBA who is an expert in describing the business use of databases.
 
-2025-07-28 15:23:31,624 - --- RESPONSE ---
+2025-07-28 17:30:07,934 - --- RESPONSE ---
 ```json
 {
   "Database Administration": [
@@ -442,7 +444,7 @@ You are a helpful assistant that organizes lists of technical prompts for a **Te
     "base_tableBusinessDesc",
     "base_databaseBusinessDesc"
   ],
-  "Testing & Quality Assurance": [
+  "Testing and Quality Assurance": [
     "test_secTools",
     "test_dbaTools",
     "test_ragTools",
@@ -455,7 +457,7 @@ You are a helpful assistant that organizes lists of technical prompts for a **Te
   "Retrieval-Augmented Generation (RAG)": [
     "rag_guidelines"
   ],
-  "Basic Queries & Interactions": [
+  "Basic User Queries": [
     "base_query"
   ],
   "Sales": [
@@ -468,7 +470,7 @@ You are a helpful assistant that organizes lists of technical prompts for a **Te
 ```
 --------------------------------------------------
 
-2025-07-28 15:23:39,722 - --- Current User Prompt ---
+2025-07-28 17:31:13,651 - --- Current User Prompt ---
 You are a helpful assistant that organizes lists of charting tools into logical categories for a user interface. Your response MUST be a single, valid JSON object where each key is a category name and its value is an object containing a 'description' and a 'tools' array of tool names.
 
 --- Chart Tool List ---
@@ -498,7 +500,7 @@ You are a helpful assistant that organizes lists of charting tools into logical 
 - generate_violin_chart: Generate a violin chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
 - generate_word_cloud_chart: Generate a word cloud chart to show word frequency or weight through text size variation, such as, analyzing common words in social media, reviews, or feedback.
 
-2025-07-28 15:23:43,563 - --- RESPONSE ---
+2025-07-28 17:31:17,596 - --- RESPONSE ---
 ```json
 {
   "Basic Charts": {
@@ -513,28 +515,42 @@ You are a helpful assistant that organizes lists of charting tools into logical 
     ]
   },
   "Statistical Charts": {
-    "description": "Charts for summarizing and comparing statistical data.",
+    "description": "Charts used to visualize statistical summaries and distributions.",
     "tools": [
       "generate_boxplot_chart",
       "generate_histogram_chart",
       "generate_violin_chart"
     ]
   },
+  "Comparison Charts": {
+    "description": "Charts that facilitate comparisons between different data points or categories.",
+    "tools": [
+      "generate_dual_axes_chart",
+      "generate_radar_chart",
+      "generate_treemap_chart"
+    ]
+  },
   "Flow & Relationship Charts": {
-    "description": "Charts that illustrate processes, connections, and hierarchies.",
+    "description": "Charts visualizing processes, flows, and relationships between data points.",
     "tools": [
       "generate_flow_diagram",
-      "generate_fishbone_diagram",
-      "generate_mind_map",
+      "generate_funnel_chart",
       "generate_network_graph",
-      "generate_organization_chart",
       "generate_sankey_chart",
-      "generate_treemap_chart",
       "generate_venn_chart"
     ]
   },
+  "Hierarchical & Structural Charts": {
+    "description": "Charts illustrating hierarchical data structures and organizations.",
+    "tools": [
+      "generate_fishbone_diagram",
+      "generate_mind_map",
+      "generate_organization_chart",
+      "generate_treemap_chart"
+    ]
+  },
   "Geographic Charts": {
-    "description": "Charts for visualizing location-based data.",
+    "description": "Charts visualizing data on maps.",
     "tools": [
       "generate_district_map",
       "generate_path_map",
@@ -544,10 +560,7 @@ You are a helpful assistant that organizes lists of charting tools into logical 
   "Specialized Charts": {
     "description": "Charts for specific data visualization needs.",
     "tools": [
-      "generate_dual_axes_chart",
-      "generate_funnel_chart",
       "generate_liquid_chart",
-      "generate_radar_chart",
       "generate_word_cloud_chart"
     ]
   }
@@ -555,7 +568,7 @@ You are a helpful assistant that organizes lists of charting tools into logical 
 ```
 --------------------------------------------------
 
-2025-07-28 15:23:55,097 - --- FULL CONTEXT (Session: 06460d98-45c0-40d0-b812-747f2767bee7) ---
+2025-07-28 17:31:46,668 - --- FULL CONTEXT (Session: 3476f88d-a144-4ca1-855d-4565f59e8220) ---
 --- History ---
 [user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
 
@@ -591,298 +604,72 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
 -   **Clarifying Question:** Only ask if information is truly missing.
 
 --- Available Tools ---
-- `base_columnDescription`: 
-    Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `base_readQuery`: Executes a SQL query to read from the database.
+- `base_writeQuery`: Executes a SQL query to write to the database.
+- `base_tableDDL`: Display table DDL definition.
+- `base_databaseList`: List all databases in the Teradata System.
+- `base_tableList`: List objects in a database.
+- `base_columnDescription`: Show detailed column information about a database table.
+- `base_tablePreview`: Get data samples and structure overview from a database table.
+- `base_tableAffinity`: Get tables commonly used together by database users, this is helpful to infer relationships between tables.
+- `base_tableUsage`: Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value.
+- `dba_userSqlList`: Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+- `dba_tableSqlList`: Get a list of SQL run against a table in the last number of days 
+- `dba_tableSpace`: Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided.
+- `dba_databaseSpace`: Get database space if database name is provided, otherwise get all databases space allocations.
+- `dba_databaseVersion`: Get Teradata database version information.
+- `dba_resusageSummary`: Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
+- `dba_resusageUserSummary`: Get the Teradata system usage summary metrics by user on a specified date, or day of week and hour of day.
+- `dba_flowControl`: Get the Teradata flow control metrics.
+- `dba_featureUsage`: Get the user feature usage metrics.
+- `dba_userDelay`: Get the Teradata user delay metrics.
+- `dba_tableUsageImpact`: Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
+- `dba_sessionInfo`: Get the Teradata session information for user.
+- `qlty_missingValues`: Get the column names that having missing values in a table.
+- `qlty_negativeValues`: Get the column names that having negative values in a table.
+- `qlty_distinctCategories`: Get the destinct categories from column in a table.
+- `qlty_standardDeviation`: Get the standard deviation from column in a table.
+- `qlty_columnSummary`: Get the column summary statistics for a table.
+- `qlty_univariateStatistics`: Get the univariate statistics for a table.
+- `qlty_rowsWithMissingValues`: Get the rows with missing values in a table.
+- `rag_setConfig`: 
+        Set the configuration for the current Retrieval-Augmented Generation (RAG) session.
+        This MUST be called before any other RAG-related tools.
 
-    Arguments:
-      db_name - Database name
-      obj_name - table or view name
+        The following values are hardcoded:
+        - query_table = 'user_query'
+        - query_embedding_store = 'user_query_embeddings'
+        - model_id = 'bge-small-en-v1.5'
 
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_readQuery`: 
-    Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+        You only need to provide the database locations:
+        - query_db: where user queries and query embeddings will be stored
+        - model_db: where the embedding model metadata is stored
+        - vector_db + vector_table: where PDF chunk embeddings are stored
 
-    Arguments:
-      sql    - SQL text, with optional bind-parameter placeholders
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tableAffinity`: 
-    Get tables commonly used together by database users, this is helpful to infer relationships between tables via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      db_name - Database name
-      object_name - table or view name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tableDDL`: 
-    Displays the DDL definition of a table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      db_name - Database name
-      table_name - table name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tablePreview`: 
-    This function returns data sample and inferred structure from a database table or view via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      table_name - table or view name
-      db_name - Database name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tableUsage`: 
-    Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      db_name - Database name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_databaseSpace`: 
-    Get database space if database name is provided, otherwise get all databases space allocations.
-
-    Arguments:
-      db_name - database name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_resusageSummary`: 
-    Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
-
-    Arguments:
-      dimensions - list of dimensions to aggregate the resource usage summary. All dimensions are: ["LogDate", "hourOfDay", "dayOfWeek", "workloadType", "workloadComplexity", "UserName", "AppId", "StatementType"]
-      user_name - user name
-      date - Date to analyze, formatted as `YYYY-MM-DD`
-      dayOfWeek - day of the week to analyze
-      hourOfDay - hour of day to analyze
-
-    
-- `dba_tableSpace`: 
-    Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
-
-    Arguments:
-      db_name - database name
-      table_name - table name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_tableSqlList`: 
-    Get a list of SQL run against a table in the last number of days.
-
-    Arguments:
-      table_name - table name
-      no_days - number of days
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_tableUsageImpact`: 
-    Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
-    
-    Arguments:
-      db_name - database name to analyze
-      user_name - user name to analyze
-
-    
-- `dba_userSqlList`: 
-    Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
-
-    Arguments:
-      user_name - user name
-      no_days - number of days
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `evs_similarity_search`: 
-    Enterprise Vector Store similarity search
-
-    Arguments:
-      question - the query string to search for
-      top_k - number of top results to return
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_columnSummary`: 
-    Get the column summary statistics for a table.
-
-    Arguments:
-      table_name - table name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_distinctCategories`: 
-    Get the destinct categories from column in a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_missingValues`: 
-    Get the column names that having missing values in a table.
-
-    Arguments:
-      table_name - table name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_negativeValues`: 
-    Get the column names that having negative values in a table.
-
-    Arguments:
-      table_name - table name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_rowsWithMissingValues`: 
-    Get the rows with missing values in a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_standardDeviation`: 
-    Get the standard deviation from column in a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_univariateStatistics`: 
-    Get the univariate statistics for a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `rag_executeWorkflow`: 
-    Execute complete RAG workflow to answer user questions based on document context.
-
-
-    This function handles the entire RAG pipeline:
-    1. Configuration setup (using configurable values from rag_config.yml)
-    2. Store user query (with /rag prefix stripping)
-    3. Generate query embeddings (tokenization + embedding)
-    4. Perform semantic search against chunk embeddings
-    5. Return retrieved context chunks for answer generation
-
-    The function uses configuration values from rag_config.yml with fallback defaults.
-
-    Arguments:
-      question - user question to process
-      k - number of top-k results to return (optional, uses config default if not provided)
-
-    Returns:
-      Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-    
-- `rag_executeWorkflow_ivsm`: 
-    Execute complete RAG workflow to answer user questions based on document context.
-
-    This function handles the entire RAG pipeline using IVSM functions:
-    1. Configuration setup (using configurable values from rag_config.yml)
-    2. Store user query (with /rag prefix stripping)
-    3. Tokenize query using ivsm.tokenizer_encode
-    4. Create embedding view using ivsm.IVSM_score
-    5. Convert embeddings to vector columns using ivsm.vector_to_columns
-    6. Perform semantic search against chunk embeddings
-
-    The function uses configuration values from rag_config.yml with fallback defaults.
-
-    Arguments:
-      question - user question to process
-      k - number of top-k results to return (optional, uses config default if not provided
-
-    Returns:
-      Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-    
-- `sec_rolePermissions`: 
-    Get permissions for a role.
-
-    Arguments:
-      role_name - role name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `sec_userDbPermissions`: 
-    Get permissions for a user.
-
-    Arguments:
-      user_name - user name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `sec_userRoles`: 
-    Get roles assigned to a user.
-
-    Arguments:
-      user_name - user name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `tmpl_nameOfTool`: 
-    <description of what the tool is for>
-
-    Arguments:
-      arguments - arguments to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `sales_top_customers`: Get the top 20 customers by lifetime value.
-- `sales_customer_profile`: Get customer profile and metrics.
-- `get_cube_sales_cube`: 
-    Tool to query the cube 'order_count'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - customer_key: Key for the customer
-    - sales_year: Year of the sale
-    - sales_month: Month of the sale
-
-        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
-    - gift_amount_usd: Total gift card amount used for the order in USD
-    - total_amount_usd: Total order amount in USD
-    - order_count: Total number of orders
-
-    Returns:
-        Query result as a formatted response.
-    
-- `cust_activeUsers`: Fetch currently active database users
-- `cust_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-- `get_cube_cust_cube_db_space_metrics`: 
+        Once this configuration is set, all other RAG tools will reuse it automatically.
+        
+- `rag_storeUserQuery`: Store a user's natural language question as the first step in a Retrieval-Augmented Generation (RAG) workflow.This tool should always be run **before any embedding or similarity search** steps.It inserts the raw question into a Teradata table specified by `db_name` and `table_name`. If the question starts with the prefix '/rag ', the prefix is automatically stripped before storage. Each question is appended as a new row with a generated ID and timestamp.If the specified table does not exist, it will be created with columns: `id`, `txt`, and `created_ts`.Returns the inserted row ID and cleaned question text.This tool is **only needed once per user question** — downstream embedding and vector search tools can then reference this ID or re-use the stored question text.
+- `rag_tokenizeQuery`: Tokenizes the latest user-submitted question using the tokenizer specified in the current RAG configuration. This tool must be used *after* calling 'configure_rag' (to initialize the config) and 'store_user_query' (to capture a user question). It selects the most recent row from the query table (e.g., 'pdf_topics_of_interest'), runs it through the ONNX tokenizer, and creates a temporary view '<query_db>.v_topics_tokenized' containing 'id', 'txt', 'input_ids', and 'attention_mask'. This view is used downstream to generate vector embeddings for similarity search.
+- `rag_createEmbeddingView`: Generates sentence embeddings for the most recent tokenized user query using the model specified in the RAG configuration. Reads from the view `<db>.v_topics_tokenized` and applies the ONNX model from `<model_db>.embeddings_models`. Creates or replaces the view `<db>.v_topics_embeddings` which includes the original input and a `sentence_embedding` column. This must be run *after* create_tokenized_view and before vector_to_columns().
+- `rag_createQueryEmbeddingTable`: Converts the sentence embedding from the view `v_topics_embeddings` into 384 vector columns using `ivsm.vector_to_columns`. Creates or replaces a physical table to store the latest query embeddings for use in similarity search. The table location is defined via `rag_set_config`. This tool must be run *after* `create_embedding_view` and before `semantic_search_chunks`.
+- `rag_semanticSearchChunks`: Retrieve top-k most relevant PDF chunks for the user's latest embedded query. This tool is part of the RAG workflow and should be called after the query has been embedded. If the RAG config has not been set, use `rag_set_config` first to define where queries, models, and chunk embeddings are stored. Uses cosine similarity via `TD_VECTORDISTANCE` to compare embeddings. Each result includes similarity score, chunk text, page number, chunk number, and document name.
+- `sec_userDbPermissions`: Get permissions for a user.
+- `sec_rolePermissions`: Get permissions for a role.
+- `sec_userRoles`: Get roles assigned to a user.
+- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
+- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
+- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
+- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
+- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
+- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
+- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
+- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
+- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
+- `get_cust_activeUsers`: Fetch currently active database users
+- `get_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+- `get_cube_cube_db_space_metrics`: 
     Tool to query the cube 'table_skew_pct'.
     Get the Teradata database space metrics for tables and databases
 
@@ -899,43 +686,19 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
     Returns:
         Query result as a formatted response.
     
-- `dba_databaseVersion`:  Get Teradata database version information.
-- `dba_flowControl`:  Get the Teradata flow control metrics.
-- `dba_featureUsage`: Get the user feature usage metrics.
-- `dba_userDelay`: Get the Teradata user delay metrics.
-- `dba_sessionInfo`: Get the Teradata session information for user.
-- `base_tableList`: Lists all tables in a database.
-- `base_databaseList`: Lists all databases in the Teradata System.
-- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
-- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
-- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
-- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
-- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
-- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
-- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
-- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
-- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
-- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
-- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
 
 --- Available Prompts ---
-- `sales_prompt`: my prompt description
+- `base_query`: Create a SQL query against the database
+- `base_tableBusinessDesc`: Create a business description of the table and columns.
+- `base_databaseBusinessDesc`: Create a business description of the database.
+- `dba_databaseHealthAssessment`: Create a database health assessment for a Teradata system.
+- `dba_userActivityAnalysis`: Create a user activity analysis for a Teradata system.
+- `dba_tableArchive`: Create a table archive strategy for database tables.
+- `dba_databaseLineage`: Create a database lineage map for tables in a database.
+- `dba_tableDropImpact`: Assess the impact of dropping a table.
+- `qlty_databaseQuality`: Assess the data quality of a database.
+- `rag_guidelines`: 
 - `cust_promptExample`: my prompt description
-- `test_secTools`: Test all the sec MCP tools.
-- `test_dbaTools`: Test all the DBA MCP tools.
-- `dba_tableArchive`: The following prompt is used to guide the Teradata DBA in finding opportunities for archiving data.
-- `dba_databaseLineage`: You are a Teradata DBA who is an expert in finding the lineage of tables in a database.
-- `dba_tableDropImpact`: You are a Teradata DBA who is an expert in finding the impact of dropping a table.
-- `dba_databaseHealthAssessment`: You are a Teradata DBA who is an expert in assessing the health of a database.
-- `dba_userActivityAnalysis`: Analyze Teradata user activity patterns for the past 7 days
-- `test_ragTools`: Test all the qlty MCP tools.
-- `rag_guidelines`: Guidelines for Retrieval-Augmented Generation (RAG) mode.
-- `test_qltyTools`: Test all the qlty MCP tools.
-- `qlty_databaseQuality`: Database data quality assessment.
-- `test_baseTools`: Test all base tools in the Teradata MCP server.
-- `base_query`: Help users interact with  Teradata databases effectively.
-- `base_tableBusinessDesc`: You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-- `base_databaseBusinessDesc`: You are a Teradata DBA who is an expert in describing the business use of databases.
 
 --- Available Chart Tools ---
 - `generate_area_chart`: Generate a area chart to show data trends under continuous independent variables and observe the overall data trend, such as, displacement = velocity (average or instantaneous) × time: s = v × t. If the x-axis is time (t) and the y-axis is velocity (v) at each moment, an area chart allows you to observe the trend of velocity over time and infer the distance traveled by the area's size.
@@ -968,28 +731,23 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
 [model]: Understood. I will follow all instructions.
 
 --- Current User Prompt ---
-give me a bar chart with apple:1 peanuts:5 and grapes:7
+Give me a business description for table equipment in database DEMO_Customer360_db
 
-2025-07-28 15:23:56,524 - --- RESPONSE ---
-Thought:The user requested a bar chart visualizing the quantities of three fruits.  The `generate_bar_chart` tool is appropriate for this task.
+2025-07-28 17:31:48,315 - --- RESPONSE ---
+Thought:The user request can be fulfilled using the `base_tableBusinessDesc` prompt.  I will use this prompt to generate a business description for the `equipment` table in the `DEMO_Customer360_db` database.
 
 ```json
 {
-  "tool_name": "generate_bar_chart",
+  "prompt_name": "base_tableBusinessDesc",
   "arguments": {
-    "data": [
-      {"category": "apple", "value": 1},
-      {"category": "peanuts", "value": 5},
-      {"category": "grapes", "value": 7}
-    ],
-    "x_axis_label": "Fruit",
-    "y_axis_label": "Quantity"
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "equipment"
   }
 }
 ```
 --------------------------------------------------
 
-2025-07-28 15:23:56,527 - --- FULL CONTEXT (Session: 06460d98-45c0-40d0-b812-747f2767bee7) ---
+2025-07-28 17:31:48,376 - --- FULL CONTEXT (Session: 3476f88d-a144-4ca1-855d-4565f59e8220) ---
 --- History ---
 [user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
 
@@ -1025,298 +783,72 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
 -   **Clarifying Question:** Only ask if information is truly missing.
 
 --- Available Tools ---
-- `base_columnDescription`: 
-    Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `base_readQuery`: Executes a SQL query to read from the database.
+- `base_writeQuery`: Executes a SQL query to write to the database.
+- `base_tableDDL`: Display table DDL definition.
+- `base_databaseList`: List all databases in the Teradata System.
+- `base_tableList`: List objects in a database.
+- `base_columnDescription`: Show detailed column information about a database table.
+- `base_tablePreview`: Get data samples and structure overview from a database table.
+- `base_tableAffinity`: Get tables commonly used together by database users, this is helpful to infer relationships between tables.
+- `base_tableUsage`: Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value.
+- `dba_userSqlList`: Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+- `dba_tableSqlList`: Get a list of SQL run against a table in the last number of days 
+- `dba_tableSpace`: Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided.
+- `dba_databaseSpace`: Get database space if database name is provided, otherwise get all databases space allocations.
+- `dba_databaseVersion`: Get Teradata database version information.
+- `dba_resusageSummary`: Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
+- `dba_resusageUserSummary`: Get the Teradata system usage summary metrics by user on a specified date, or day of week and hour of day.
+- `dba_flowControl`: Get the Teradata flow control metrics.
+- `dba_featureUsage`: Get the user feature usage metrics.
+- `dba_userDelay`: Get the Teradata user delay metrics.
+- `dba_tableUsageImpact`: Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
+- `dba_sessionInfo`: Get the Teradata session information for user.
+- `qlty_missingValues`: Get the column names that having missing values in a table.
+- `qlty_negativeValues`: Get the column names that having negative values in a table.
+- `qlty_distinctCategories`: Get the destinct categories from column in a table.
+- `qlty_standardDeviation`: Get the standard deviation from column in a table.
+- `qlty_columnSummary`: Get the column summary statistics for a table.
+- `qlty_univariateStatistics`: Get the univariate statistics for a table.
+- `qlty_rowsWithMissingValues`: Get the rows with missing values in a table.
+- `rag_setConfig`: 
+        Set the configuration for the current Retrieval-Augmented Generation (RAG) session.
+        This MUST be called before any other RAG-related tools.
 
-    Arguments:
-      db_name - Database name
-      obj_name - table or view name
+        The following values are hardcoded:
+        - query_table = 'user_query'
+        - query_embedding_store = 'user_query_embeddings'
+        - model_id = 'bge-small-en-v1.5'
 
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_readQuery`: 
-    Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+        You only need to provide the database locations:
+        - query_db: where user queries and query embeddings will be stored
+        - model_db: where the embedding model metadata is stored
+        - vector_db + vector_table: where PDF chunk embeddings are stored
 
-    Arguments:
-      sql    - SQL text, with optional bind-parameter placeholders
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tableAffinity`: 
-    Get tables commonly used together by database users, this is helpful to infer relationships between tables via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      db_name - Database name
-      object_name - table or view name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tableDDL`: 
-    Displays the DDL definition of a table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      db_name - Database name
-      table_name - table name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tablePreview`: 
-    This function returns data sample and inferred structure from a database table or view via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      table_name - table or view name
-      db_name - Database name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `base_tableUsage`: 
-    Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-    Arguments:
-      db_name - Database name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_databaseSpace`: 
-    Get database space if database name is provided, otherwise get all databases space allocations.
-
-    Arguments:
-      db_name - database name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_resusageSummary`: 
-    Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
-
-    Arguments:
-      dimensions - list of dimensions to aggregate the resource usage summary. All dimensions are: ["LogDate", "hourOfDay", "dayOfWeek", "workloadType", "workloadComplexity", "UserName", "AppId", "StatementType"]
-      user_name - user name
-      date - Date to analyze, formatted as `YYYY-MM-DD`
-      dayOfWeek - day of the week to analyze
-      hourOfDay - hour of day to analyze
-
-    
-- `dba_tableSpace`: 
-    Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
-
-    Arguments:
-      db_name - database name
-      table_name - table name
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_tableSqlList`: 
-    Get a list of SQL run against a table in the last number of days.
-
-    Arguments:
-      table_name - table name
-      no_days - number of days
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `dba_tableUsageImpact`: 
-    Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
-    
-    Arguments:
-      db_name - database name to analyze
-      user_name - user name to analyze
-
-    
-- `dba_userSqlList`: 
-    Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
-
-    Arguments:
-      user_name - user name
-      no_days - number of days
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `evs_similarity_search`: 
-    Enterprise Vector Store similarity search
-
-    Arguments:
-      question - the query string to search for
-      top_k - number of top results to return
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_columnSummary`: 
-    Get the column summary statistics for a table.
-
-    Arguments:
-      table_name - table name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_distinctCategories`: 
-    Get the destinct categories from column in a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_missingValues`: 
-    Get the column names that having missing values in a table.
-
-    Arguments:
-      table_name - table name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_negativeValues`: 
-    Get the column names that having negative values in a table.
-
-    Arguments:
-      table_name - table name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_rowsWithMissingValues`: 
-    Get the rows with missing values in a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_standardDeviation`: 
-    Get the standard deviation from column in a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `qlty_univariateStatistics`: 
-    Get the univariate statistics for a table.
-
-    Arguments:
-      table_name - table name to analyze
-      col_name - column name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `rag_executeWorkflow`: 
-    Execute complete RAG workflow to answer user questions based on document context.
-
-
-    This function handles the entire RAG pipeline:
-    1. Configuration setup (using configurable values from rag_config.yml)
-    2. Store user query (with /rag prefix stripping)
-    3. Generate query embeddings (tokenization + embedding)
-    4. Perform semantic search against chunk embeddings
-    5. Return retrieved context chunks for answer generation
-
-    The function uses configuration values from rag_config.yml with fallback defaults.
-
-    Arguments:
-      question - user question to process
-      k - number of top-k results to return (optional, uses config default if not provided)
-
-    Returns:
-      Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-    
-- `rag_executeWorkflow_ivsm`: 
-    Execute complete RAG workflow to answer user questions based on document context.
-
-    This function handles the entire RAG pipeline using IVSM functions:
-    1. Configuration setup (using configurable values from rag_config.yml)
-    2. Store user query (with /rag prefix stripping)
-    3. Tokenize query using ivsm.tokenizer_encode
-    4. Create embedding view using ivsm.IVSM_score
-    5. Convert embeddings to vector columns using ivsm.vector_to_columns
-    6. Perform semantic search against chunk embeddings
-
-    The function uses configuration values from rag_config.yml with fallback defaults.
-
-    Arguments:
-      question - user question to process
-      k - number of top-k results to return (optional, uses config default if not provided
-
-    Returns:
-      Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-    
-- `sec_rolePermissions`: 
-    Get permissions for a role.
-
-    Arguments:
-      role_name - role name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `sec_userDbPermissions`: 
-    Get permissions for a user.
-
-    Arguments:
-      user_name - user name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `sec_userRoles`: 
-    Get roles assigned to a user.
-
-    Arguments:
-      user_name - user name to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `tmpl_nameOfTool`: 
-    <description of what the tool is for>
-
-    Arguments:
-      arguments - arguments to analyze
-
-    Returns:
-      ResponseType: formatted response with query results + metadata
-    
-- `sales_top_customers`: Get the top 20 customers by lifetime value.
-- `sales_customer_profile`: Get customer profile and metrics.
-- `get_cube_sales_cube`: 
-    Tool to query the cube 'order_count'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - customer_key: Key for the customer
-    - sales_year: Year of the sale
-    - sales_month: Month of the sale
-
-        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
-    - gift_amount_usd: Total gift card amount used for the order in USD
-    - total_amount_usd: Total order amount in USD
-    - order_count: Total number of orders
-
-    Returns:
-        Query result as a formatted response.
-    
-- `cust_activeUsers`: Fetch currently active database users
-- `cust_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-- `get_cube_cust_cube_db_space_metrics`: 
+        Once this configuration is set, all other RAG tools will reuse it automatically.
+        
+- `rag_storeUserQuery`: Store a user's natural language question as the first step in a Retrieval-Augmented Generation (RAG) workflow.This tool should always be run **before any embedding or similarity search** steps.It inserts the raw question into a Teradata table specified by `db_name` and `table_name`. If the question starts with the prefix '/rag ', the prefix is automatically stripped before storage. Each question is appended as a new row with a generated ID and timestamp.If the specified table does not exist, it will be created with columns: `id`, `txt`, and `created_ts`.Returns the inserted row ID and cleaned question text.This tool is **only needed once per user question** — downstream embedding and vector search tools can then reference this ID or re-use the stored question text.
+- `rag_tokenizeQuery`: Tokenizes the latest user-submitted question using the tokenizer specified in the current RAG configuration. This tool must be used *after* calling 'configure_rag' (to initialize the config) and 'store_user_query' (to capture a user question). It selects the most recent row from the query table (e.g., 'pdf_topics_of_interest'), runs it through the ONNX tokenizer, and creates a temporary view '<query_db>.v_topics_tokenized' containing 'id', 'txt', 'input_ids', and 'attention_mask'. This view is used downstream to generate vector embeddings for similarity search.
+- `rag_createEmbeddingView`: Generates sentence embeddings for the most recent tokenized user query using the model specified in the RAG configuration. Reads from the view `<db>.v_topics_tokenized` and applies the ONNX model from `<model_db>.embeddings_models`. Creates or replaces the view `<db>.v_topics_embeddings` which includes the original input and a `sentence_embedding` column. This must be run *after* create_tokenized_view and before vector_to_columns().
+- `rag_createQueryEmbeddingTable`: Converts the sentence embedding from the view `v_topics_embeddings` into 384 vector columns using `ivsm.vector_to_columns`. Creates or replaces a physical table to store the latest query embeddings for use in similarity search. The table location is defined via `rag_set_config`. This tool must be run *after* `create_embedding_view` and before `semantic_search_chunks`.
+- `rag_semanticSearchChunks`: Retrieve top-k most relevant PDF chunks for the user's latest embedded query. This tool is part of the RAG workflow and should be called after the query has been embedded. If the RAG config has not been set, use `rag_set_config` first to define where queries, models, and chunk embeddings are stored. Uses cosine similarity via `TD_VECTORDISTANCE` to compare embeddings. Each result includes similarity score, chunk text, page number, chunk number, and document name.
+- `sec_userDbPermissions`: Get permissions for a user.
+- `sec_rolePermissions`: Get permissions for a role.
+- `sec_userRoles`: Get roles assigned to a user.
+- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
+- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
+- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
+- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
+- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
+- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
+- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
+- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
+- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
+- `get_cust_activeUsers`: Fetch currently active database users
+- `get_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+- `get_cube_cube_db_space_metrics`: 
     Tool to query the cube 'table_skew_pct'.
     Get the Teradata database space metrics for tables and databases
 
@@ -1333,43 +865,19 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
     Returns:
         Query result as a formatted response.
     
-- `dba_databaseVersion`:  Get Teradata database version information.
-- `dba_flowControl`:  Get the Teradata flow control metrics.
-- `dba_featureUsage`: Get the user feature usage metrics.
-- `dba_userDelay`: Get the Teradata user delay metrics.
-- `dba_sessionInfo`: Get the Teradata session information for user.
-- `base_tableList`: Lists all tables in a database.
-- `base_databaseList`: Lists all databases in the Teradata System.
-- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
-- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
-- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
-- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
-- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
-- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
-- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
-- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
-- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
-- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
-- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
 
 --- Available Prompts ---
-- `sales_prompt`: my prompt description
+- `base_query`: Create a SQL query against the database
+- `base_tableBusinessDesc`: Create a business description of the table and columns.
+- `base_databaseBusinessDesc`: Create a business description of the database.
+- `dba_databaseHealthAssessment`: Create a database health assessment for a Teradata system.
+- `dba_userActivityAnalysis`: Create a user activity analysis for a Teradata system.
+- `dba_tableArchive`: Create a table archive strategy for database tables.
+- `dba_databaseLineage`: Create a database lineage map for tables in a database.
+- `dba_tableDropImpact`: Assess the impact of dropping a table.
+- `qlty_databaseQuality`: Assess the data quality of a database.
+- `rag_guidelines`: 
 - `cust_promptExample`: my prompt description
-- `test_secTools`: Test all the sec MCP tools.
-- `test_dbaTools`: Test all the DBA MCP tools.
-- `dba_tableArchive`: The following prompt is used to guide the Teradata DBA in finding opportunities for archiving data.
-- `dba_databaseLineage`: You are a Teradata DBA who is an expert in finding the lineage of tables in a database.
-- `dba_tableDropImpact`: You are a Teradata DBA who is an expert in finding the impact of dropping a table.
-- `dba_databaseHealthAssessment`: You are a Teradata DBA who is an expert in assessing the health of a database.
-- `dba_userActivityAnalysis`: Analyze Teradata user activity patterns for the past 7 days
-- `test_ragTools`: Test all the qlty MCP tools.
-- `rag_guidelines`: Guidelines for Retrieval-Augmented Generation (RAG) mode.
-- `test_qltyTools`: Test all the qlty MCP tools.
-- `qlty_databaseQuality`: Database data quality assessment.
-- `test_baseTools`: Test all base tools in the Teradata MCP server.
-- `base_query`: Help users interact with  Teradata databases effectively.
-- `base_tableBusinessDesc`: You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-- `base_databaseBusinessDesc`: You are a Teradata DBA who is an expert in describing the business use of databases.
 
 --- Available Chart Tools ---
 - `generate_area_chart`: Generate a area chart to show data trends under continuous independent variables and observe the overall data trend, such as, displacement = velocity (average or instantaneous) × time: s = v × t. If the x-axis is time (t) and the y-axis is velocity (v) at each moment, an area chart allows you to observe the trend of velocity over time and infer the distance traveled by the area's size.
@@ -1400,42 +908,291 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
 
 
 [model]: Understood. I will follow all instructions.
-[user]: give me a bar chart with apple:1 peanuts:5 and grapes:7
-[model]: Thought:The user requested a bar chart visualizing the quantities of three fruits.  The `generate_bar_chart` tool is appropriate for this task.
+[user]: Give me a business description for table equipment in database DEMO_Customer360_db
+[model]: Thought:The user request can be fulfilled using the `base_tableBusinessDesc` prompt.  I will use this prompt to generate a business description for the `equipment` table in the `DEMO_Customer360_db` database.
 
 ```json
 {
-  "tool_name": "generate_bar_chart",
+  "prompt_name": "base_tableBusinessDesc",
   "arguments": {
-    "data": [
-      {"category": "apple", "value": 1},
-      {"category": "peanuts", "value": 5},
-      {"category": "grapes", "value": 7}
-    ],
-    "x_axis_label": "Fruit",
-    "y_axis_label": "Quantity"
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "equipment"
   }
 }
 ```
 
 
 --- Current User Prompt ---
-You have just received data from a tool call. Review the data and your instructions to decide the next step.
+You are executing a multi-step plan. Your goal is to follow it precisely.
 
-1.  **Consider a Chart:** First, review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
 
-2.  **Choose Your Action:**
-    -   If a chart is appropriate, your next action is to call the correct chart-generation tool. Respond with only the `Thought:` and ```json...``` block for that tool.
-    -   If a chart is **not** appropriate and you have all the information needed to answer the user's request, you should provide the final answer. Your response **MUST** start with `FINAL_ANSWER:`.
-    -   If you still need more information from other tools, call the next appropriate tool.
+--- CURRENT STATE ---
+- The last action was the execution of the tool `None`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+
+2025-07-28 17:31:50,188 - --- RESPONSE ---
+Thought:The plan indicates that Phase 0 (getting the table and database names) has implicitly been completed since that information was provided in the initial prompt.  The next phase (Phase 1) is to get the table DDL using the `base_tableDDL` tool.
+
+```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "equipment"
+  }
+}
+```
+--------------------------------------------------
+
+2025-07-28 17:31:50,389 - --- FULL CONTEXT (Session: 3476f88d-a144-4ca1-855d-4565f59e8220) ---
+--- History ---
+[user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
+
+--- **Core Reasoning Hierarchy** ---
+1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.
+2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.
+3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.
+
+--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---
+You **MUST** remember and reuse information from previous turns.
+**Example of CORRECT Inference:**
+    -   USER (Turn 1): "what is the business description for the `equipment` table in database `DEMO_Customer360_db`?"
+    -   ASSISTANT (Turn 1): (Executes the request)
+    -   USER (Turn 2): "ok now what is the quality of that table?"
+    -   YOUR CORRECT REASONING (Turn 2): "The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters."
+    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.
+
+--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---
+You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.
+
+--- **CRITICAL RULE: SQL GENERATION** ---
+When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).
+
+--- **Charting Rules** ---
+- After successfully gathering data with Teradata tools, consider if a visualization would enhance the answer.
+- Use a chart tool if it provides a clear summary (e.g., bar chart for space usage, pie chart for distributions).
+- Do not generate charts for simple data retrievals that are easily readable in a table.
+- When you use a chart tool, tell the user in your final answer what the chart represents.
+
+--- **Response Formatting** ---
+-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.
+-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.
+-   **Clarifying Question:** Only ask if information is truly missing.
+
+--- Available Tools ---
+- `base_readQuery`: Executes a SQL query to read from the database.
+- `base_writeQuery`: Executes a SQL query to write to the database.
+- `base_tableDDL`: Display table DDL definition.
+- `base_databaseList`: List all databases in the Teradata System.
+- `base_tableList`: List objects in a database.
+- `base_columnDescription`: Show detailed column information about a database table.
+- `base_tablePreview`: Get data samples and structure overview from a database table.
+- `base_tableAffinity`: Get tables commonly used together by database users, this is helpful to infer relationships between tables.
+- `base_tableUsage`: Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value.
+- `dba_userSqlList`: Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+- `dba_tableSqlList`: Get a list of SQL run against a table in the last number of days 
+- `dba_tableSpace`: Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided.
+- `dba_databaseSpace`: Get database space if database name is provided, otherwise get all databases space allocations.
+- `dba_databaseVersion`: Get Teradata database version information.
+- `dba_resusageSummary`: Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
+- `dba_resusageUserSummary`: Get the Teradata system usage summary metrics by user on a specified date, or day of week and hour of day.
+- `dba_flowControl`: Get the Teradata flow control metrics.
+- `dba_featureUsage`: Get the user feature usage metrics.
+- `dba_userDelay`: Get the Teradata user delay metrics.
+- `dba_tableUsageImpact`: Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
+- `dba_sessionInfo`: Get the Teradata session information for user.
+- `qlty_missingValues`: Get the column names that having missing values in a table.
+- `qlty_negativeValues`: Get the column names that having negative values in a table.
+- `qlty_distinctCategories`: Get the destinct categories from column in a table.
+- `qlty_standardDeviation`: Get the standard deviation from column in a table.
+- `qlty_columnSummary`: Get the column summary statistics for a table.
+- `qlty_univariateStatistics`: Get the univariate statistics for a table.
+- `qlty_rowsWithMissingValues`: Get the rows with missing values in a table.
+- `rag_setConfig`: 
+        Set the configuration for the current Retrieval-Augmented Generation (RAG) session.
+        This MUST be called before any other RAG-related tools.
+
+        The following values are hardcoded:
+        - query_table = 'user_query'
+        - query_embedding_store = 'user_query_embeddings'
+        - model_id = 'bge-small-en-v1.5'
+
+        You only need to provide the database locations:
+        - query_db: where user queries and query embeddings will be stored
+        - model_db: where the embedding model metadata is stored
+        - vector_db + vector_table: where PDF chunk embeddings are stored
+
+        Once this configuration is set, all other RAG tools will reuse it automatically.
+        
+- `rag_storeUserQuery`: Store a user's natural language question as the first step in a Retrieval-Augmented Generation (RAG) workflow.This tool should always be run **before any embedding or similarity search** steps.It inserts the raw question into a Teradata table specified by `db_name` and `table_name`. If the question starts with the prefix '/rag ', the prefix is automatically stripped before storage. Each question is appended as a new row with a generated ID and timestamp.If the specified table does not exist, it will be created with columns: `id`, `txt`, and `created_ts`.Returns the inserted row ID and cleaned question text.This tool is **only needed once per user question** — downstream embedding and vector search tools can then reference this ID or re-use the stored question text.
+- `rag_tokenizeQuery`: Tokenizes the latest user-submitted question using the tokenizer specified in the current RAG configuration. This tool must be used *after* calling 'configure_rag' (to initialize the config) and 'store_user_query' (to capture a user question). It selects the most recent row from the query table (e.g., 'pdf_topics_of_interest'), runs it through the ONNX tokenizer, and creates a temporary view '<query_db>.v_topics_tokenized' containing 'id', 'txt', 'input_ids', and 'attention_mask'. This view is used downstream to generate vector embeddings for similarity search.
+- `rag_createEmbeddingView`: Generates sentence embeddings for the most recent tokenized user query using the model specified in the RAG configuration. Reads from the view `<db>.v_topics_tokenized` and applies the ONNX model from `<model_db>.embeddings_models`. Creates or replaces the view `<db>.v_topics_embeddings` which includes the original input and a `sentence_embedding` column. This must be run *after* create_tokenized_view and before vector_to_columns().
+- `rag_createQueryEmbeddingTable`: Converts the sentence embedding from the view `v_topics_embeddings` into 384 vector columns using `ivsm.vector_to_columns`. Creates or replaces a physical table to store the latest query embeddings for use in similarity search. The table location is defined via `rag_set_config`. This tool must be run *after* `create_embedding_view` and before `semantic_search_chunks`.
+- `rag_semanticSearchChunks`: Retrieve top-k most relevant PDF chunks for the user's latest embedded query. This tool is part of the RAG workflow and should be called after the query has been embedded. If the RAG config has not been set, use `rag_set_config` first to define where queries, models, and chunk embeddings are stored. Uses cosine similarity via `TD_VECTORDISTANCE` to compare embeddings. Each result includes similarity score, chunk text, page number, chunk number, and document name.
+- `sec_userDbPermissions`: Get permissions for a user.
+- `sec_rolePermissions`: Get permissions for a role.
+- `sec_userRoles`: Get roles assigned to a user.
+- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
+- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
+- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
+- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
+- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
+- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
+- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
+- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
+- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
+- `get_cust_activeUsers`: Fetch currently active database users
+- `get_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+- `get_cube_cube_db_space_metrics`: 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
+
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
+
+        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
+
+    Returns:
+        Query result as a formatted response.
+    
+
+--- Available Prompts ---
+- `base_query`: Create a SQL query against the database
+- `base_tableBusinessDesc`: Create a business description of the table and columns.
+- `base_databaseBusinessDesc`: Create a business description of the database.
+- `dba_databaseHealthAssessment`: Create a database health assessment for a Teradata system.
+- `dba_userActivityAnalysis`: Create a user activity analysis for a Teradata system.
+- `dba_tableArchive`: Create a table archive strategy for database tables.
+- `dba_databaseLineage`: Create a database lineage map for tables in a database.
+- `dba_tableDropImpact`: Assess the impact of dropping a table.
+- `qlty_databaseQuality`: Assess the data quality of a database.
+- `rag_guidelines`: 
+- `cust_promptExample`: my prompt description
+
+--- Available Chart Tools ---
+- `generate_area_chart`: Generate a area chart to show data trends under continuous independent variables and observe the overall data trend, such as, displacement = velocity (average or instantaneous) × time: s = v × t. If the x-axis is time (t) and the y-axis is velocity (v) at each moment, an area chart allows you to observe the trend of velocity over time and infer the distance traveled by the area's size.
+- `generate_bar_chart`: Generate a horizontal bar chart to show data for numerical comparisons among different categories, such as, comparing categorical data and for horizontal comparisons.
+- `generate_boxplot_chart`: Generate a boxplot chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_column_chart`: Generate a column chart, which are best for comparing categorical data, such as, when values are close, column charts are preferable because our eyes are better at judging height than other visual elements like area or angles.
+- `generate_district_map`: Generates regional distribution maps, which are usually used to show the administrative divisions and coverage of a dataset. It is not suitable for showing the distribution of specific locations, such as urban administrative divisions, GDP distribution maps of provinces and cities across the country, etc. This tool is limited to generating data maps within China.
+- `generate_dual_axes_chart`: Generate a dual axes chart which is a combination chart that integrates two different chart types, typically combining a bar chart with a line chart to display both the trend and comparison of data, such as, the trend of sales and profit over time.
+- `generate_fishbone_diagram`: Generate a fishbone diagram chart to uses a fish skeleton, like structure to display the causes or effects of a core problem, with the problem as the fish head and the causes/effects as the fish bones. It suits problems that can be split into multiple related factors.
+- `generate_flow_diagram`: Generate a flow diagram chart to show the steps and decision points of a process or system, such as, scenarios requiring linear process presentation.
+- `generate_funnel_chart`: Generate a funnel chart to visualize the progressive reduction of data as it passes through stages, such as, the conversion rates of users from visiting a website to completing a purchase.
+- `generate_histogram_chart`: Generate a histogram chart to show the frequency of data points within a certain range. It can observe data distribution, such as, normal and skewed distributions, and identify data concentration areas and extreme points.
+- `generate_line_chart`: Generate a line chart to show trends over time, such as, the ratio of Apple computer sales to Apple's profits changed from 2000 to 2016.
+- `generate_liquid_chart`: Generate a liquid chart to visualize a single value as a percentage, such as, the current occupancy rate of a reservoir or the completion percentage of a project.
+- `generate_mind_map`: Generate a mind map chart to organizes and presents information in a hierarchical structure with branches radiating from a central topic, such as, a diagram showing the relationship between a main topic and its subtopics.
+- `generate_network_graph`: Generate a network graph chart to show relationships (edges) between entities (nodes), such as, relationships between people in social networks.
+- `generate_organization_chart`: Generate an organization chart to visualize the hierarchical structure of an organization, such as, a diagram showing the relationship between a CEO and their direct reports.
+- `generate_path_map`: Generate a route map to display the user's planned route, such as travel guide routes.
+- `generate_pie_chart`: Generate a pie chart to show the proportion of parts, such as, market share and budget allocation.
+- `generate_pin_map`: Generate a point map to display the location and distribution of point data on the map, such as the location distribution of attractions, hospitals, supermarkets, etc.
+- `generate_radar_chart`: Generate a radar chart to display multidimensional data (four dimensions or more), such as, evaluate Huawei and Apple phones in terms of five dimensions: ease of use, functionality, camera, benchmark scores, and battery life.
+- `generate_sankey_chart`: Generate a sankey chart to visualize the flow of data between different stages or categories, such as, the user journey from landing on a page to completing a purchase.
+- `generate_scatter_chart`: Generate a scatter chart to show the relationship between two variables, helps discover their relationship or trends, such as, the strength of correlation, data distribution patterns.
+- `generate_treemap_chart`: Generate a treemap chart to display hierarchical data and can intuitively show comparisons between items at the same level, such as, show disk space usage with treemap.
+- `generate_venn_chart`: Generate a Venn diagram to visualize the relationships between different sets, showing how they intersect and overlap, such as the commonalities and differences between various groups.
+- `generate_violin_chart`: Generate a violin chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_word_cloud_chart`: Generate a word cloud chart to show word frequency or weight through text size variation, such as, analyzing common words in social media, reviews, or feedback.
+
+
+[model]: Understood. I will follow all instructions.
+[user]: Give me a business description for table equipment in database DEMO_Customer360_db
+[model]: Thought:The user request can be fulfilled using the `base_tableBusinessDesc` prompt.  I will use this prompt to generate a business description for the `equipment` table in the `DEMO_Customer360_db` database.
+
+```json
+{
+  "prompt_name": "base_tableBusinessDesc",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "equipment"
+  }
+}
+```
+
+[user]: You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `None`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+[model]: Thought:The plan indicates that Phase 0 (getting the table and database names) has implicitly been completed since that information was provided in the initial prompt.  The next phase (Phase 1) is to get the table DDL using the `base_tableDDL` tool.
+
+```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "equipment"
+  }
+}
+```
+
+
+--- Current User Prompt ---
+You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `base_tableDDL`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
 
 The last tool execution returned the following result. Use this to inform your next action:
 
-{"tool_name": "generate_bar_chart", "tool_output": {"type": "chart", "spec": {"type": "Bar", "options": {"data": [{"category": "apple", "value": 1}, {"category": "peanuts", "value": 5}, {"category": "grapes", "value": 7}], "title": {"visible": true, "text": "Generated Chart"}}}, "metadata": {"tool_name": "generate_bar_chart"}}}
+{"tool_name": "base_tableDDL", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "equipment"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"}]}}
 
-2025-07-28 15:23:57,367 - --- RESPONSE ---
-FINAL_ANSWER:Here is a bar chart showing the quantities of apple, peanuts, and grapes:
+2025-07-28 17:31:53,631 - --- RESPONSE ---
+Thought:Phase 1 (getting the table DDL) is now complete. The next step is Phase 2, which requires analyzing the DDL to create a business description of the table and its columns.  This will be done without calling additional tools.
 
-[Bar chart showing apple: 1, peanuts: 5, grapes: 7]
+FINAL_ANSWER:***Table Name:*** `equipment`
+
+***Database Name:*** `DEMO_Customer360_db`
+
+***Description:*** The `equipment` table stores customer demographic and equipment-related information, likely used for targeted marketing or equipment lifecycle management.
+
+         - ***CUST_ID:*** Customer identifier.  A unique numerical ID for each customer.
+         - ***GENDER:*** Customer's gender (M/F).  Used for segmentation and potentially personalized marketing.
+         - ***FIRSTNAME:*** Customer's first name. Used for personalization and potentially addressing in communications.
+         - ***LASTNAME:*** Customer's last name. Used for personalization and potentially addressing in communications.
+         - ***ADDRESS:*** Customer's address. Used for location-based marketing and potentially delivery of equipment.
+         - ***STATE:*** Customer's state. Used for geographical segmentation and potentially regulatory compliance.
+         - ***CITY:*** Customer's city. Used for geographical segmentation and potentially location-based services.
+         - ***ZIP:*** Customer's zip code. Used for geographical segmentation, targeted marketing, and potentially delivery of equipment.
+         - ***EQUIP_LTV:*** Equipment Lifetime Value.  A measure of the estimated value a customer will generate throughout their relationship with the equipment.  This is a key metric for resource allocation and customer retention strategies.
 --------------------------------------------------
 

@@ -19,7 +19,8 @@ This solution provides unparalleled, real-time insight into the complete convers
   - [Step 3: Configure API Key (Optional)](#step-3-configure-api-key-optional)
 - [Running the Application](#running-the-application)
   - [Standard Mode](#standard-mode)
-  - [Developer Mode (Unlocking Models)](#developer-mode-unlocking-models)
+  - [Developer Mode: Unlocking Models](#developer-mode-unlocking-models)
+  - [Developer Mode: Enabling Charting](#developer-mode-enabling-charting)
 - [User Guide](#user-guide)
   - [First-Time Setup: Connecting to Services](#first-time-setup-connecting-to-services)
   - [Navigating the Interface](#navigating-the-interface)
@@ -68,6 +69,7 @@ The application operates on a sophisticated client-server model, ensuring a clea
 * **Complete Transparency:** The **Live Status** panel provides a real-time stream of the agent's thought process, actions, and tool outputs.
 * **Dynamic Capability Loading:** Automatically discovers and displays all available **Tools**, **Prompts**, and **Resources** from the connected MCP Server.
 * **Rich Data Rendering:** Intelligently formats and displays various data types, including query results in interactive tables and SQL DDL in highlighted code blocks.
+* **Optional Charting Engine:** Enable data visualization capabilities to render charts based on query results by using a runtime parameter.
 * **Persistent Session History:** Keeps a record of your conversations, allowing you to switch between different lines of inquiry.
 
 ## Installation and Setup Guide
@@ -123,15 +125,26 @@ For standard operation with the certified model (`gemini-1.5-flash`):
 python mcp_web_client.py
 ```
 
-### Developer Mode (Unlocking Models)
+### Developer Mode: Unlocking Models
 
-To enable all discovered models for testing purposes, start the server with the `--unlock-models` flag:
+To enable all discovered models for testing and development purposes, start the server with the `--all-models` flag. This bypasses the certification check and allows you to experiment with a wider range of LLMs.
 
 ```bash
-python mcp_web_client.py --unlock-models
+python mcp_web_client.py --all-models
 ```
 
-Access the UI by navigating your browser to [http://127.0.0.1:5000](http://127.0.0.1:5000).
+### Developer Mode: Enabling Charting
+
+To enable the data visualization capabilities, start the server with the `--charting` flag. This activates the charting engine configuration in the UI and allows the agent to generate charts from query results.
+
+```bash
+python mcp_web_client.py --charting
+```
+
+You can also combine flags for a full development environment:
+```bash
+python mcp_web_client.py --all-models --charting
+```
 
 ## User Guide
 
@@ -142,7 +155,8 @@ The first time you launch, a configuration modal will appear.
 2.  **LLM Provider:** Select your desired provider (currently Google is enabled, with more to be validated based on market demand).
 3.  **API Key:** Enter the corresponding API Key for the selected provider.
 4.  **Model:** Click the "Refresh" button to fetch available models. The certified model will be selectable by default.
-5.  Click **"Connect and Load"**. The application will validate both connections and load all available capabilities.
+5.  **Connect and Load:** Click the button to validate both connections and load all available capabilities.
+6.  **Charting Engine (Optional):** If you started the application with the `--charting` flag, the configuration panel for the Charting Engine will be enabled. Enter the connection details for your Chart MCP server to activate data visualization.
 
 ### Navigating the Interface
 
@@ -173,4 +187,4 @@ Type your question into the input box. The agent will now follow the instruction
 
 * **Author/Initiator:** Rainer Geissendoerfer, World Wide Data Architecture, Teradata.
 * **Source Code & Contributions:** The Trusted Data Agent is open source. Contributions are highly welcome. Please visit the main Git repository to report issues or submit pull requests.
-    * **Git Repository:** [https://github.com/rgeissen/teradata-trusted-data-agent.git](https://github.com/rgeissen/teradata-trusted-data-agent.git)
+    * **Git Repository:** https://github.com/rgeissen/teradata-trusted-data-agent.git

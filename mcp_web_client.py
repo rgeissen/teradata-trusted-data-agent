@@ -414,17 +414,32 @@ async def invoke_mcp_tool(command: dict) -> any:
     if tool_name in mcp_charts:
         app.logger.info(f"Locally handling chart generation for tool: {tool_name}")
         try:
-            # FIX: Swap xField and yField for Bar charts to match G2Plot convention
             is_bar_chart = "generate_bar_chart" in tool_name
+            is_pie_chart = "generate_pie_chart" in tool_name
             
+            data = args.get("data", [])
+            x_field, y_field, angle_field, color_field = None, None, None, None
+
+            # Infer fields from data if not explicitly provided by the LLM
+            if data:
+                first_row = data[0]
+                str_key = next((k for k, v in first_row.items() if isinstance(v, str)), None)
+                num_key = next((k for k, v in first_row.items() if isinstance(v, (int, float))), None)
+                
+                if is_pie_chart:
+                    angle_field = num_key
+                    color_field = str_key
+                else:
+                    x_field = str_key
+                    y_field = num_key
+
             spec_options = {
-                "data": args.get("data", []),
-                "xField": args.get("y_axis") if is_bar_chart else args.get("x_axis"),
-                "yField": args.get("x_axis") if is_bar_chart else args.get("y_axis"),
+                "data": data,
+                "xField": y_field if is_bar_chart else x_field,
+                "yField": x_field if is_bar_chart else y_field,
+                "angleField": angle_field,
+                "colorField": color_field,
                 "seriesField": args.get("series_field", args.get("series")),
-                "angleField": args.get("angle_field", args.get("angle")),
-                "colorField": args.get("color_field", args.get("color")),
-                "sizeField": args.get("size_field", args.get("size")),
                 "title": { "visible": True, "text": args.get("title", "Generated Chart") }
             }
             chart_type_mapping = {
@@ -549,7 +564,7 @@ class PlanExecutor:
             self.active_prompt_name = prompt_name
             arguments = command.get("arguments", command.get("parameters", {}))
             
-            # FIX: Normalize db_name to database_name for prompts
+            # Normalize db_name to database_name for prompts
             if 'db_name' in arguments and 'database_name' not in arguments:
                 arguments['database_name'] = arguments.pop('db_name')
 
@@ -582,15 +597,11 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
 
     async def _execute_standard_tool(self):
-        tool_name = self.current_command.get("tool_name")
-        yield _format_sse({"step": f"Calling tool: {tool_name}", "details": self.current_command}, "tool_result")
+        yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
         tool_result = await invoke_mcp_tool(self.current_command)
         
-        # Check if invoke_mcp_tool returned a parameter mismatch error
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
-            # Yield a specific event to the UI to request user input
             yield _format_sse({"details": tool_result}, "request_user_input")
-            # Stop the current execution plan, as it cannot proceed
             self.state = AgentState.ERROR
             return
 
@@ -607,13 +618,13 @@ class PlanExecutor:
         else:
             self.collected_data.append(tool_result)
 
-        yield _format_sse({"step": "Tool execution finished", "details": tool_result, "tool_name": tool_name}, "tool_result")
+        yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
 
         if self.active_prompt_plan and not self.iteration_context:
             plan_text = self.active_prompt_plan.lower()
             is_iterative_plan = any(keyword in plan_text for keyword in ["cycle through", "for each", "iterate"])
             
-            if is_iterative_plan and tool_name == "base_tableList" and isinstance(tool_result, dict) and tool_result.get("status") == "success":
+            if is_iterative_plan and self.current_command.get("tool_name") == "base_tableList" and isinstance(tool_result, dict) and tool_result.get("status") == "success":
                 items_to_iterate = [res.get("TableName") for res in tool_result.get("results", []) if res.get("TableName")]
                 if items_to_iterate:
                     self.iteration_context = {
@@ -622,7 +633,7 @@ class PlanExecutor:
                     }
                     yield _format_sse({"step": "Starting Multi-Step Iteration", "details": f"Plan requires processing {len(items_to_iterate)} items."})
         
-        tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": tool_result})
+        tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
         
         yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
         await self._get_next_action_from_llm(tool_result_str=tool_result_str)
@@ -636,7 +647,7 @@ class PlanExecutor:
 
         specific_column = base_args.get("col_name") or base_args.get("column_name")
         if specific_column:
-            yield _format_sse({"step": f"Executing for specific column: {specific_column}", "details": base_command}, "tool_result")
+            yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
             col_result = await invoke_mcp_tool(base_command)
             
             if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
@@ -644,7 +655,7 @@ class PlanExecutor:
                 self.state = AgentState.ERROR
                 return
 
-            yield _format_sse({"step": f"Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
+            yield _format_sse({"step": f"Tool Execution Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
             self.collected_data.append(col_result)
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
             yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
@@ -673,7 +684,7 @@ class PlanExecutor:
 
             iter_command = {"tool_name": tool_name, "arguments": iter_args}
 
-            yield _format_sse({"step": f"Executing for column: {col_name}", "details": iter_command}, "tool_result")
+            yield _format_sse({"step": "Tool Execution Intent", "details": iter_command}, "tool_result")
             col_result = await invoke_mcp_tool(iter_command)
             
             if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
@@ -681,7 +692,7 @@ class PlanExecutor:
                 self.state = AgentState.ERROR
                 return # Stop the entire iteration if one column fails validation
 
-            yield _format_sse({"step": f"Result for column: {col_name}", "details": col_result, "tool_name": tool_name}, "tool_result")
+            yield _format_sse({"step": f"Tool Execution Result for column: {col_name}", "details": col_result, "tool_name": tool_name}, "tool_result")
             all_column_results.append(col_result)
 
         if self.iteration_context:
