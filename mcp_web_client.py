@@ -414,10 +414,13 @@ async def invoke_mcp_tool(command: dict) -> any:
     if tool_name in mcp_charts:
         app.logger.info(f"Locally handling chart generation for tool: {tool_name}")
         try:
+            # FIX: Swap xField and yField for Bar charts to match G2Plot convention
+            is_bar_chart = "generate_bar_chart" in tool_name
+            
             spec_options = {
                 "data": args.get("data", []),
-                "xField": args.get("x_field", args.get("x_axis")),
-                "yField": args.get("y_field", args.get("y_axis")),
+                "xField": args.get("y_axis") if is_bar_chart else args.get("x_axis"),
+                "yField": args.get("x_axis") if is_bar_chart else args.get("y_axis"),
                 "seriesField": args.get("series_field", args.get("series")),
                 "angleField": args.get("angle_field", args.get("angle")),
                 "colorField": args.get("color_field", args.get("color")),
