@@ -131,8 +131,12 @@ class OutputFormatter:
         self.processed_data_indices = set()
 
     def _sanitize_summary(self) -> str:
+        # This regex now also removes markdown tables
+        markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
+        clean_summary = re.sub(markdown_table_pattern, "\n(Data table is shown below)\n", self.raw_summary)
+
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
-        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", self.raw_summary)
+        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
         
         lines = clean_summary.strip().split('\n')
         html_output = ""
