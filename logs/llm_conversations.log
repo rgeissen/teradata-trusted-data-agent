@@ -1,4 +1,4 @@
-2025-07-28 13:55:08,459 - --- Current User Prompt ---
+2025-07-28 14:27:06,530 - --- Current User Prompt ---
 You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. Your response MUST be a single, valid JSON object. The keys should be the category names, and the values should be an array of tool names belonging to that category.
 
 --- Tool List ---
@@ -329,30 +329,27 @@ You are a helpful assistant that organizes lists of technical tools for a **Tera
 - fs_getAvailableEntities: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
 - fs_createDataset: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
 
-2025-07-28 13:55:12,753 - --- RESPONSE ---
+2025-07-28 14:27:11,980 - --- RESPONSE ---
 ```json
 {
-  "Database Administration": [
-    "dba_databaseSpace",
-    "dba_resusageSummary",
-    "dba_tableSpace",
-    "dba_tableSqlList",
-    "dba_tableUsageImpact",
-    "dba_userSqlList",
-    "dba_databaseVersion",
-    "dba_flowControl",
-    "dba_featureUsage",
-    "dba_userDelay",
-    "dba_sessionInfo",
-    "base_databaseList"
-  ],
-  "Table Information": [
+  "Database Metadata": [
     "base_columnDescription",
-    "base_tableAffinity",
     "base_tableDDL",
     "base_tablePreview",
-    "base_tableUsage",
     "base_tableList",
+    "base_databaseList",
+    "dba_databaseVersion",
+    "dba_databaseSpace",
+    "dba_tableSpace"
+  ],
+  "Database Querying": [
+    "base_readQuery",
+    "base_tableAffinity",
+    "base_tableUsage",
+    "dba_tableSqlList",
+    "dba_userSqlList"
+  ],
+  "Data Quality": [
     "qlty_columnSummary",
     "qlty_distinctCategories",
     "qlty_missingValues",
@@ -361,31 +358,35 @@ You are a helpful assistant that organizes lists of technical tools for a **Tera
     "qlty_standardDeviation",
     "qlty_univariateStatistics"
   ],
-  "Query Execution": [
-    "base_readQuery"
+  "Database Administration": [
+    "dba_resusageSummary",
+    "dba_tableUsageImpact",
+    "dba_flowControl",
+    "dba_featureUsage",
+    "dba_userDelay",
+    "dba_sessionInfo",
+    "reconnect_to_database"
   ],
   "Security": [
     "sec_rolePermissions",
     "sec_userDbPermissions",
     "sec_userRoles"
   ],
-  "Sales Analysis": [
+  "Sales Analytics": [
     "sales_top_customers",
     "sales_customer_profile"
+  ],
+  "Customer Analytics": [
+    "cust_activeUsers",
+    "cust_td_serverInfo"
   ],
   "Cube Queries": [
     "get_cube_sales_cube",
     "get_cube_cust_cube_db_space_metrics"
   ],
-  "Customer Information": [
-    "cust_activeUsers",
-    "cust_td_serverInfo"
-  ],
-  "RAG Workflow": [
+  "RAG (Retrieval Augmented Generation)": [
     "rag_executeWorkflow",
-    "rag_executeWorkflow_ivsm"
-  ],
-  "Vector Store": [
+    "rag_executeWorkflow_ivsm",
     "evs_similarity_search"
   ],
   "Feature Store": [
@@ -402,15 +403,12 @@ You are a helpful assistant that organizes lists of technical tools for a **Tera
   ],
   "Template": [
     "tmpl_nameOfTool"
-  ],
-  "Database Connection": [
-    "reconnect_to_database"
   ]
 }
 ```
 --------------------------------------------------
 
-2025-07-28 13:55:12,765 - --- Current User Prompt ---
+2025-07-28 14:27:11,991 - --- Current User Prompt ---
 You are a helpful assistant that organizes lists of technical prompts for a **Teradata database system** into logical categories for a user interface. Your response MUST be a single, valid JSON object. The keys should be the category names, and the values should be an array of prompt names belonging to that category.
 
 --- Prompt List ---
@@ -432,7 +430,7 @@ You are a helpful assistant that organizes lists of technical prompts for a **Te
 - base_tableBusinessDesc: You are a Teradata DBA who is an expert in describing the business use of tables in a database.
 - base_databaseBusinessDesc: You are a Teradata DBA who is an expert in describing the business use of databases.
 
-2025-07-28 13:55:14,663 - --- RESPONSE ---
+2025-07-28 14:27:13,847 - --- RESPONSE ---
 ```json
 {
   "Testing": [
@@ -447,17 +445,15 @@ You are a helpful assistant that organizes lists of technical prompts for a **Te
     "dba_databaseLineage",
     "dba_tableDropImpact",
     "dba_databaseHealthAssessment",
-    "dba_userActivityAnalysis"
+    "dba_userActivityAnalysis",
+    "base_tableBusinessDesc",
+    "base_databaseBusinessDesc"
   ],
   "Data Quality": [
     "qlty_databaseQuality"
   ],
-  "Business Understanding": [
-    "base_tableBusinessDesc",
-    "base_databaseBusinessDesc"
-  ],
-  "General Queries": [
-    "base_query"
+  "RAG (Retrieval-Augmented Generation)": [
+    "rag_guidelines"
   ],
   "Sales": [
     "sales_prompt"
@@ -465,14 +461,14 @@ You are a helpful assistant that organizes lists of technical prompts for a **Te
   "Customer": [
     "cust_promptExample"
   ],
-  "Retrieval-Augmented Generation (RAG)": [
-    "rag_guidelines"
+  "Base Functionality": [
+    "base_query"
   ]
 }
 ```
 --------------------------------------------------
 
-2025-07-28 13:55:25,539 - --- FULL CONTEXT (Session: 3f47fda4-e6c2-4b69-91b4-2a4abbe90c43) ---
+2025-07-28 14:27:20,053 - --- FULL CONTEXT (Session: 6529df47-a3ba-4201-a90d-75f6f72125f7) ---
 --- History ---
 [user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
 
@@ -635,23 +631,23 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
 [model]: Understood. I will follow all instructions.
 
 --- Current User Prompt ---
-give me business description of table equipment in database DEMO_Customer360_db
+Give me a business description for table Equipment in database "DEMO_Customer360_db"
 
-2025-07-28 13:55:26,817 - --- RESPONSE ---
-Thought:The user is requesting a business description of the `equipment` table within the `DEMO_Customer360_db` database.  This perfectly matches the `base_tableBusinessDesc` prompt.
+2025-07-28 14:27:22,246 - --- RESPONSE ---
+Thought: I will use the `base_tableBusinessDesc` prompt to fulfill this request.
 
 ```json
 {
   "prompt_name": "base_tableBusinessDesc",
   "arguments": {
     "db_name": "DEMO_Customer360_db",
-    "table_name": "equipment"
+    "table_name": "Equipment"
   }
 }
 ```
 --------------------------------------------------
 
-2025-07-28 14:03:11,134 - --- FULL CONTEXT (Session: c6cea094-8f2c-41f7-b758-1f4bff21ab51) ---
+2025-07-28 14:27:22,303 - --- FULL CONTEXT (Session: 6529df47-a3ba-4201-a90d-75f6f72125f7) ---
 --- History ---
 [user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
 
@@ -812,21 +808,831 @@ When using the `base_readQuery` tool, if you know the database name, you **MUST*
 
 
 [model]: Understood. I will follow all instructions.
-
---- Current User Prompt ---
-give me business description of table equipment in database DEMO_Customer360_db
-
-2025-07-28 14:03:12,509 - --- RESPONSE ---
-Thought:The user requested a business description of the `equipment` table in the `DEMO_Customer360_db` database.  This is a perfect match for the `base_tableBusinessDesc` prompt.
+[user]: Give me a business description for table Equipment in database "DEMO_Customer360_db"
+[model]: Thought: I will use the `base_tableBusinessDesc` prompt to fulfill this request.
 
 ```json
 {
   "prompt_name": "base_tableBusinessDesc",
   "arguments": {
     "db_name": "DEMO_Customer360_db",
-    "table_name": "equipment"
+    "table_name": "Equipment"
   }
 }
+```
+
+
+--- Current User Prompt ---
+You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is Equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `None`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+
+2025-07-28 14:27:23,547 - --- RESPONSE ---
+Thought: I have completed Phase 0 (getting the table and database names) implicitly by receiving the initial prompt, and Phase 1 (getting the table DDL) requires calling the `base_tableDDL` tool.
+
+```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+--------------------------------------------------
+
+2025-07-28 14:27:23,722 - --- FULL CONTEXT (Session: 6529df47-a3ba-4201-a90d-75f6f72125f7) ---
+--- History ---
+[user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
+
+--- **Core Reasoning Hierarchy** ---
+1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.
+2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.
+3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.
+
+--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---
+You **MUST** remember and reuse information from previous turns.
+**Example of CORRECT Inference:**
+    -   USER (Turn 1): "what is the business description for the `equipment` table in database `DEMO_Customer360_db`?"
+    -   ASSISTANT (Turn 1): (Executes the request)
+    -   USER (Turn 2): "ok now what is the quality of that table?"
+    -   YOUR CORRECT REASONING (Turn 2): "The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters."
+    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.
+
+--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---
+You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.
+
+--- **CRITICAL RULE: SQL GENERATION** ---
+When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).
+
+--- **Charting Rules** ---
+- After successfully gathering data with Teradata tools, consider if a visualization would enhance the answer.
+- Use a chart tool if it provides a clear summary (e.g., bar chart for space usage, pie chart for distributions).
+- Do not generate charts for simple data retrievals that are easily readable in a table.
+- When you use a chart tool, tell the user in your final answer what the chart represents.
+
+--- **Response Formatting** ---
+-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.
+-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.
+-   **Clarifying Question:** Only ask if information is truly missing.
+
+--- Available Tools ---
+- `base_readQuery`: Executes a SQL query to read from the database.
+- `base_writeQuery`: Executes a SQL query to write to the database.
+- `base_tableDDL`: Display table DDL definition.
+- `base_databaseList`: List all databases in the Teradata System.
+- `base_tableList`: List objects in a database.
+- `base_columnDescription`: Show detailed column information about a database table.
+- `base_tablePreview`: Get data samples and structure overview from a database table.
+- `base_tableAffinity`: Get tables commonly used together by database users, this is helpful to infer relationships between tables.
+- `base_tableUsage`: Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value.
+- `dba_userSqlList`: Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+- `dba_tableSqlList`: Get a list of SQL run against a table in the last number of days 
+- `dba_tableSpace`: Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided.
+- `dba_databaseSpace`: Get database space if database name is provided, otherwise get all databases space allocations.
+- `dba_databaseVersion`: Get Teradata database version information.
+- `dba_resusageSummary`: Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
+- `dba_resusageUserSummary`: Get the Teradata system usage summary metrics by user on a specified date, or day of week and hour of day.
+- `dba_flowControl`: Get the Teradata flow control metrics.
+- `dba_featureUsage`: Get the user feature usage metrics.
+- `dba_userDelay`: Get the Teradata user delay metrics.
+- `dba_tableUsageImpact`: Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
+- `dba_sessionInfo`: Get the Teradata session information for user.
+- `qlty_missingValues`: Get the column names that having missing values in a table.
+- `qlty_negativeValues`: Get the column names that having negative values in a table.
+- `qlty_distinctCategories`: Get the destinct categories from column in a table.
+- `qlty_standardDeviation`: Get the standard deviation from column in a table.
+- `qlty_columnSummary`: Get the column summary statistics for a table.
+- `qlty_univariateStatistics`: Get the univariate statistics for a table.
+- `qlty_rowsWithMissingValues`: Get the rows with missing values in a table.
+- `rag_setConfig`: 
+        Set the configuration for the current Retrieval-Augmented Generation (RAG) session.
+        This MUST be called before any other RAG-related tools.
+
+        The following values are hardcoded:
+        - query_table = 'user_query'
+        - query_embedding_store = 'user_query_embeddings'
+        - model_id = 'bge-small-en-v1.5'
+
+        You only need to provide the database locations:
+        - query_db: where user queries and query embeddings will be stored
+        - model_db: where the embedding model metadata is stored
+        - vector_db + vector_table: where PDF chunk embeddings are stored
+
+        Once this configuration is set, all other RAG tools will reuse it automatically.
+        
+- `rag_storeUserQuery`: Store a user's natural language question as the first step in a Retrieval-Augmented Generation (RAG) workflow.This tool should always be run **before any embedding or similarity search** steps.It inserts the raw question into a Teradata table specified by `db_name` and `table_name`. If the question starts with the prefix '/rag ', the prefix is automatically stripped before storage. Each question is appended as a new row with a generated ID and timestamp.If the specified table does not exist, it will be created with columns: `id`, `txt`, and `created_ts`.Returns the inserted row ID and cleaned question text.This tool is **only needed once per user question** — downstream embedding and vector search tools can then reference this ID or re-use the stored question text.
+- `rag_tokenizeQuery`: Tokenizes the latest user-submitted question using the tokenizer specified in the current RAG configuration. This tool must be used *after* calling 'configure_rag' (to initialize the config) and 'store_user_query' (to capture a user question). It selects the most recent row from the query table (e.g., 'pdf_topics_of_interest'), runs it through the ONNX tokenizer, and creates a temporary view '<query_db>.v_topics_tokenized' containing 'id', 'txt', 'input_ids', and 'attention_mask'. This view is used downstream to generate vector embeddings for similarity search.
+- `rag_createEmbeddingView`: Generates sentence embeddings for the most recent tokenized user query using the model specified in the RAG configuration. Reads from the view `<db>.v_topics_tokenized` and applies the ONNX model from `<model_db>.embeddings_models`. Creates or replaces the view `<db>.v_topics_embeddings` which includes the original input and a `sentence_embedding` column. This must be run *after* create_tokenized_view and before vector_to_columns().
+- `rag_createQueryEmbeddingTable`: Converts the sentence embedding from the view `v_topics_embeddings` into 384 vector columns using `ivsm.vector_to_columns`. Creates or replaces a physical table to store the latest query embeddings for use in similarity search. The table location is defined via `rag_set_config`. This tool must be run *after* `create_embedding_view` and before `semantic_search_chunks`.
+- `rag_semanticSearchChunks`: Retrieve top-k most relevant PDF chunks for the user's latest embedded query. This tool is part of the RAG workflow and should be called after the query has been embedded. If the RAG config has not been set, use `rag_set_config` first to define where queries, models, and chunk embeddings are stored. Uses cosine similarity via `TD_VECTORDISTANCE` to compare embeddings. Each result includes similarity score, chunk text, page number, chunk number, and document name.
+- `sec_userDbPermissions`: Get permissions for a user.
+- `sec_rolePermissions`: Get permissions for a role.
+- `sec_userRoles`: Get roles assigned to a user.
+- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
+- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
+- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
+- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
+- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
+- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
+- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
+- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
+- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
+- `get_cust_activeUsers`: Fetch currently active database users
+- `get_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+- `get_cube_cube_db_space_metrics`: 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
+
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
+
+        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
+
+    Returns:
+        Query result as a formatted response.
+    
+
+--- Available Prompts ---
+- `base_query`: Create a SQL query against the database
+- `base_tableBusinessDesc`: Create a business description of the table and columns.
+- `base_databaseBusinessDesc`: Create a business description of the database.
+- `dba_databaseHealthAssessment`: Create a database health assessment for a Teradata system.
+- `dba_userActivityAnalysis`: Create a user activity analysis for a Teradata system.
+- `dba_tableArchive`: Create a table archive strategy for database tables.
+- `dba_databaseLineage`: Create a database lineage map for tables in a database.
+- `dba_tableDropImpact`: Assess the impact of dropping a table.
+- `qlty_databaseQuality`: Assess the data quality of a database.
+- `rag_guidelines`: 
+- `cust_promptExample`: my prompt description
+
+--- Available Chart Tools ---
+- `generate_area_chart`: Generate a area chart to show data trends under continuous independent variables and observe the overall data trend, such as, displacement = velocity (average or instantaneous) × time: s = v × t. If the x-axis is time (t) and the y-axis is velocity (v) at each moment, an area chart allows you to observe the trend of velocity over time and infer the distance traveled by the area's size.
+- `generate_bar_chart`: Generate a horizontal bar chart to show data for numerical comparisons among different categories, such as, comparing categorical data and for horizontal comparisons.
+- `generate_boxplot_chart`: Generate a boxplot chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_column_chart`: Generate a column chart, which are best for comparing categorical data, such as, when values are close, column charts are preferable because our eyes are better at judging height than other visual elements like area or angles.
+- `generate_district_map`: Generates regional distribution maps, which are usually used to show the administrative divisions and coverage of a dataset. It is not suitable for showing the distribution of specific locations, such as urban administrative divisions, GDP distribution maps of provinces and cities across the country, etc. This tool is limited to generating data maps within China.
+- `generate_dual_axes_chart`: Generate a dual axes chart which is a combination chart that integrates two different chart types, typically combining a bar chart with a line chart to display both the trend and comparison of data, such as, the trend of sales and profit over time.
+- `generate_fishbone_diagram`: Generate a fishbone diagram chart to uses a fish skeleton, like structure to display the causes or effects of a core problem, with the problem as the fish head and the causes/effects as the fish bones. It suits problems that can be split into multiple related factors.
+- `generate_flow_diagram`: Generate a flow diagram chart to show the steps and decision points of a process or system, such as, scenarios requiring linear process presentation.
+- `generate_funnel_chart`: Generate a funnel chart to visualize the progressive reduction of data as it passes through stages, such as, the conversion rates of users from visiting a website to completing a purchase.
+- `generate_histogram_chart`: Generate a histogram chart to show the frequency of data points within a certain range. It can observe data distribution, such as, normal and skewed distributions, and identify data concentration areas and extreme points.
+- `generate_line_chart`: Generate a line chart to show trends over time, such as, the ratio of Apple computer sales to Apple's profits changed from 2000 to 2016.
+- `generate_liquid_chart`: Generate a liquid chart to visualize a single value as a percentage, such as, the current occupancy rate of a reservoir or the completion percentage of a project.
+- `generate_mind_map`: Generate a mind map chart to organizes and presents information in a hierarchical structure with branches radiating from a central topic, such as, a diagram showing the relationship between a main topic and its subtopics.
+- `generate_network_graph`: Generate a network graph chart to show relationships (edges) between entities (nodes), such as, relationships between people in social networks.
+- `generate_organization_chart`: Generate an organization chart to visualize the hierarchical structure of an organization, such as, a diagram showing the relationship between a CEO and their direct reports.
+- `generate_path_map`: Generate a route map to display the user's planned route, such as travel guide routes.
+- `generate_pie_chart`: Generate a pie chart to show the proportion of parts, such as, market share and budget allocation.
+- `generate_pin_map`: Generate a point map to display the location and distribution of point data on the map, such as the location distribution of attractions, hospitals, supermarkets, etc.
+- `generate_radar_chart`: Generate a radar chart to display multidimensional data (four dimensions or more), such as, evaluate Huawei and Apple phones in terms of five dimensions: ease of use, functionality, camera, benchmark scores, and battery life.
+- `generate_sankey_chart`: Generate a sankey chart to visualize the flow of data between different stages or categories, such as, the user journey from landing on a page to completing a purchase.
+- `generate_scatter_chart`: Generate a scatter chart to show the relationship between two variables, helps discover their relationship or trends, such as, the strength of correlation, data distribution patterns.
+- `generate_treemap_chart`: Generate a treemap chart to display hierarchical data and can intuitively show comparisons between items at the same level, such as, show disk space usage with treemap.
+- `generate_venn_chart`: Generate a Venn diagram to visualize the relationships between different sets, showing how they intersect and overlap, such as the commonalities and differences between various groups.
+- `generate_violin_chart`: Generate a violin chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_word_cloud_chart`: Generate a word cloud chart to show word frequency or weight through text size variation, such as, analyzing common words in social media, reviews, or feedback.
+
+
+[model]: Understood. I will follow all instructions.
+[user]: Give me a business description for table Equipment in database "DEMO_Customer360_db"
+[model]: Thought: I will use the `base_tableBusinessDesc` prompt to fulfill this request.
+
+```json
+{
+  "prompt_name": "base_tableBusinessDesc",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+
+[user]: You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is Equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `None`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+[model]: Thought: I have completed Phase 0 (getting the table and database names) implicitly by receiving the initial prompt, and Phase 1 (getting the table DDL) requires calling the `base_tableDDL` tool.
+
+```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+
+
+--- Current User Prompt ---
+You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is Equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `base_tableDDL`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+
+The last tool execution returned the following result. Use this to inform your next action:
+
+{"tool_name": "base_tableDDL", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "Equipment"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.Equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"}]}}
+
+2025-07-28 14:27:27,375 - --- RESPONSE ---
+Thought: The previous step completed Phase 1 by retrieving the table DDL using `base_tableDDL`.  The next step is Phase 2, which requires manually analyzing the DDL (provided above) to create a business description.  No further tool calls are needed.
+
+FINAL_ANSWER: ***Table Name:*** `Equipment`
+
+***Database Name:*** `DEMO_Customer360_db`
+
+***Description:*** This table stores information about customers and their associated equipment.  It likely represents a linkage between customer demographics and the equipment they own or utilize.
+
+         - ***CUST_ID:*** Customer identifier, a unique numerical code for each customer.
+         - ***GENDER:*** Customer's gender (M/F).
+         - ***FIRSTNAME:*** Customer's first name.
+         - ***LASTNAME:*** Customer's last name.
+         - ***ADDRESS:*** Customer's street address.
+         - ***STATE:*** Customer's state (two-letter abbreviation).
+         - ***CITY:*** Customer's city.
+         - ***ZIP:*** Customer's zip code.
+         - ***EQUIP_LTV:***  Likely represents the loan-to-value ratio or some other metric related to the equipment's financial standing associated with the customer.  Further context is needed for precise definition.
+--------------------------------------------------
+
+2025-07-28 14:27:38,265 - --- FULL CONTEXT (Session: 6529df47-a3ba-4201-a90d-75f6f72125f7) ---
+--- History ---
+[user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
+
+--- **Core Reasoning Hierarchy** ---
+1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.
+2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.
+3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.
+
+--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---
+You **MUST** remember and reuse information from previous turns.
+**Example of CORRECT Inference:**
+    -   USER (Turn 1): "what is the business description for the `equipment` table in database `DEMO_Customer360_db`?"
+    -   ASSISTANT (Turn 1): (Executes the request)
+    -   USER (Turn 2): "ok now what is the quality of that table?"
+    -   YOUR CORRECT REASONING (Turn 2): "The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters."
+    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.
+
+--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---
+You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.
+
+--- **CRITICAL RULE: SQL GENERATION** ---
+When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).
+
+--- **Charting Rules** ---
+- After successfully gathering data with Teradata tools, consider if a visualization would enhance the answer.
+- Use a chart tool if it provides a clear summary (e.g., bar chart for space usage, pie chart for distributions).
+- Do not generate charts for simple data retrievals that are easily readable in a table.
+- When you use a chart tool, tell the user in your final answer what the chart represents.
+
+--- **Response Formatting** ---
+-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.
+-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.
+-   **Clarifying Question:** Only ask if information is truly missing.
+
+--- Available Tools ---
+- `base_readQuery`: Executes a SQL query to read from the database.
+- `base_writeQuery`: Executes a SQL query to write to the database.
+- `base_tableDDL`: Display table DDL definition.
+- `base_databaseList`: List all databases in the Teradata System.
+- `base_tableList`: List objects in a database.
+- `base_columnDescription`: Show detailed column information about a database table.
+- `base_tablePreview`: Get data samples and structure overview from a database table.
+- `base_tableAffinity`: Get tables commonly used together by database users, this is helpful to infer relationships between tables.
+- `base_tableUsage`: Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value.
+- `dba_userSqlList`: Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+- `dba_tableSqlList`: Get a list of SQL run against a table in the last number of days 
+- `dba_tableSpace`: Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided.
+- `dba_databaseSpace`: Get database space if database name is provided, otherwise get all databases space allocations.
+- `dba_databaseVersion`: Get Teradata database version information.
+- `dba_resusageSummary`: Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
+- `dba_resusageUserSummary`: Get the Teradata system usage summary metrics by user on a specified date, or day of week and hour of day.
+- `dba_flowControl`: Get the Teradata flow control metrics.
+- `dba_featureUsage`: Get the user feature usage metrics.
+- `dba_userDelay`: Get the Teradata user delay metrics.
+- `dba_tableUsageImpact`: Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
+- `dba_sessionInfo`: Get the Teradata session information for user.
+- `qlty_missingValues`: Get the column names that having missing values in a table.
+- `qlty_negativeValues`: Get the column names that having negative values in a table.
+- `qlty_distinctCategories`: Get the destinct categories from column in a table.
+- `qlty_standardDeviation`: Get the standard deviation from column in a table.
+- `qlty_columnSummary`: Get the column summary statistics for a table.
+- `qlty_univariateStatistics`: Get the univariate statistics for a table.
+- `qlty_rowsWithMissingValues`: Get the rows with missing values in a table.
+- `rag_setConfig`: 
+        Set the configuration for the current Retrieval-Augmented Generation (RAG) session.
+        This MUST be called before any other RAG-related tools.
+
+        The following values are hardcoded:
+        - query_table = 'user_query'
+        - query_embedding_store = 'user_query_embeddings'
+        - model_id = 'bge-small-en-v1.5'
+
+        You only need to provide the database locations:
+        - query_db: where user queries and query embeddings will be stored
+        - model_db: where the embedding model metadata is stored
+        - vector_db + vector_table: where PDF chunk embeddings are stored
+
+        Once this configuration is set, all other RAG tools will reuse it automatically.
+        
+- `rag_storeUserQuery`: Store a user's natural language question as the first step in a Retrieval-Augmented Generation (RAG) workflow.This tool should always be run **before any embedding or similarity search** steps.It inserts the raw question into a Teradata table specified by `db_name` and `table_name`. If the question starts with the prefix '/rag ', the prefix is automatically stripped before storage. Each question is appended as a new row with a generated ID and timestamp.If the specified table does not exist, it will be created with columns: `id`, `txt`, and `created_ts`.Returns the inserted row ID and cleaned question text.This tool is **only needed once per user question** — downstream embedding and vector search tools can then reference this ID or re-use the stored question text.
+- `rag_tokenizeQuery`: Tokenizes the latest user-submitted question using the tokenizer specified in the current RAG configuration. This tool must be used *after* calling 'configure_rag' (to initialize the config) and 'store_user_query' (to capture a user question). It selects the most recent row from the query table (e.g., 'pdf_topics_of_interest'), runs it through the ONNX tokenizer, and creates a temporary view '<query_db>.v_topics_tokenized' containing 'id', 'txt', 'input_ids', and 'attention_mask'. This view is used downstream to generate vector embeddings for similarity search.
+- `rag_createEmbeddingView`: Generates sentence embeddings for the most recent tokenized user query using the model specified in the RAG configuration. Reads from the view `<db>.v_topics_tokenized` and applies the ONNX model from `<model_db>.embeddings_models`. Creates or replaces the view `<db>.v_topics_embeddings` which includes the original input and a `sentence_embedding` column. This must be run *after* create_tokenized_view and before vector_to_columns().
+- `rag_createQueryEmbeddingTable`: Converts the sentence embedding from the view `v_topics_embeddings` into 384 vector columns using `ivsm.vector_to_columns`. Creates or replaces a physical table to store the latest query embeddings for use in similarity search. The table location is defined via `rag_set_config`. This tool must be run *after* `create_embedding_view` and before `semantic_search_chunks`.
+- `rag_semanticSearchChunks`: Retrieve top-k most relevant PDF chunks for the user's latest embedded query. This tool is part of the RAG workflow and should be called after the query has been embedded. If the RAG config has not been set, use `rag_set_config` first to define where queries, models, and chunk embeddings are stored. Uses cosine similarity via `TD_VECTORDISTANCE` to compare embeddings. Each result includes similarity score, chunk text, page number, chunk number, and document name.
+- `sec_userDbPermissions`: Get permissions for a user.
+- `sec_rolePermissions`: Get permissions for a role.
+- `sec_userRoles`: Get roles assigned to a user.
+- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
+- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
+- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
+- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
+- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
+- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
+- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
+- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
+- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
+- `get_cust_activeUsers`: Fetch currently active database users
+- `get_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+- `get_cube_cube_db_space_metrics`: 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
+
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
+
+        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
+
+    Returns:
+        Query result as a formatted response.
+    
+
+--- Available Prompts ---
+- `base_query`: Create a SQL query against the database
+- `base_tableBusinessDesc`: Create a business description of the table and columns.
+- `base_databaseBusinessDesc`: Create a business description of the database.
+- `dba_databaseHealthAssessment`: Create a database health assessment for a Teradata system.
+- `dba_userActivityAnalysis`: Create a user activity analysis for a Teradata system.
+- `dba_tableArchive`: Create a table archive strategy for database tables.
+- `dba_databaseLineage`: Create a database lineage map for tables in a database.
+- `dba_tableDropImpact`: Assess the impact of dropping a table.
+- `qlty_databaseQuality`: Assess the data quality of a database.
+- `rag_guidelines`: 
+- `cust_promptExample`: my prompt description
+
+--- Available Chart Tools ---
+- `generate_area_chart`: Generate a area chart to show data trends under continuous independent variables and observe the overall data trend, such as, displacement = velocity (average or instantaneous) × time: s = v × t. If the x-axis is time (t) and the y-axis is velocity (v) at each moment, an area chart allows you to observe the trend of velocity over time and infer the distance traveled by the area's size.
+- `generate_bar_chart`: Generate a horizontal bar chart to show data for numerical comparisons among different categories, such as, comparing categorical data and for horizontal comparisons.
+- `generate_boxplot_chart`: Generate a boxplot chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_column_chart`: Generate a column chart, which are best for comparing categorical data, such as, when values are close, column charts are preferable because our eyes are better at judging height than other visual elements like area or angles.
+- `generate_district_map`: Generates regional distribution maps, which are usually used to show the administrative divisions and coverage of a dataset. It is not suitable for showing the distribution of specific locations, such as urban administrative divisions, GDP distribution maps of provinces and cities across the country, etc. This tool is limited to generating data maps within China.
+- `generate_dual_axes_chart`: Generate a dual axes chart which is a combination chart that integrates two different chart types, typically combining a bar chart with a line chart to display both the trend and comparison of data, such as, the trend of sales and profit over time.
+- `generate_fishbone_diagram`: Generate a fishbone diagram chart to uses a fish skeleton, like structure to display the causes or effects of a core problem, with the problem as the fish head and the causes/effects as the fish bones. It suits problems that can be split into multiple related factors.
+- `generate_flow_diagram`: Generate a flow diagram chart to show the steps and decision points of a process or system, such as, scenarios requiring linear process presentation.
+- `generate_funnel_chart`: Generate a funnel chart to visualize the progressive reduction of data as it passes through stages, such as, the conversion rates of users from visiting a website to completing a purchase.
+- `generate_histogram_chart`: Generate a histogram chart to show the frequency of data points within a certain range. It can observe data distribution, such as, normal and skewed distributions, and identify data concentration areas and extreme points.
+- `generate_line_chart`: Generate a line chart to show trends over time, such as, the ratio of Apple computer sales to Apple's profits changed from 2000 to 2016.
+- `generate_liquid_chart`: Generate a liquid chart to visualize a single value as a percentage, such as, the current occupancy rate of a reservoir or the completion percentage of a project.
+- `generate_mind_map`: Generate a mind map chart to organizes and presents information in a hierarchical structure with branches radiating from a central topic, such as, a diagram showing the relationship between a main topic and its subtopics.
+- `generate_network_graph`: Generate a network graph chart to show relationships (edges) between entities (nodes), such as, relationships between people in social networks.
+- `generate_organization_chart`: Generate an organization chart to visualize the hierarchical structure of an organization, such as, a diagram showing the relationship between a CEO and their direct reports.
+- `generate_path_map`: Generate a route map to display the user's planned route, such as travel guide routes.
+- `generate_pie_chart`: Generate a pie chart to show the proportion of parts, such as, market share and budget allocation.
+- `generate_pin_map`: Generate a point map to display the location and distribution of point data on the map, such as the location distribution of attractions, hospitals, supermarkets, etc.
+- `generate_radar_chart`: Generate a radar chart to display multidimensional data (four dimensions or more), such as, evaluate Huawei and Apple phones in terms of five dimensions: ease of use, functionality, camera, benchmark scores, and battery life.
+- `generate_sankey_chart`: Generate a sankey chart to visualize the flow of data between different stages or categories, such as, the user journey from landing on a page to completing a purchase.
+- `generate_scatter_chart`: Generate a scatter chart to show the relationship between two variables, helps discover their relationship or trends, such as, the strength of correlation, data distribution patterns.
+- `generate_treemap_chart`: Generate a treemap chart to display hierarchical data and can intuitively show comparisons between items at the same level, such as, show disk space usage with treemap.
+- `generate_venn_chart`: Generate a Venn diagram to visualize the relationships between different sets, showing how they intersect and overlap, such as the commonalities and differences between various groups.
+- `generate_violin_chart`: Generate a violin chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_word_cloud_chart`: Generate a word cloud chart to show word frequency or weight through text size variation, such as, analyzing common words in social media, reviews, or feedback.
+
+
+[model]: Understood. I will follow all instructions.
+[user]: Give me a business description for table Equipment in database "DEMO_Customer360_db"
+[model]: Thought: I will use the `base_tableBusinessDesc` prompt to fulfill this request.
+
+```json
+{
+  "prompt_name": "base_tableBusinessDesc",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+
+[user]: You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is Equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `None`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+[model]: Thought: I have completed Phase 0 (getting the table and database names) implicitly by receiving the initial prompt, and Phase 1 (getting the table DDL) requires calling the `base_tableDDL` tool.
+
+```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+
+[user]: You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is Equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `base_tableDDL`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+
+The last tool execution returned the following result. Use this to inform your next action:
+
+{"tool_name": "base_tableDDL", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "Equipment"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.Equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"}]}}
+[model]: Thought: The previous step completed Phase 1 by retrieving the table DDL using `base_tableDDL`.  The next step is Phase 2, which requires manually analyzing the DDL (provided above) to create a business description.  No further tool calls are needed.
+
+FINAL_ANSWER: ***Table Name:*** `Equipment`
+
+***Database Name:*** `DEMO_Customer360_db`
+
+***Description:*** This table stores information about customers and their associated equipment.  It likely represents a linkage between customer demographics and the equipment they own or utilize.
+
+         - ***CUST_ID:*** Customer identifier, a unique numerical code for each customer.
+         - ***GENDER:*** Customer's gender (M/F).
+         - ***FIRSTNAME:*** Customer's first name.
+         - ***LASTNAME:*** Customer's last name.
+         - ***ADDRESS:*** Customer's street address.
+         - ***STATE:*** Customer's state (two-letter abbreviation).
+         - ***CITY:*** Customer's city.
+         - ***ZIP:*** Customer's zip code.
+         - ***EQUIP_LTV:***  Likely represents the loan-to-value ratio or some other metric related to the equipment's financial standing associated with the customer.  Further context is needed for precise definition.
+
+
+
+--- Current User Prompt ---
+what's in equipment?
+
+2025-07-28 14:27:39,691 - --- RESPONSE ---
+Thought: The user is asking for a preview of the `Equipment` table. I will use the `base_tablePreview` tool.  The database and table name were specified in previous turns.
+
+```json
+{
+  "tool_name": "base_tablePreview",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+--------------------------------------------------
+
+2025-07-28 14:27:39,888 - --- FULL CONTEXT (Session: 6529df47-a3ba-4201-a90d-75f6f72125f7) ---
+--- History ---
+[user]: You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool, prompt, or sequence of tools.
+
+--- **Core Reasoning Hierarchy** ---
+1.  **Check for a Perfect Prompt:** First, analyze the user's request and see if there is a single, pre-defined **prompt** that exactly matches the user's intent and scope.
+2.  **Synthesize a Plan from Tools:** If no single prompt is a perfect match, you must become a **planner**. Create a logical sequence of steps to solve the user's request.
+3.  **Execute the First Step:** Your response will be the JSON for the *first tool* in your plan.
+
+--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---
+You **MUST** remember and reuse information from previous turns.
+**Example of CORRECT Inference:**
+    -   USER (Turn 1): "what is the business description for the `equipment` table in database `DEMO_Customer360_db`?"
+    -   ASSISTANT (Turn 1): (Executes the request)
+    -   USER (Turn 2): "ok now what is the quality of that table?"
+    -   YOUR CORRECT REASONING (Turn 2): "The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters."
+    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.
+
+--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---
+You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.
+
+--- **CRITICAL RULE: SQL GENERATION** ---
+When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).
+
+--- **Charting Rules** ---
+- After successfully gathering data with Teradata tools, consider if a visualization would enhance the answer.
+- Use a chart tool if it provides a clear summary (e.g., bar chart for space usage, pie chart for distributions).
+- Do not generate charts for simple data retrievals that are easily readable in a table.
+- When you use a chart tool, tell the user in your final answer what the chart represents.
+
+--- **Response Formatting** ---
+-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.
+-   **To execute a prompt:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `prompt_name` and `arguments`.
+-   **Clarifying Question:** Only ask if information is truly missing.
+
+--- Available Tools ---
+- `base_readQuery`: Executes a SQL query to read from the database.
+- `base_writeQuery`: Executes a SQL query to write to the database.
+- `base_tableDDL`: Display table DDL definition.
+- `base_databaseList`: List all databases in the Teradata System.
+- `base_tableList`: List objects in a database.
+- `base_columnDescription`: Show detailed column information about a database table.
+- `base_tablePreview`: Get data samples and structure overview from a database table.
+- `base_tableAffinity`: Get tables commonly used together by database users, this is helpful to infer relationships between tables.
+- `base_tableUsage`: Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value.
+- `dba_userSqlList`: Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+- `dba_tableSqlList`: Get a list of SQL run against a table in the last number of days 
+- `dba_tableSpace`: Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided.
+- `dba_databaseSpace`: Get database space if database name is provided, otherwise get all databases space allocations.
+- `dba_databaseVersion`: Get Teradata database version information.
+- `dba_resusageSummary`: Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
+- `dba_resusageUserSummary`: Get the Teradata system usage summary metrics by user on a specified date, or day of week and hour of day.
+- `dba_flowControl`: Get the Teradata flow control metrics.
+- `dba_featureUsage`: Get the user feature usage metrics.
+- `dba_userDelay`: Get the Teradata user delay metrics.
+- `dba_tableUsageImpact`: Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
+- `dba_sessionInfo`: Get the Teradata session information for user.
+- `qlty_missingValues`: Get the column names that having missing values in a table.
+- `qlty_negativeValues`: Get the column names that having negative values in a table.
+- `qlty_distinctCategories`: Get the destinct categories from column in a table.
+- `qlty_standardDeviation`: Get the standard deviation from column in a table.
+- `qlty_columnSummary`: Get the column summary statistics for a table.
+- `qlty_univariateStatistics`: Get the univariate statistics for a table.
+- `qlty_rowsWithMissingValues`: Get the rows with missing values in a table.
+- `rag_setConfig`: 
+        Set the configuration for the current Retrieval-Augmented Generation (RAG) session.
+        This MUST be called before any other RAG-related tools.
+
+        The following values are hardcoded:
+        - query_table = 'user_query'
+        - query_embedding_store = 'user_query_embeddings'
+        - model_id = 'bge-small-en-v1.5'
+
+        You only need to provide the database locations:
+        - query_db: where user queries and query embeddings will be stored
+        - model_db: where the embedding model metadata is stored
+        - vector_db + vector_table: where PDF chunk embeddings are stored
+
+        Once this configuration is set, all other RAG tools will reuse it automatically.
+        
+- `rag_storeUserQuery`: Store a user's natural language question as the first step in a Retrieval-Augmented Generation (RAG) workflow.This tool should always be run **before any embedding or similarity search** steps.It inserts the raw question into a Teradata table specified by `db_name` and `table_name`. If the question starts with the prefix '/rag ', the prefix is automatically stripped before storage. Each question is appended as a new row with a generated ID and timestamp.If the specified table does not exist, it will be created with columns: `id`, `txt`, and `created_ts`.Returns the inserted row ID and cleaned question text.This tool is **only needed once per user question** — downstream embedding and vector search tools can then reference this ID or re-use the stored question text.
+- `rag_tokenizeQuery`: Tokenizes the latest user-submitted question using the tokenizer specified in the current RAG configuration. This tool must be used *after* calling 'configure_rag' (to initialize the config) and 'store_user_query' (to capture a user question). It selects the most recent row from the query table (e.g., 'pdf_topics_of_interest'), runs it through the ONNX tokenizer, and creates a temporary view '<query_db>.v_topics_tokenized' containing 'id', 'txt', 'input_ids', and 'attention_mask'. This view is used downstream to generate vector embeddings for similarity search.
+- `rag_createEmbeddingView`: Generates sentence embeddings for the most recent tokenized user query using the model specified in the RAG configuration. Reads from the view `<db>.v_topics_tokenized` and applies the ONNX model from `<model_db>.embeddings_models`. Creates or replaces the view `<db>.v_topics_embeddings` which includes the original input and a `sentence_embedding` column. This must be run *after* create_tokenized_view and before vector_to_columns().
+- `rag_createQueryEmbeddingTable`: Converts the sentence embedding from the view `v_topics_embeddings` into 384 vector columns using `ivsm.vector_to_columns`. Creates or replaces a physical table to store the latest query embeddings for use in similarity search. The table location is defined via `rag_set_config`. This tool must be run *after* `create_embedding_view` and before `semantic_search_chunks`.
+- `rag_semanticSearchChunks`: Retrieve top-k most relevant PDF chunks for the user's latest embedded query. This tool is part of the RAG workflow and should be called after the query has been embedded. If the RAG config has not been set, use `rag_set_config` first to define where queries, models, and chunk embeddings are stored. Uses cosine similarity via `TD_VECTORDISTANCE` to compare embeddings. Each result includes similarity score, chunk text, page number, chunk number, and document name.
+- `sec_userDbPermissions`: Get permissions for a user.
+- `sec_rolePermissions`: Get permissions for a role.
+- `sec_userRoles`: Get roles assigned to a user.
+- `reconnect_to_database`: Reconnect to the Teradata database if the connection is lost.
+- `fs_setFeatureStoreConfig`: Set or update the feature store configuration (database and data domain).
+- `fs_getFeatureStoreConfig`: Display the current feature store configuration (database and data domain).
+- `fs_isFeatureStorePresent`: Check if a feature store is present in the specified database.
+- `fs_featureStoreContent`: Returns a summary of the feature store content. Use this to understand what data is available in the feature store
+- `fs_getDataDomains`: List the available data domains. Requires a configured `db_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_getFeatures`: List the list of features. Requires a configured `db_name` and  `data_domain` in the feature store config. Use this to explore the features available .
+- `fs_getAvailableDatasets`: List the list of available datasets.Requires a configured `db_name` in the feature store config.Use this to explore the datasets that are available .
+- `fs_getFeatureDataModel`: Return the schema of the feature store.Requires a feature store in the configured database (`db_name`).
+- `fs_getAvailableEntities`: List the available entities for a given data domain. Requires a configured `db_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
+- `fs_createDataset`: Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
+- `get_cust_activeUsers`: Fetch currently active database users
+- `get_td_serverInfo`: Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+- `get_cube_cube_db_space_metrics`: 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
+
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
+
+        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
+
+    Returns:
+        Query result as a formatted response.
+    
+
+--- Available Prompts ---
+- `base_query`: Create a SQL query against the database
+- `base_tableBusinessDesc`: Create a business description of the table and columns.
+- `base_databaseBusinessDesc`: Create a business description of the database.
+- `dba_databaseHealthAssessment`: Create a database health assessment for a Teradata system.
+- `dba_userActivityAnalysis`: Create a user activity analysis for a Teradata system.
+- `dba_tableArchive`: Create a table archive strategy for database tables.
+- `dba_databaseLineage`: Create a database lineage map for tables in a database.
+- `dba_tableDropImpact`: Assess the impact of dropping a table.
+- `qlty_databaseQuality`: Assess the data quality of a database.
+- `rag_guidelines`: 
+- `cust_promptExample`: my prompt description
+
+--- Available Chart Tools ---
+- `generate_area_chart`: Generate a area chart to show data trends under continuous independent variables and observe the overall data trend, such as, displacement = velocity (average or instantaneous) × time: s = v × t. If the x-axis is time (t) and the y-axis is velocity (v) at each moment, an area chart allows you to observe the trend of velocity over time and infer the distance traveled by the area's size.
+- `generate_bar_chart`: Generate a horizontal bar chart to show data for numerical comparisons among different categories, such as, comparing categorical data and for horizontal comparisons.
+- `generate_boxplot_chart`: Generate a boxplot chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_column_chart`: Generate a column chart, which are best for comparing categorical data, such as, when values are close, column charts are preferable because our eyes are better at judging height than other visual elements like area or angles.
+- `generate_district_map`: Generates regional distribution maps, which are usually used to show the administrative divisions and coverage of a dataset. It is not suitable for showing the distribution of specific locations, such as urban administrative divisions, GDP distribution maps of provinces and cities across the country, etc. This tool is limited to generating data maps within China.
+- `generate_dual_axes_chart`: Generate a dual axes chart which is a combination chart that integrates two different chart types, typically combining a bar chart with a line chart to display both the trend and comparison of data, such as, the trend of sales and profit over time.
+- `generate_fishbone_diagram`: Generate a fishbone diagram chart to uses a fish skeleton, like structure to display the causes or effects of a core problem, with the problem as the fish head and the causes/effects as the fish bones. It suits problems that can be split into multiple related factors.
+- `generate_flow_diagram`: Generate a flow diagram chart to show the steps and decision points of a process or system, such as, scenarios requiring linear process presentation.
+- `generate_funnel_chart`: Generate a funnel chart to visualize the progressive reduction of data as it passes through stages, such as, the conversion rates of users from visiting a website to completing a purchase.
+- `generate_histogram_chart`: Generate a histogram chart to show the frequency of data points within a certain range. It can observe data distribution, such as, normal and skewed distributions, and identify data concentration areas and extreme points.
+- `generate_line_chart`: Generate a line chart to show trends over time, such as, the ratio of Apple computer sales to Apple's profits changed from 2000 to 2016.
+- `generate_liquid_chart`: Generate a liquid chart to visualize a single value as a percentage, such as, the current occupancy rate of a reservoir or the completion percentage of a project.
+- `generate_mind_map`: Generate a mind map chart to organizes and presents information in a hierarchical structure with branches radiating from a central topic, such as, a diagram showing the relationship between a main topic and its subtopics.
+- `generate_network_graph`: Generate a network graph chart to show relationships (edges) between entities (nodes), such as, relationships between people in social networks.
+- `generate_organization_chart`: Generate an organization chart to visualize the hierarchical structure of an organization, such as, a diagram showing the relationship between a CEO and their direct reports.
+- `generate_path_map`: Generate a route map to display the user's planned route, such as travel guide routes.
+- `generate_pie_chart`: Generate a pie chart to show the proportion of parts, such as, market share and budget allocation.
+- `generate_pin_map`: Generate a point map to display the location and distribution of point data on the map, such as the location distribution of attractions, hospitals, supermarkets, etc.
+- `generate_radar_chart`: Generate a radar chart to display multidimensional data (four dimensions or more), such as, evaluate Huawei and Apple phones in terms of five dimensions: ease of use, functionality, camera, benchmark scores, and battery life.
+- `generate_sankey_chart`: Generate a sankey chart to visualize the flow of data between different stages or categories, such as, the user journey from landing on a page to completing a purchase.
+- `generate_scatter_chart`: Generate a scatter chart to show the relationship between two variables, helps discover their relationship or trends, such as, the strength of correlation, data distribution patterns.
+- `generate_treemap_chart`: Generate a treemap chart to display hierarchical data and can intuitively show comparisons between items at the same level, such as, show disk space usage with treemap.
+- `generate_venn_chart`: Generate a Venn diagram to visualize the relationships between different sets, showing how they intersect and overlap, such as the commonalities and differences between various groups.
+- `generate_violin_chart`: Generate a violin chart to show data for statistical summaries among different categories, such as, comparing the distribution of data points across categories.
+- `generate_word_cloud_chart`: Generate a word cloud chart to show word frequency or weight through text size variation, such as, analyzing common words in social media, reviews, or feedback.
+
+
+[model]: Understood. I will follow all instructions.
+[user]: Give me a business description for table Equipment in database "DEMO_Customer360_db"
+[model]: Thought: I will use the `base_tableBusinessDesc` prompt to fulfill this request.
+
+```json
+{
+  "prompt_name": "base_tableBusinessDesc",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+
+[user]: You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is Equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `None`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+[model]: Thought: I have completed Phase 0 (getting the table and database names) implicitly by receiving the initial prompt, and Phase 1 (getting the table DDL) requires calling the `base_tableDDL` tool.
+
+```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+
+[user]: You are executing a multi-step plan. Your goal is to follow it precisely.
+
+--- ORIGINAL PLAN ---
+meta=None description=None messages=[PromptMessage(role='user', content=TextContent(type='text', text='You are a Teradata DBA who is an expert in describing the business use of tables in a database.\n\n## your role will work through the phases\nPerform the phases in order, and do not skip any phase.\n\n## Phase 0 - Get the table name and database name\n- The table name is Equipment\n- The database name is DEMO_Customer360_db\n\n## Phase 1 - Get the table DDL\n- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.\n\n## Phase 2 - Describe the table\n- Describe the table in a business context. The description should be a single string. \n- The description should include the following: \n    - The purpose of the table\n    - The purpose of the columns in the table\n\n## Communication guidelines:\n      - Be concise but informative in your explanations\n      - Clearly indicate which phase the process is currently in\n      - summarize the outcome of the phase before moving to the next phase\n\n## Final output guidelines:\n      - return in markdown\n      - Example:\n      ***Table Name:*** `table_name`\n\n      ***Database Name:*** `database_name`\n\n      ***Description:*** `table_description`\n\n         - ***Column1:*** `column1_descriptions`\n         - ***Column2:*** `column2_descriptions`\n         - ***Column3:*** `column3_descriptions`\n', annotations=None, meta=None))]
+
+--- CURRENT STATE ---
+- The last action was the execution of the tool `base_tableDDL`.
+- The result of this tool call is now in the conversation history.
+
+--- YOUR TASK ---
+1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.
+2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?
+   - If the plan says the next step is to call another tool, provide the JSON for that tool call.
+   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.
+
+
+The last tool execution returned the following result. Use this to inform your next action:
+
+{"tool_name": "base_tableDDL", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "Equipment"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.Equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"}]}}
+[model]: Thought: The previous step completed Phase 1 by retrieving the table DDL using `base_tableDDL`.  The next step is Phase 2, which requires manually analyzing the DDL (provided above) to create a business description.  No further tool calls are needed.
+
+FINAL_ANSWER: ***Table Name:*** `Equipment`
+
+***Database Name:*** `DEMO_Customer360_db`
+
+***Description:*** This table stores information about customers and their associated equipment.  It likely represents a linkage between customer demographics and the equipment they own or utilize.
+
+         - ***CUST_ID:*** Customer identifier, a unique numerical code for each customer.
+         - ***GENDER:*** Customer's gender (M/F).
+         - ***FIRSTNAME:*** Customer's first name.
+         - ***LASTNAME:*** Customer's last name.
+         - ***ADDRESS:*** Customer's street address.
+         - ***STATE:*** Customer's state (two-letter abbreviation).
+         - ***CITY:*** Customer's city.
+         - ***ZIP:*** Customer's zip code.
+         - ***EQUIP_LTV:***  Likely represents the loan-to-value ratio or some other metric related to the equipment's financial standing associated with the customer.  Further context is needed for precise definition.
+
+
+[user]: what's in equipment?
+[model]: Thought: The user is asking for a preview of the `Equipment` table. I will use the `base_tablePreview` tool.  The database and table name were specified in previous turns.
+
+```json
+{
+  "tool_name": "base_tablePreview",
+  "arguments": {
+    "db_name": "DEMO_Customer360_db",
+    "table_name": "Equipment"
+  }
+}
+```
+
+
+--- Current User Prompt ---
+You have just received data from a tool call. Review the data and your instructions to decide the next step.
+
+1.  **Consider a Chart:** First, review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?
+
+2.  **Choose Your Action:**
+    -   If a chart is appropriate, your next action is to call the correct chart-generation tool. Respond with only the `Thought:` and ```json...``` block for that tool.
+    -   If a chart is **not** appropriate and you have all the information needed to answer the user's request, you should provide the final answer. Your response **MUST** start with `FINAL_ANSWER:`.
+    -   If you still need more information from other tools, call the next appropriate tool.
+
+The last tool execution returned the following result. Use this to inform your next action:
+
+{"tool_name": "base_tablePreview", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tablePreview", "database": "DEMO_Customer360_db", "table_name": "DEMO_Customer360_db.Equipment", "columns": [{"name": "CUST_ID", "type": "int", "length": 2}, {"name": "GENDER", "type": "str", "length": 2}, {"name": "FIRSTNAME", "type": "str", "length": 22}, {"name": "LASTNAME", "type": "str", "length": 18}, {"name": "ADDRESS", "type": "str", "length": 50}, {"name": "STATE", "type": "str", "length": 4}, {"name": "CITY", "type": "str", "length": 32}, {"name": "ZIP", "type": "int", "length": 4}, {"name": "EQUIP_LTV", "type": "int", "length": 2}], "sample_size": 5}, "results": [{"CUST_ID": "19579", "GENDER": "M", "FIRSTNAME": "Pedro", "LASTNAME": "Gonsalves", "ADDRESS": "1233 El Camino Real", "STATE": "NY", "CITY": "Greenville", "ZIP": "10586", "EQUIP_LTV": "6159"}, {"CUST_ID": "19688", "GENDER": "F", "FIRSTNAME": "Luiza", "LASTNAME": "Teixeira", "ADDRESS": "1522 North U.S. Highway 1", "STATE": "OH", "CITY": "Kerr", "ZIP": "45643", "EQUIP_LTV": "5894"}, {"CUST_ID": "22143", "GENDER": "M", "FIRSTNAME": "Lucas", "LASTNAME": "Moreau", "ADDRESS": "1455 Sixth Street", "STATE": "OH", "CITY": "Winchester", "ZIP": "45697", "EQUIP_LTV": "6299"}, {"CUST_ID": "22142", "GENDER": "F", "FIRSTNAME": "Beatriz", "LASTNAME": "Gonsalves", "ADDRESS": "1212 Fifth Street", "STATE": "OH", "CITY": "Fairfield", "ZIP": "45018", "EQUIP_LTV": "6463"}, {"CUST_ID": "20575", "GENDER": "F", "FIRSTNAME": "Laura", "LASTNAME": "DeSilva", "ADDRESS": "11 Red Mill Road", "STATE": "PA", "CITY": "New Castle", "ZIP": "16105", "EQUIP_LTV": "5652"}]}}
+
+2025-07-28 14:27:43,270 - --- RESPONSE ---
+Thought:The `base_tablePreview` tool returned a small sample of data from the `Equipment` table.  A chart isn't necessary; the data is easily understood in its current tabular format.
+
+FINAL_ANSWER: The `Equipment` table contains information for a sample of customers, including their ID, gender, name, address, state, city, zip code, and an `EQUIP_LTV` value (likely related to equipment financing).  Here's a preview of the data:
+
+```
+| CUST_ID | GENDER | FIRSTNAME | LASTNAME    | ADDRESS                 | STATE | CITY        | ZIP   | EQUIP_LTV |
+|---------|--------|-----------|-------------|--------------------------|-------|-------------|-------|------------|
+| 19579   | M      | Pedro     | Gonsalves   | 1233 El Camino Real      | NY    | Greenville  | 10586 | 6159       |
+| 19688   | F      | Luiza     | Teixeira    | 1522 North U.S. Highway 1 | OH    | Kerr        | 45643 | 5894       |
+| 22143   | M      | Lucas     | Moreau      | 1455 Sixth Street        | OH    | Winchester  | 45697 | 6299       |
+| 22142   | F      | Beatriz   | Gonsalves   | 1212 Fifth Street        | OH    | Fairfield   | 45018 | 6463       |
+| 20575   | F      | Laura     | DeSilva     | 11 Red Mill Road         | PA    | New Castle | 16105 | 5652       |
 ```
 --------------------------------------------------
 

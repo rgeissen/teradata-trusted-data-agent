@@ -541,20 +541,26 @@ class PlanExecutor:
             prompt_name = command.get("prompt_name")
             self.active_prompt_name = prompt_name
             arguments = command.get("arguments", command.get("parameters", {}))
-            if 'db_name' in arguments and 'database_name' not in arguments: arguments['database_name'] = arguments.pop('db_name')
+            
+            # FIX: Normalize db_name to database_name for prompts
+            if 'db_name' in arguments and 'database_name' not in arguments:
+                arguments['database_name'] = arguments.pop('db_name')
 
             if not mcp_client:
                 raise RuntimeError("MCP client is not connected.")
 
             try:
-                get_prompt_result = None # Initialize to None before the try block
+                get_prompt_result = None
                 async with mcp_client.session("teradata_mcp_server") as temp_session:
-                    get_prompt_result = await temp_session.get_prompt(name=prompt_name, arguments=arguments)
+                    # Call get_prompt with only the name, not the arguments
+                    get_prompt_result = await temp_session.get_prompt(name=prompt_name)
                 
                 if get_prompt_result is None:
-                    raise ValueError("Prompt retrieval from MCP server failed without raising an exception.")
+                    raise ValueError("Prompt retrieval from MCP server returned None.")
 
-                self.active_prompt_plan = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') and hasattr(get_prompt_result.content, 'text') else str(get_prompt_result)
+                # Now, manually render the prompt with the arguments on the client side
+                prompt_text = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') and hasattr(get_prompt_result.content, 'text') else str(get_prompt_result)
+                self.active_prompt_plan = prompt_text.format(**arguments)
 
                 yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
 
