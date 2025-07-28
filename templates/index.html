@@ -623,7 +623,7 @@
                 <div id="prompt-modal-inputs" class="space-y-4 mb-6"></div>
                 <div class="flex justify-end gap-3">
                     <button type="button" id="prompt-modal-close" class="px-4 py-2 rounded-md bg-gray-600 hover:bg-gray-500 transition-colors">Cancel</button>
-                    <button type="submit" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Run Prompt</button>
+                    <button type="submit" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Run</button>
                 </div>
             </form>
         </div>
@@ -642,6 +642,7 @@
         const resourceTabs = document.getElementById('resource-tabs');
         
         const promptModalOverlay = document.getElementById('prompt-modal-overlay');
+        const promptModalContent = document.getElementById('prompt-modal-content');
         const promptModalForm = document.getElementById('prompt-modal-form');
         const promptModalTitle = document.getElementById('prompt-modal-title');
         const promptModalInputs = document.getElementById('prompt-modal-inputs');
@@ -813,7 +814,6 @@
 
             chatLog.appendChild(wrapper);
             
-            // Find and render any charts in the new message
             const chartContainers = messageContent.querySelectorAll('.chart-render-target');
             chartContainers.forEach(container => {
                 if (container.dataset.spec) {
@@ -919,7 +919,11 @@
                         if (dataLine) {
                             const eventData = JSON.parse(dataLine);
 
-                            if (eventName === 'session_update') {
+                            if (eventName === 'request_user_input') {
+                                updateStatusWindow("Action Required", "Waiting for user to correct parameters.");
+                                toggleLoading(false); // Unlock the UI
+                                openCorrectionModal(eventData.details);
+                            } else if (eventName === 'session_update') {
                                 const { id, name } = eventData.session_name_update;
                                 const sessionItem = document.getElementById(`session-${id}`);
                                 if (sessionItem) {
@@ -935,7 +939,7 @@
                             } else if (eventName === 'tool_result') {
                                 updateStatusWindow("Tool Execution Result", eventData.details);
                                 if (eventData.tool_name) {
-                                    const toolType = eventData.tool_name.startsWith('chart_') ? 'charts' : 'tools';
+                                    const toolType = eventData.tool_name.startsWith('generate_') ? 'charts' : 'tools';
                                     highlightResource(eventData.tool_name, toolType);
                                 }
                             } else if (eventName === 'final_answer') {
@@ -1212,6 +1216,8 @@
             promptModalTitle.textContent = prompt.name;
             promptModalForm.dataset.promptName = prompt.name;
             promptModalInputs.innerHTML = '';
+            promptModalForm.querySelector('button[type="submit"]').textContent = 'Run Prompt';
+
 
             if (prompt.arguments && prompt.arguments.length > 0) {
                 prompt.arguments.forEach(arg => {
@@ -1236,6 +1242,69 @@
             } else {
                 promptModalInputs.innerHTML = '<p class="text-gray-400">This prompt requires no arguments.</p>';
             }
+
+            promptModalForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const promptName = e.target.dataset.promptName;
+                const formData = new FormData(e.target);
+                const arugments = Object.fromEntries(formData.entries());
+                
+                closePromptModal();
+                await startStream('/invoke_prompt_stream', {
+                    session_id: currentSessionId,
+                    prompt_name: promptName,
+                    arguments: arugments
+                });
+            };
+        }
+
+        function openCorrectionModal(data) {
+            promptModalOverlay.classList.remove('hidden', 'opacity-0');
+            promptModalContent.classList.remove('scale-95', 'opacity-0');
+            
+            const spec = data.specification;
+            promptModalTitle.textContent = `Correction for: ${spec.name}`;
+            promptModalForm.dataset.toolName = spec.name;
+            promptModalInputs.innerHTML = '';
+            promptModalForm.querySelector('button[type="submit"]').textContent = 'Run Correction';
+
+            const messageEl = document.createElement('p');
+            messageEl.className = 'text-yellow-300 text-sm mb-4 p-3 bg-yellow-500/10 rounded-lg';
+            messageEl.textContent = data.message;
+            promptModalInputs.appendChild(messageEl);
+
+            spec.arguments.forEach(arg => {
+                const inputGroup = document.createElement('div');
+                const label = document.createElement('label');
+                label.htmlFor = `correction-arg-${arg.name}`;
+                label.className = 'block text-sm font-medium text-gray-300 mb-1';
+                label.textContent = arg.name + (arg.required ? ' *' : '');
+                
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = `correction-arg-${arg.name}`;
+                input.name = arg.name;
+                input.className = 'w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-[#F15F22] focus:border-[#F15F22] outline-none';
+                input.placeholder = arg.description || `Enter value for ${arg.name}`;
+                if (arg.required) input.required = true;
+
+                inputGroup.appendChild(label);
+                inputGroup.appendChild(input);
+                promptModalInputs.appendChild(inputGroup);
+            });
+
+            promptModalForm.onsubmit = async (e) => {
+                e.preventDefault();
+                const toolName = e.target.dataset.toolName;
+                const formData = new FormData(e.target);
+                const userArgs = Object.fromEntries(formData.entries());
+
+                const correctedPrompt = `Please run the tool '${toolName}' with the following corrected parameters: ${JSON.stringify(userArgs)}`;
+                
+                closePromptModal();
+                
+                startStream('/ask_stream', { message: correctedPrompt, session_id: currentSessionId });
+            };
         }
 
         function closePromptModal() {
@@ -1243,20 +1312,6 @@
             promptModalContent.classList.add('scale-95', 'opacity-0');
             setTimeout(() => promptModalOverlay.classList.add('hidden'), 300);
         }
-
-        promptModalForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const promptName = e.target.dataset.promptName;
-            const formData = new FormData(e.target);
-            const arugments = Object.fromEntries(formData.entries());
-            
-            closePromptModal();
-            await startStream('/invoke_prompt_stream', {
-                session_id: currentSessionId,
-                prompt_name: promptName,
-                arguments: arugments
-            });
-        });
 
         promptModalClose.addEventListener('click', closePromptModal);
         promptModalOverlay.addEventListener('click', (e) => {

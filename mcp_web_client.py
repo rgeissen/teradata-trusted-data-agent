@@ -270,19 +270,22 @@ class OutputFormatter:
 async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -> str:
     if not llm: raise RuntimeError("LLM is not initialized.")
     
+    # Use a passed chat_history if provided (for stateless calls), otherwise use the session's chat
+    chat_session = llm.start_chat(history=chat_history) if chat_history is not None else SESSIONS[session_id]['chat']
+
     llm_logger = logging.getLogger("llm_conversation")
     try:
         full_log_message = ""
-        history_for_llm = SESSIONS[session_id]['chat'].history if session_id and session_id in SESSIONS else chat_history
-        if history_for_llm:
-            formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_llm]
+        # Log the history from the actual session being used
+        history_for_log = chat_session.history
+        if history_for_log:
+            formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_log]
             formatted_history = "\n".join(formatted_lines)
             full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n--- History ---\n{formatted_history}\n\n"
         
         full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
         llm_logger.info(full_log_message)
 
-        chat_session = SESSIONS[session_id]['chat'] if session_id else llm.start_chat(history=chat_history)
         response = await chat_session.send_message_async(prompt)
 
         if not response or not hasattr(response, 'text'):
@@ -296,20 +299,117 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -
         llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
         return None
 
+async def validate_and_correct_parameters(command: dict) -> dict:
+    """
+    Validates LLM-generated parameters against the tool spec and attempts correction.
+    Returns a corrected command or a command indicating failure.
+    """
+    tool_name = command.get("tool_name")
+    if not tool_name or tool_name not in mcp_tools:
+        return command
+
+    args = command.get("arguments", {})
+
+    # --- START: Programmatic Shim for Legacy Quality Tools ---
+    LEGACY_QUALITY_TOOLS = [
+        "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
+        "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
+        "qlty_rowsWithMissingValues"
+    ]
+    if tool_name in LEGACY_QUALITY_TOOLS:
+        db_name = args.get("db_name")
+        table_name = args.get("table_name")
+        if db_name and table_name and '.' not in table_name:
+            args["table_name"] = f"{db_name}.{table_name}"
+            del args["db_name"]
+            app.logger.info(f"Applied shim for '{tool_name}': Combined db_name and table_name.")
+    # --- END: Programmatic Shim ---
+
+    llm_arg_names = set(args.keys())
+    tool_spec = mcp_tools[tool_name]
+    spec_arg_names = set(tool_spec.args.keys())
+    
+    required_params = {name for name, field in tool_spec.args.items() if field.get("required", False)}
+
+    # --- START: Refined Validation Logic ---
+    # A call is valid if all required parameters are present.
+    # It's okay if optional parameters are missing.
+    if required_params.issubset(llm_arg_names):
+        return command
+    # --- END: Refined Validation Logic ---
+
+    app.logger.info(f"Parameter mismatch for tool '{tool_name}'. Attempting correction with LLM.")
+    correction_prompt = f"""
+        You are a parameter-mapping specialist. Your task is to map the 'LLM-Generated Parameters' to the 'Official Tool Parameters'.
+        The user wants to call the tool '{tool_name}', which is described as: '{tool_spec.description}'.
+
+        Official Tool Parameters: {list(spec_arg_names)}
+        LLM-Generated Parameters: {list(llm_arg_names)}
+
+        Respond with a single JSON object that maps each generated parameter name to its correct official name.
+        If a generated parameter does not sensibly map to any official parameter, use `null` as the value.
+        Example response: {{"database": "db_name", "table": "table_name", "extra_param": null}}
+    """
+    
+    correction_response_text = await call_llm_api(prompt=correction_prompt, chat_history=[])
+    
+    try:
+        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", correction_response_text, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'\{.*\}', correction_response_text, re.DOTALL)
+        
+        if not json_match:
+             raise ValueError("LLM did not return a valid JSON object for parameter mapping.")
+
+        name_mapping = json.loads(json_match.group(0).strip())
+
+        if any(v is None for v in name_mapping.values()):
+            raise ValueError("LLM could not confidently map all parameters.")
+
+        corrected_args = {}
+        for llm_name, spec_name in name_mapping.items():
+            if llm_name in args and spec_name in spec_arg_names:
+                corrected_args[spec_name] = args[llm_name]
+        
+        if not required_params.issubset(set(corrected_args.keys())):
+             raise ValueError(f"Corrected parameters are still missing required arguments. Missing: {required_params - set(corrected_args.keys())}")
+
+        app.logger.info(f"Successfully corrected parameters for tool '{tool_name}'. New args: {corrected_args}")
+        command['arguments'] = corrected_args
+        return command
+
+    except (ValueError, json.JSONDecodeError, AttributeError) as e:
+        app.logger.warning(f"Parameter correction failed for '{tool_name}': {e}. Requesting user input.")
+        spec_arguments = list(tool_spec.args.values())
+        return {
+            "error": "parameter_mismatch",
+            "tool_name": tool_name,
+            "message": "The agent could not determine the correct parameters for the tool. Please provide them below.",
+            "specification": {
+                "name": tool_name,
+                "description": tool_spec.description,
+                "arguments": spec_arguments
+            }
+        }
+
 async def invoke_mcp_tool(command: dict) -> any:
+    if command.get("tool_name") not in mcp_charts:
+        validated_command = await validate_and_correct_parameters(command)
+        if "error" in validated_command:
+            return validated_command
+    else:
+        validated_command = command
+
     global mcp_client
     if not mcp_client:
         return {"error": "MCP client is not connected."}
 
-    tool_name = command.get("tool_name")
-    args = command.get("arguments", command.get("parameters", {}))
+    tool_name = validated_command.get("tool_name")
+    args = validated_command.get("arguments", validated_command.get("parameters", {}))
 
-    # Check if the called tool is a chart. If so, handle it locally.
     if tool_name in mcp_charts:
         app.logger.info(f"Locally handling chart generation for tool: {tool_name}")
         try:
-            # Map LLM's snake_case arguments to G2Plot's camelCase fields
-            # The LLM often invents reasonable names; we map them to what G2Plot expects.
             spec_options = {
                 "data": args.get("data", []),
                 "xField": args.get("x_field", args.get("x_axis")),
@@ -318,82 +418,36 @@ async def invoke_mcp_tool(command: dict) -> any:
                 "angleField": args.get("angle_field", args.get("angle")),
                 "colorField": args.get("color_field", args.get("color")),
                 "sizeField": args.get("size_field", args.get("size")),
-                "title": {
-                    "visible": True,
-                    "text": args.get("title", "Generated Chart")
-                }
+                "title": { "visible": True, "text": args.get("title", "Generated Chart") }
             }
-            
-            # Determine the G2Plot chart type from our tool name
             chart_type_mapping = {
-                "generate_bar_chart": "Bar",
-                "generate_column_chart": "Column",
-                "generate_pie_chart": "Pie",
-                "generate_line_chart": "Line",
-                "generate_area_chart": "Area",
-                "generate_scatter_chart": "Scatter",
-                "generate_histogram_chart": "Histogram",
-                "generate_boxplot_chart": "Box",
+                "generate_bar_chart": "Bar", "generate_column_chart": "Column",
+                "generate_pie_chart": "Pie", "generate_line_chart": "Line",
+                "generate_area_chart": "Area", "generate_scatter_chart": "Scatter",
+                "generate_histogram_chart": "Histogram", "generate_boxplot_chart": "Box",
                 "generate_dual_axes_chart": "DualAxes",
-                # Add other mappings as needed
             }
-            # Find the chart type, defaulting to 'Column' if not found
             plot_type = next((v for k, v in chart_type_mapping.items() if k in tool_name), "Column")
-
-
-            # Clean up the spec by removing any keys that are None
             final_spec_options = {k: v for k, v in spec_options.items() if v is not None}
-
-            # Construct the full specification expected by the frontend
-            chart_spec = {
-                "type": plot_type,
-                "options": final_spec_options
-            }
-            
-            # Return the chart object in the standard format
+            chart_spec = { "type": plot_type, "options": final_spec_options }
             return {"type": "chart", "spec": chart_spec, "metadata": {"tool_name": tool_name}}
-
         except Exception as e:
             app.logger.error(f"Error during local chart generation: {e}", exc_info=True)
             return {"error": f"Failed to generate chart spec locally: {e}"}
 
-
-    # Determine which server to call for non-chart tools
     server_name = "teradata_mcp_server"
     if tool_name not in mcp_tools:
         return {"error": f"Tool '{tool_name}' not found in any connected server."}
 
-    # Shim for legacy Teradata tools
-    if server_name == "teradata_mcp_server":
-        # Argument name normalization
-        if 'database_name' in args: args['db_name'] = args.pop('database_name')
-        if 'database' in args: args['db_name'] = args.pop('database')
-        if 'table' in args: args['table_name'] = args.pop('table')
-
-        # FIX: Shim for col_name vs column_name
-        LEGACY_COL_NAME_TOOLS = [
-            "qlty_distinctCategories", "qlty_standardDeviation",
-            "qlty_univariateStatistics", "qlty_rowsWithMissingValues"
-        ]
-        if tool_name in LEGACY_COL_NAME_TOOLS:
-            if 'column_name' in args and 'col_name' not in args:
-                args['col_name'] = args.pop('column_name')
-
-        # Table name concatenation shim
-        LEGACY_TOOLS_MISSING_DB_PARAM = [
-            "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
-            "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
-            "qlty_rowsWithMissingValues"
-        ]
-        if tool_name in LEGACY_TOOLS_MISSING_DB_PARAM:
-            db_name = args.get("db_name")
-            table_name = args.get("table_name")
-            if db_name and table_name and '.' not in table_name:
-                args["table_name"] = f"{db_name}.{table_name}"
-                if 'db_name' in args: del args["db_name"]
+    # General parameter name normalization
+    if 'database_name' in args: args['db_name'] = args.pop('database_name')
+    if 'database' in args: args['db_name'] = args.pop('database')
+    if 'table' in args: args['table_name'] = args.pop('table')
+    if 'column_name' in args and 'col_name' not in args:
+        args['col_name'] = args.pop('column_name')
     
     try:
-        app.logger.debug(f"Creating temporary session on '{server_name}' to invoke tool '{tool_name}'")
+        app.logger.debug(f"Creating temporary session on '{server_name}' to invoke tool '{tool_name}' with args: {args}")
         async with mcp_client.session(server_name) as temp_session:
             call_tool_result = await temp_session.call_tool(tool_name, args)
             app.logger.debug(f"Successfully invoked tool '{tool_name}'. Raw response: {call_tool_result}")
@@ -403,9 +457,6 @@ async def invoke_mcp_tool(command: dict) -> any:
                 if hasattr(text_content, 'text') and isinstance(text_content.text, str):
                     try:
                         parsed_json = json.loads(text_content.text)
-                        # This part is now handled by the local logic above
-                        # if server_name == "chart_mcp_server":
-                        #     return {"type": "chart", "spec": parsed_json, "metadata": {"tool_name": tool_name}}
                         return parsed_json
                     except json.JSONDecodeError:
                         app.logger.error(f"Tool '{tool_name}' returned a string that is not valid JSON: {text_content.text}")
@@ -495,14 +546,22 @@ class PlanExecutor:
             if not mcp_client:
                 raise RuntimeError("MCP client is not connected.")
 
-            async with mcp_client.session("teradata_mcp_server") as temp_session:
-                get_prompt_result = await temp_session.get_prompt(name=prompt_name, arguments=arguments)
-            
-            self.active_prompt_plan = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') else str(get_prompt_result)
+            try:
+                get_prompt_result = None # Initialize to None before the try block
+                async with mcp_client.session("teradata_mcp_server") as temp_session:
+                    get_prompt_result = await temp_session.get_prompt(name=prompt_name, arguments=arguments)
+                
+                if get_prompt_result is None:
+                    raise ValueError("Prompt retrieval from MCP server failed without raising an exception.")
 
-            yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
+                self.active_prompt_plan = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') and hasattr(get_prompt_result.content, 'text') else str(get_prompt_result)
 
-            await self._get_next_action_from_llm()
+                yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
+
+                await self._get_next_action_from_llm()
+            except Exception as e:
+                app.logger.error(f"Failed to get or process prompt '{prompt_name}': {e}", exc_info=True)
+                raise RuntimeError(f"Could not retrieve the plan for prompt '{prompt_name}'.") from e
 
         elif "tool_name" in command:
             self.state = AgentState.EXECUTING_TOOL
@@ -514,9 +573,14 @@ class PlanExecutor:
         yield _format_sse({"step": f"Calling tool: {tool_name}", "details": self.current_command}, "tool_result")
         tool_result = await invoke_mcp_tool(self.current_command)
         
-        # If the tool that just ran was a chart, it means it was visualizing data from the
-        # previous step. To avoid showing both the raw data table and the chart, we
-        # remove the previous data from our collected results.
+        # Check if invoke_mcp_tool returned a parameter mismatch error
+        if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
+            # Yield a specific event to the UI to request user input
+            yield _format_sse({"details": tool_result}, "request_user_input")
+            # Stop the current execution plan, as it cannot proceed
+            self.state = AgentState.ERROR
+            return
+
         if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
             if self.collected_data:
                 app.logger.info("Chart generated. Removing previous data source from collected data to avoid duplicate display.")
@@ -557,19 +621,23 @@ class PlanExecutor:
         db_name = base_args.get("db_name")
         table_name = base_args.get("table_name")
 
-        # FIX: Check if a specific column was already provided by the LLM
         specific_column = base_args.get("col_name") or base_args.get("column_name")
         if specific_column:
             yield _format_sse({"step": f"Executing for specific column: {specific_column}", "details": base_command}, "tool_result")
             col_result = await invoke_mcp_tool(base_command)
+            
+            if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
+                yield _format_sse({"details": col_result}, "request_user_input")
+                self.state = AgentState.ERROR
+                return
+
             yield _format_sse({"step": f"Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
             self.collected_data.append(col_result)
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
             yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
             await self._get_next_action_from_llm(tool_result_str=tool_result_str)
-            return # Exit the function after single execution
+            return
 
-        # If no specific column, proceed with iteration logic
         yield _format_sse({"step": f"Column tool detected: {tool_name}", "details": "Fetching column list to begin iteration."})
         cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
         cols_result = await invoke_mcp_tool(cols_command)
@@ -594,6 +662,12 @@ class PlanExecutor:
 
             yield _format_sse({"step": f"Executing for column: {col_name}", "details": iter_command}, "tool_result")
             col_result = await invoke_mcp_tool(iter_command)
+            
+            if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
+                yield _format_sse({"details": col_result}, "request_user_input")
+                self.state = AgentState.ERROR
+                return # Stop the entire iteration if one column fails validation
+
             yield _format_sse({"step": f"Result for column: {col_name}", "details": col_result, "tool_name": tool_name}, "tool_result")
             all_column_results.append(col_result)
 
@@ -947,7 +1021,7 @@ async def load_and_categorize_teradata_resources():
             "and the values should be an array of tool names belonging to that category.\n\n"
             f"--- Tool List ---\n{tool_list_for_prompt}"
         )
-        categorized_tools_str = await call_llm_api(categorization_prompt)
+        categorized_tools_str = await call_llm_api(categorization_prompt, chat_history=[])
         app.logger.info(f"[DEBUG] LLM Tool Categorization Raw Response:\n{categorized_tools_str}")
         try:
             cleaned_str = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL).group(0)
@@ -987,7 +1061,7 @@ async def load_and_categorize_teradata_resources():
                 "and the values should be an array of prompt names belonging to that category.\n\n"
                 f"--- Prompt List ---\n{prompt_list_for_prompt}"
             )
-            categorized_prompts_str = await call_llm_api(categorization_prompt_for_prompts)
+            categorized_prompts_str = await call_llm_api(categorization_prompt_for_prompts, chat_history=[])
             app.logger.info(f"[DEBUG] LLM Prompt Categorization Raw Response:\n{categorized_prompts_str}")
             try:
                 cleaned_str = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL).group(0)
@@ -1015,7 +1089,6 @@ async def load_and_categorize_chart_resources():
 
         if not loaded_charts:
             app.logger.warning("The chart server returned 0 tools. Please ensure it is configured correctly.")
-            # Clear out old data if no charts are loaded on a reconnect
             mcp_charts = {}
             structured_charts = {}
             charts_context = "--- No Charts Available ---"
@@ -1030,19 +1103,15 @@ async def load_and_categorize_chart_resources():
             "Your response MUST be a single, valid JSON object where each key is a category name and its value is an object containing a 'description' and a 'tools' array of tool names.\n\n"
             f"--- Chart Tool List ---\n{chart_list_for_prompt}"
         )
-        categorized_charts_str = await call_llm_api(categorization_prompt)
+        categorized_charts_str = await call_llm_api(categorization_prompt, chat_history=[])
         app.logger.info(f"[DEBUG] LLM Chart Categorization Raw Response:\n{categorized_charts_str}")
         try:
             cleaned_str = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL).group(0)
             categorized_charts = json.loads(cleaned_str)
             
-            # Create a new empty dictionary to store the structured chart data
             structured_charts = {}
-            # Iterate through the categories and their details from the categorized_charts dictionary
             for category, details in categorized_charts.items():
-                # Safely get the list of tool names from the details; default to an empty list if not found
                 tool_names = details.get("tools", [])
-                # Populate the structured_charts dictionary for the current category
                 structured_charts[category] = [
                     {"name": name, "description": mcp_charts[name].description}
                     for name in tool_names if name in mcp_charts
@@ -1072,7 +1141,6 @@ async def get_models():
             structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name == CERTIFIED_MODEL} for name in clean_models]
             return jsonify({"status": "success", "models": structured_model_list})
         else:
-            # Placeholder for other providers
             return jsonify({"status": "success", "models": []})
 
     except Exception as e:
@@ -1084,17 +1152,14 @@ async def configure_services():
     data = await request.get_json()
     
     try:
-        # LLM Config
         provider = data.get("provider")
         if provider == "Google":
             genai.configure(api_key=data.get("apiKey"))
             llm = genai.GenerativeModel(data.get("model"))
-            await llm.generate_content_async("test") # Test call
+            await llm.generate_content_async("test")
         else:
-            # In the future, initialize other providers here
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
 
-        # Teradata MCP Config
         mcp_server_url = f"http://{data.get('host')}:{data.get('port')}{data.get('path')}"
         SERVER_CONFIGS = {'teradata_mcp_server': {"url": mcp_server_url, "transport": "streamable_http"}}
         
@@ -1120,20 +1185,16 @@ async def configure_chart_service():
     data = await request.get_json()
     try:
         chart_server_url = f"http://{data.get('chart_host')}:{data.get('chart_port')}{data.get('chart_path')}"
-        # Changed transport protocol to "sse" for the chart server
         SERVER_CONFIGS['chart_mcp_server'] = {"url": chart_server_url, "transport": "sse"}
         
-        # Re-initialize the client with both server configurations
         mcp_client = MultiServerMCPClient(SERVER_CONFIGS)
         
         APP_CONFIG.CHART_MCP_CONNECTED = True
         
-        # Test connection by loading resources from the chart server
         await load_and_categorize_chart_resources()
         
         return jsonify({"status": "success", "message": "Chart MCP server configured successfully."})
     except Exception as e:
-        # If chart connection fails, remove it from configs and re-initialize client with just Teradata
         if 'chart_mcp_server' in SERVER_CONFIGS:
             del SERVER_CONFIGS['chart_mcp_server']
         mcp_client = MultiServerMCPClient(SERVER_CONFIGS)
