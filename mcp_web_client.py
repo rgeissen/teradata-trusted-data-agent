@@ -304,11 +304,63 @@ async def invoke_mcp_tool(command: dict) -> any:
     tool_name = command.get("tool_name")
     args = command.get("arguments", command.get("parameters", {}))
 
-    # Determine which server to call
-    server_name = "teradata_mcp_server"
+    # Check if the called tool is a chart. If so, handle it locally.
     if tool_name in mcp_charts:
-        server_name = "chart_mcp_server"
-    elif tool_name not in mcp_tools:
+        app.logger.info(f"Locally handling chart generation for tool: {tool_name}")
+        try:
+            # Map LLM's snake_case arguments to G2Plot's camelCase fields
+            # The LLM often invents reasonable names; we map them to what G2Plot expects.
+            spec_options = {
+                "data": args.get("data", []),
+                "xField": args.get("x_field", args.get("x_axis")),
+                "yField": args.get("y_field", args.get("y_axis")),
+                "seriesField": args.get("series_field", args.get("series")),
+                "angleField": args.get("angle_field", args.get("angle")),
+                "colorField": args.get("color_field", args.get("color")),
+                "sizeField": args.get("size_field", args.get("size")),
+                "title": {
+                    "visible": True,
+                    "text": args.get("title", "Generated Chart")
+                }
+            }
+            
+            # Determine the G2Plot chart type from our tool name
+            chart_type_mapping = {
+                "generate_bar_chart": "Bar",
+                "generate_column_chart": "Column",
+                "generate_pie_chart": "Pie",
+                "generate_line_chart": "Line",
+                "generate_area_chart": "Area",
+                "generate_scatter_chart": "Scatter",
+                "generate_histogram_chart": "Histogram",
+                "generate_boxplot_chart": "Box",
+                "generate_dual_axes_chart": "DualAxes",
+                # Add other mappings as needed
+            }
+            # Find the chart type, defaulting to 'Column' if not found
+            plot_type = next((v for k, v in chart_type_mapping.items() if k in tool_name), "Column")
+
+
+            # Clean up the spec by removing any keys that are None
+            final_spec_options = {k: v for k, v in spec_options.items() if v is not None}
+
+            # Construct the full specification expected by the frontend
+            chart_spec = {
+                "type": plot_type,
+                "options": final_spec_options
+            }
+            
+            # Return the chart object in the standard format
+            return {"type": "chart", "spec": chart_spec, "metadata": {"tool_name": tool_name}}
+
+        except Exception as e:
+            app.logger.error(f"Error during local chart generation: {e}", exc_info=True)
+            return {"error": f"Failed to generate chart spec locally: {e}"}
+
+
+    # Determine which server to call for non-chart tools
+    server_name = "teradata_mcp_server"
+    if tool_name not in mcp_tools:
         return {"error": f"Tool '{tool_name}' not found in any connected server."}
 
     # Shim for legacy Teradata tools
@@ -351,9 +403,9 @@ async def invoke_mcp_tool(command: dict) -> any:
                 if hasattr(text_content, 'text') and isinstance(text_content.text, str):
                     try:
                         parsed_json = json.loads(text_content.text)
-                        # If the tool call was to the chart server, wrap the result
-                        if server_name == "chart_mcp_server":
-                            return {"type": "chart", "spec": parsed_json, "metadata": {"tool_name": tool_name}}
+                        # This part is now handled by the local logic above
+                        # if server_name == "chart_mcp_server":
+                        #     return {"type": "chart", "spec": parsed_json, "metadata": {"tool_name": tool_name}}
                         return parsed_json
                     except json.JSONDecodeError:
                         app.logger.error(f"Tool '{tool_name}' returned a string that is not valid JSON: {text_content.text}")
@@ -462,6 +514,14 @@ class PlanExecutor:
         yield _format_sse({"step": f"Calling tool: {tool_name}", "details": self.current_command}, "tool_result")
         tool_result = await invoke_mcp_tool(self.current_command)
         
+        # If the tool that just ran was a chart, it means it was visualizing data from the
+        # previous step. To avoid showing both the raw data table and the chart, we
+        # remove the previous data from our collected results.
+        if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
+            if self.collected_data:
+                app.logger.info("Chart generated. Removing previous data source from collected data to avoid duplicate display.")
+                self.collected_data.pop()
+
         if self.iteration_context:
             ctx = self.iteration_context
             current_item_name = ctx["items"][ctx["item_index"]]
@@ -627,9 +687,12 @@ class PlanExecutor:
                     )
         else:
             prompt_for_next_step = (
-                "Based on the history, what is the next action to complete the user's request? "
-                "If you have enough information, your response **MUST** start with `FINAL_ANSWER:`. "
-                "Otherwise, provide the JSON for the next tool call."
+                "You have just received data from a tool call. Review the data and your instructions to decide the next step.\n\n"
+                "1.  **Consider a Chart:** First, review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?\n\n"
+                "2.  **Choose Your Action:**\n"
+                "    -   If a chart is appropriate, your next action is to call the correct chart-generation tool. Respond with only the `Thought:` and ```json...``` block for that tool.\n"
+                "    -   If a chart is **not** appropriate and you have all the information needed to answer the user's request, you should provide the final answer. Your response **MUST** start with `FINAL_ANSWER:`.\n"
+                "    -   If you still need more information from other tools, call the next appropriate tool."
             )
         
         if tool_result_str:
@@ -952,18 +1015,19 @@ async def load_and_categorize_chart_resources():
 
         if not loaded_charts:
             app.logger.warning("The chart server returned 0 tools. Please ensure it is configured correctly.")
+            # Clear out old data if no charts are loaded on a reconnect
+            mcp_charts = {}
+            structured_charts = {}
+            charts_context = "--- No Charts Available ---"
+            return
 
         mcp_charts = {tool.name: tool for tool in loaded_charts}
         charts_context = "--- Available Chart Tools ---\n" + "\n".join([f"- `{tool.name}`: {tool.description}" for tool in loaded_charts])
         
-        if not loaded_charts:
-            structured_charts = {}
-            return
-
         chart_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_charts])
         categorization_prompt = (
             "You are a helpful assistant that organizes lists of charting tools into logical categories for a user interface. "
-            "Your response MUST be a single, valid JSON object.\n\n"
+            "Your response MUST be a single, valid JSON object where each key is a category name and its value is an object containing a 'description' and a 'tools' array of tool names.\n\n"
             f"--- Chart Tool List ---\n{chart_list_for_prompt}"
         )
         categorized_charts_str = await call_llm_api(categorization_prompt)
@@ -971,11 +1035,22 @@ async def load_and_categorize_chart_resources():
         try:
             cleaned_str = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL).group(0)
             categorized_charts = json.loads(cleaned_str)
-            structured_charts = {category: [{"name": name, "description": mcp_charts[name].description} for name in tool_names if name in mcp_charts] for category, tool_names in categorized_charts.items()}
-        except Exception as e:
-            app.logger.warning(f"Could not categorize charts for UI. Error: {e}")
-            structured_charts = {"All Charts": [{"name": tool.name, "description": tool.description} for tool in loaded_charts]}
+            
+            # Create a new empty dictionary to store the structured chart data
+            structured_charts = {}
+            # Iterate through the categories and their details from the categorized_charts dictionary
+            for category, details in categorized_charts.items():
+                # Safely get the list of tool names from the details; default to an empty list if not found
+                tool_names = details.get("tools", [])
+                # Populate the structured_charts dictionary for the current category
+                structured_charts[category] = [
+                    {"name": name, "description": mcp_charts[name].description}
+                    for name in tool_names if name in mcp_charts
+                ]
 
+        except Exception as e:
+            app.logger.warning(f"Could not categorize charts for UI. Falling back. Error: {e}")
+            structured_charts = {"All Charts": [{"name": tool.name, "description": tool.description} for tool in loaded_charts]}
 
 @app.route("/system_prompt/<model_name>", methods=["GET"])
 async def get_default_system_prompt(model_name):
@@ -1045,7 +1120,8 @@ async def configure_chart_service():
     data = await request.get_json()
     try:
         chart_server_url = f"http://{data.get('chart_host')}:{data.get('chart_port')}{data.get('chart_path')}"
-        SERVER_CONFIGS['chart_mcp_server'] = {"url": chart_server_url, "transport": "streamable_http"}
+        # Changed transport protocol to "sse" for the chart server
+        SERVER_CONFIGS['chart_mcp_server'] = {"url": chart_server_url, "transport": "sse"}
         
         # Re-initialize the client with both server configurations
         mcp_client = MultiServerMCPClient(SERVER_CONFIGS)
