@@ -1705,11 +1705,11 @@
             if (savedChartConfig) {
                 document.getElementById('chart-mcp-host').value = savedChartConfig.chart_host || '127.0.0.1';
                 document.getElementById('chart-mcp-port').value = savedChartConfig.chart_port || '1122';
-                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/mcp';
+                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/sse';
             } else {
                 document.getElementById('chart-mcp-host').value = '127.0.0.1';
                 document.getElementById('chart-mcp-port').value = '1122';
-                document.getElementById('chart-mcp-path').value = '/mcp';
+                document.getElementById('chart-mcp-path').value = '/sse';
             }
             
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');

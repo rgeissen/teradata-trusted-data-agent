@@ -137,7 +137,7 @@ To enable all discovered models for testing and development purposes, start the 
 python mcp_web_client.py --all-models
 ```
 
-### Developer Mode: Enabling Charting
+### Developer Mode: Enabling Charting (!sse transport!)
 
 To enable the data visualization capabilities, start the server with the `--charting` flag. This activates the charting engine configuration in the UI and allows the agent to generate charts from query results.
 
