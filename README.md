@@ -187,8 +187,14 @@ Type your question into the input box. The agent will now follow the instruction
 * **Connection Errors:** Double-check all host, port, path, and API key information. Ensure no firewalls are blocking the connection.
 * **"Failed to fetch models":** This usually indicates an invalid API key or a network issue preventing connection to the provider's API.
 
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0. The full license text is available in the `LICENSE` file in the root of this repository.
+
+Under the AGPLv3, you are free to use, modify, and distribute this software. However, if you run a modified version of this software on a network server and allow other users to interact with it, you must also make the source code of your modified version available to those users.
+
 ## Author & Contributions
 
 * **Author/Initiator:** Rainer Geissendoerfer, World Wide Data Architecture, Teradata.
-* **Source Code & Contributions:** The Trusted Data Agent is open source. Contributions are highly welcome. Please visit the main Git repository to report issues or submit pull requests.
+* **Source Code & Contributions:** The Trusted Data Agent islicensed under the GNU Affero General Public License v3.0. Contributions are highly welcome. Please visit the main Git repository to report issues or submit pull requests.
     * **Git Repository:** https://github.com/rgeissen/teradata-trusted-data-agent.git
