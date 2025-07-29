@@ -687,6 +687,7 @@
         const refreshSpinner = document.getElementById('refresh-spinner');
         const llmProviderSelect = document.getElementById('llm-provider');
         const llmModelSelect = document.getElementById('llm-model');
+        const llmApiKeyInput = document.getElementById('llm-api-key');
         
         const chartConfigForm = document.getElementById('chart-config-form');
         const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
@@ -1380,6 +1381,16 @@
         
         configForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            // --- START: MODIFIED LOGIC ---
+            const selectedModel = llmModelSelect.value;
+            if (!selectedModel) {
+                configStatus.textContent = 'Please select your LLM Model.';
+                configStatus.className = 'text-sm text-red-400 text-center';
+                return; // Stop the submission
+            }
+            // --- END: MODIFIED LOGIC ---
+
             configLoadingSpinner.classList.remove('hidden');
             configStatus.textContent = 'Connecting to Teradata & LLM...';
             configStatus.className = 'text-sm text-yellow-400 text-center';
@@ -1425,10 +1436,7 @@
                     
                     userInput.placeholder = "Ask about databases, tables, users...";
                     
-                    // --- START: MODIFIED LOGIC ---
-                    // Always start a new session after successful configuration
                     await startNewSession();
-                    // --- END: MODIFIED LOGIC ---
 
                     if (chartingFieldset.disabled) {
                         setTimeout(closeConfigModal, 1000);
@@ -1494,7 +1502,7 @@
 
         async function fetchModels() {
             currentProvider = llmProviderSelect.value;
-            const apiKey = document.getElementById('llm-api-key').value;
+            const apiKey = llmApiKeyInput.value;
 
             if (!apiKey) {
                 configStatus.textContent = 'API Key is required to fetch models.';
@@ -1532,12 +1540,9 @@
                     configStatus.textContent = `Successfully fetched ${result.models.length} models.`;
                     configStatus.className = 'text-sm text-green-400 text-center';
                     
-                    // --- START: MODIFICATION ---
-                    // Automatically handle prompt loading for the first model in the list
                     if (llmModelSelect.value) {
                         await handleModelChange();
                     }
-                    // --- END: MODIFICATION ---
 
                 } else {
                     throw new Error(result.message || 'Failed to fetch models.');
@@ -1553,25 +1558,23 @@
             }
         }
         
-        // --- START: NEW FUNCTION AND EVENT LISTENER ---
         async function handleModelChange() {
             currentModel = llmModelSelect.value;
             currentProvider = llmProviderSelect.value;
             if (!currentModel || !currentProvider) return;
 
-            // Check if a prompt (custom or default) is already loaded. If not, fetch the default.
             const activePrompt = getSystemPromptForModel(currentProvider, currentModel);
             if (!activePrompt) {
                 configStatus.textContent = `Fetching default prompt for ${currentModel}...`;
                 configStatus.className = 'text-sm text-gray-400 text-center';
-                await resetSystemPrompt(true); // true = silent, no user-facing status message
+                await resetSystemPrompt(true); 
                 configStatus.textContent = `Default prompt for ${currentModel} loaded.`;
                 setTimeout(() => { configStatus.textContent = ''; }, 2000);
             }
         }
 
         llmModelSelect.addEventListener('change', handleModelChange);
-        // --- END: NEW FUNCTION AND EVENT LISTENER ---
+        llmApiKeyInput.addEventListener('change', fetchModels);
 
 
         refreshModelsButton.addEventListener('click', fetchModels);
@@ -1705,11 +1708,11 @@
             if (savedChartConfig) {
                 document.getElementById('chart-mcp-host').value = savedChartConfig.chart_host || '127.0.0.1';
                 document.getElementById('chart-mcp-port').value = savedChartConfig.chart_port || '1122';
-                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/sse';
+                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/mcp';
             } else {
                 document.getElementById('chart-mcp-host').value = '127.0.0.1';
                 document.getElementById('chart-mcp-port').value = '1122';
-                document.getElementById('chart-mcp-path').value = '/sse';
+                document.getElementById('chart-mcp-path').value = '/mcp';
             }
             
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
@@ -1722,6 +1725,10 @@
             setupPanelToggle(toggleStatusButton, statusWindow, toggleStatusCheckbox, statusCollapseIcon, statusExpandIcon);
             
             configMenuButton.click();
+
+            if (llmApiKeyInput.value) {
+                await fetchModels();
+            }
         });
     </script>
 </body>
