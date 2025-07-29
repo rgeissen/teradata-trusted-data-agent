@@ -937,7 +937,8 @@
                                     highlightResource(eventData.prompt_name, 'prompts');
                                 }
                             } else if (eventName === 'tool_result') {
-                                updateStatusWindow("Tool Execution Result", eventData.details);
+                                // FIX: Use the dynamic 'step' value from the event data
+                                updateStatusWindow(eventData.step, eventData.details);
                                 if (eventData.tool_name) {
                                     const toolType = eventData.tool_name.startsWith('generate_') ? 'charts' : 'tools';
                                     highlightResource(eventData.tool_name, toolType);
