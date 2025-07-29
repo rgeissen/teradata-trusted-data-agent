@@ -1106,13 +1106,11 @@
             addMessage('assistant', "Starting a new conversation... Please wait.");
             toggleLoading(true);
             try {
-                const chartingIntensity = chartingIntensitySelect.value;
                 const res = await fetch('/session', { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        system_prompt: activePrompt,
-                        charting_intensity: chartingIntensity
+                        system_prompt: activePrompt
                     })
                 });
                 const data = await res.json();
@@ -1425,7 +1423,11 @@
                     await loadResources('resources');
                     
                     userInput.placeholder = "Ask about databases, tables, users...";
-                    loadAllSessions();
+                    
+                    // --- START: MODIFIED LOGIC ---
+                    // Always start a new session after successful configuration
+                    await startNewSession();
+                    // --- END: MODIFIED LOGIC ---
 
                     if (chartingFieldset.disabled) {
                         setTimeout(closeConfigModal, 1000);
@@ -1702,11 +1704,11 @@
             if (savedChartConfig) {
                 document.getElementById('chart-mcp-host').value = savedChartConfig.chart_host || '127.0.0.1';
                 document.getElementById('chart-mcp-port').value = savedChartConfig.chart_port || '1122';
-                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/mcp';
+                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/sse';
             } else {
                 document.getElementById('chart-mcp-host').value = '127.0.0.1';
                 document.getElementById('chart-mcp-port').value = '1122';
-                document.getElementById('chart-mcp-path').value = '/mcp';
+                document.getElementById('chart-mcp-path').value = '/sse';
             }
             
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
