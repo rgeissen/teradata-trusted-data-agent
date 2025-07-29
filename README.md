@@ -6,7 +6,9 @@ The Trusted Data Agent represents a paradigm shift in how developers, analysts, 
 
 This solution provides unparalleled, real-time insight into the complete conversational flow between the user, the AI agent, the Teradata **Model Context Protocol (MCP)** server, and the underlying database, establishing a new standard for clarity and control in AI-driven data analytics.
 
-[![Trusted Data Agent Overview Video](https://github.com/rgeissen/teradata-trusted-data-agent/blob/main/images/AppOverview.png)](https://www.youtube.com/watch?v=Nd3Gy2cLeyk "Watch the Trusted Data Agent Overview")
+
+![Demo](./images/AppOverview.gif)
+
 
 ---
 
