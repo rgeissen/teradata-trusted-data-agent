@@ -136,7 +136,7 @@ class OutputFormatter:
         clean_summary = re.sub(markdown_table_pattern, "\n(Data table is shown below)\n", self.raw_summary)
 
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
-        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
+        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", self.raw_summary)
         
         lines = clean_summary.strip().split('\n')
         html_output = ""
@@ -415,33 +415,46 @@ async def invoke_mcp_tool(command: dict) -> any:
         app.logger.info(f"Locally handling chart generation for tool: {tool_name}")
         try:
             is_bar_chart = "generate_bar_chart" in tool_name
-            is_pie_chart = "generate_pie_chart" in tool_name
             
             data = args.get("data", [])
-            x_field, y_field, angle_field, color_field = None, None, None, None
+            
+            # --- START: MODIFIED CHART LOGIC ---
+            # Prioritize explicit axis arguments from the LLM
+            x_field = args.get("x_axis") or args.get("x_field")
+            y_field = args.get("y_axis") or args.get("y_field")
+            angle_field = args.get("angle_field")
+            color_field = args.get("color_field")
 
-            # Infer fields from data if not explicitly provided by the LLM
-            if data:
-                first_row = data[0]
-                str_key = next((k for k, v in first_row.items() if isinstance(v, str)), None)
-                num_key = next((k for k, v in first_row.items() if isinstance(v, (int, float))), None)
-                
-                if is_pie_chart:
-                    angle_field = num_key
-                    color_field = str_key
-                else:
-                    x_field = str_key
-                    y_field = num_key
+            # Fallback to inference only if explicit fields are missing
+            if not x_field or not y_field:
+                app.logger.info("Axis fields not specified by LLM, inferring from data types.")
+                if data:
+                    first_row = data[0]
+                    # Find first string-like column for x-axis
+                    x_field = next((k for k, v in first_row.items() if isinstance(v, str)), None)
+                    # Find first numeric-like column for y-axis (handles strings of numbers)
+                    y_field = next((k for k, v in first_row.items() if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace('.', '', 1).isdigit())), None)
+
+            # Ensure the data for the y-axis is numeric
+            if y_field and data:
+                for row in data:
+                    try:
+                        row[y_field] = float(row[y_field])
+                    except (ValueError, TypeError):
+                        app.logger.warning(f"Could not convert value '{row.get(y_field)}' to float for y-axis '{y_field}'.")
+                        row[y_field] = 0 # Default to 0 if conversion fails
 
             spec_options = {
                 "data": data,
-                "xField": y_field if is_bar_chart else x_field,
+                "xField": y_field if is_bar_chart else x_field, # Bar charts in G2Plot swap x/y
                 "yField": x_field if is_bar_chart else y_field,
                 "angleField": angle_field,
                 "colorField": color_field,
                 "seriesField": args.get("series_field", args.get("series")),
                 "title": { "visible": True, "text": args.get("title", "Generated Chart") }
             }
+            # --- END: MODIFIED CHART LOGIC ---
+
             chart_type_mapping = {
                 "generate_bar_chart": "Bar", "generate_column_chart": "Column",
                 "generate_pie_chart": "Pie", "generate_line_chart": "Line",
@@ -488,6 +501,37 @@ async def invoke_mcp_tool(command: dict) -> any:
     except Exception as e:
         app.logger.error(f"Error during tool invocation for '{tool_name}': {e}", exc_info=True)
         return {"error": f"An exception occurred while invoking tool '{tool_name}'."}
+
+def _evaluate_inline_math(json_str: str) -> str:
+    """Finds and evaluates simple inline math expressions in a JSON-like string."""
+    # This regex finds simple numeric expressions like '279+20' or '113 + 32'
+    math_expr_pattern = re.compile(r'\b(\d+\.?\d*)\s*([+\-*/])\s*(\d+\.?\d*)\b')
+    
+    # Use a loop to handle multiple expressions until none are left
+    while True:
+        match = math_expr_pattern.search(json_str)
+        if not match:
+            break
+        
+        num1_str, op, num2_str = match.groups()
+        original_expr = match.group(0)
+        
+        try:
+            num1 = float(num1_str)
+            num2 = float(num2_str)
+            result = 0
+            if op == '+': result = num1 + num2
+            elif op == '-': result = num1 - num2
+            elif op == '*': result = num1 * num2
+            elif op == '/': result = num1 / num2
+            
+            # Replace only the first occurrence to avoid infinite loops on tricky strings
+            json_str = json_str.replace(original_expr, str(result), 1)
+        except (ValueError, ZeroDivisionError):
+            # If something goes wrong, just leave the original expression and break
+            break
+            
+    return json_str
 
 class AgentState(Enum):
     DECIDING = auto()
@@ -556,7 +600,29 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
             return
 
-        command = json.loads(json_match.group(1).strip())
+        command_str = json_match.group(1).strip()
+        
+        # --- START: MODIFIED LOGIC ---
+        # First, parse the JSON to identify the tool being called
+        try:
+            temp_command = json.loads(command_str)
+            tool_name = temp_command.get("tool_name")
+
+            # Only apply the math evaluation if it's a chart tool
+            if tool_name in mcp_charts:
+                corrected_command_str = _evaluate_inline_math(command_str)
+                command = json.loads(corrected_command_str)
+                if command_str != corrected_command_str:
+                    app.logger.info(f"Corrected inline math in chart JSON. Corrected string: {corrected_command_str}")
+            else:
+                command = temp_command # Use the already parsed command
+        
+        except json.JSONDecodeError as e:
+            app.logger.error(f"JSON parsing failed. Error: {e}. Original string was: {command_str}")
+            # Re-raise or handle the error appropriately
+            raise e
+        # --- END: MODIFIED LOGIC ---
+            
         self.current_command = command
         
         if "prompt_name" in command:
