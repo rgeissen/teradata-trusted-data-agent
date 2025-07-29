@@ -1,4 +1,4 @@
-# Trusted Data Agent
+# Trusted Data Agent for Teradata
 
 **An Advanced, Dynamic AI Conversational Interface for Enterprise Data Platforms.**
 
