@@ -716,6 +716,7 @@
         const confirmModalConfirm = document.getElementById('confirm-modal-confirm');
         const confirmModalCancel = document.getElementById('confirm-modal-cancel');
 
+        let currentProvider = 'Google';
         let currentModel = '';
         let currentStatusId = 0;
         let currentSessionId = null;
@@ -734,20 +735,27 @@
             }
         }
 
-        function saveSystemPromptForModel(modelName, promptText, isCustom) {
+        function getPromptStorageKey(provider, model) {
+            return `${provider}-${model}`;
+        }
+
+        function saveSystemPromptForModel(provider, model, promptText, isCustom) {
             const prompts = getSystemPrompts();
-            prompts[modelName] = { prompt: promptText, isCustom: isCustom };
+            const key = getPromptStorageKey(provider, model);
+            prompts[key] = { prompt: promptText, isCustom: isCustom };
             localStorage.setItem('userSystemPrompts', JSON.stringify(prompts));
         }
 
-        function getSystemPromptForModel(modelName) {
+        function getSystemPromptForModel(provider, model) {
             const prompts = getSystemPrompts();
-            return prompts[modelName]?.prompt || null;
+            const key = getPromptStorageKey(provider, model);
+            return prompts[key]?.prompt || null;
         }
 
-        function isPromptCustomForModel(modelName) {
+        function isPromptCustomForModel(provider, model) {
             const prompts = getSystemPrompts();
-            return prompts[modelName]?.isCustom || false;
+            const key = getPromptStorageKey(provider, model);
+            return prompts[key]?.isCustom || false;
         }
 
 
@@ -1088,7 +1096,7 @@
         }
 
         async function startNewSession() {
-            const activePrompt = getSystemPromptForModel(currentModel);
+            const activePrompt = getSystemPromptForModel(currentProvider, currentModel);
             if (!activePrompt) {
                 addMessage('assistant', 'Cannot start a new session. The system prompt is not loaded for the current model. Please re-configure.');
                 return;
@@ -1401,9 +1409,11 @@
                     configStatus.className = 'text-sm text-green-400 text-center';
                     teradataStatusDot.classList.remove('disconnected');
                     teradataStatusDot.classList.add('connected');
+                    
+                    currentProvider = config.provider;
                     currentModel = config.model;
                     
-                    const activePrompt = getSystemPromptForModel(currentModel);
+                    const activePrompt = getSystemPromptForModel(currentProvider, currentModel);
                     if (!activePrompt) {
                         await resetSystemPrompt(true); // Force fetch and save default
                     }
@@ -1480,7 +1490,7 @@
         });
 
         async function fetchModels() {
-            const provider = llmProviderSelect.value;
+            currentProvider = llmProviderSelect.value;
             const apiKey = document.getElementById('llm-api-key').value;
 
             if (!apiKey) {
@@ -1499,7 +1509,7 @@
                 const response = await fetch('/models', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider, apiKey })
+                    body: JSON.stringify({ provider: currentProvider, apiKey })
                 });
                 const result = await response.json();
 
@@ -1518,6 +1528,14 @@
                     });
                     configStatus.textContent = `Successfully fetched ${result.models.length} models.`;
                     configStatus.className = 'text-sm text-green-400 text-center';
+                    
+                    // --- START: MODIFICATION ---
+                    // Automatically handle prompt loading for the first model in the list
+                    if (llmModelSelect.value) {
+                        await handleModelChange();
+                    }
+                    // --- END: MODIFICATION ---
+
                 } else {
                     throw new Error(result.message || 'Failed to fetch models.');
                 }
@@ -1531,13 +1549,34 @@
                 refreshModelsButton.disabled = false;
             }
         }
+        
+        // --- START: NEW FUNCTION AND EVENT LISTENER ---
+        async function handleModelChange() {
+            currentModel = llmModelSelect.value;
+            currentProvider = llmProviderSelect.value;
+            if (!currentModel || !currentProvider) return;
+
+            // Check if a prompt (custom or default) is already loaded. If not, fetch the default.
+            const activePrompt = getSystemPromptForModel(currentProvider, currentModel);
+            if (!activePrompt) {
+                configStatus.textContent = `Fetching default prompt for ${currentModel}...`;
+                configStatus.className = 'text-sm text-gray-400 text-center';
+                await resetSystemPrompt(true); // true = silent, no user-facing status message
+                configStatus.textContent = `Default prompt for ${currentModel} loaded.`;
+                setTimeout(() => { configStatus.textContent = ''; }, 2000);
+            }
+        }
+
+        llmModelSelect.addEventListener('change', handleModelChange);
+        // --- END: NEW FUNCTION AND EVENT LISTENER ---
+
 
         refreshModelsButton.addEventListener('click', fetchModels);
         llmProviderSelect.addEventListener('change', fetchModels);
 
         function openPromptEditor() {
-            promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentModel}</code>`;
-            promptEditorTextarea.value = getSystemPromptForModel(currentModel);
+            promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentProvider} / ${currentModel}</code>`;
+            promptEditorTextarea.value = getSystemPromptForModel(currentProvider, currentModel);
             promptEditorOverlay.classList.remove('hidden', 'opacity-0');
             promptEditorContent.classList.remove('scale-95', 'opacity-0');
         }
@@ -1550,7 +1589,7 @@
 
         function saveSystemPromptChanges() {
             const newPrompt = promptEditorTextarea.value;
-            saveSystemPromptForModel(currentModel, newPrompt, true);
+            saveSystemPromptForModel(currentProvider, currentModel, newPrompt, true);
 
             promptEditorStatus.textContent = 'Saved!';
             promptEditorStatus.className = 'text-sm text-green-400';
@@ -1560,10 +1599,10 @@
         async function resetSystemPrompt(force = false) {
             try {
                 const chartingIntensity = chartingIntensitySelect.value;
-                const res = await fetch(`/system_prompt/${currentModel}?charting_intensity=${chartingIntensity}`);
+                const res = await fetch(`/system_prompt/${currentProvider}/${currentModel}?charting_intensity=${chartingIntensity}`);
                 const data = await res.json();
                 if (data.system_prompt) {
-                    saveSystemPromptForModel(currentModel, data.system_prompt, false);
+                    saveSystemPromptForModel(currentProvider, currentModel, data.system_prompt, false);
                     promptEditorTextarea.value = data.system_prompt;
 
                     if (!force) {
@@ -1607,7 +1646,7 @@
         }
         
         async function handleIntensityChange() {
-             if (isPromptCustomForModel(currentModel)) {
+             if (isPromptCustomForModel(currentProvider, currentModel)) {
                 showConfirmation(
                     'Reset System Prompt?',
                     'Changing the charting intensity requires resetting the system prompt to a new default to include updated instructions. Your custom changes will be lost. Do you want to continue?',
