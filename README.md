@@ -197,4 +197,4 @@ Under the AGPLv3, you are free to use, modify, and distribute this software. How
 
 * **Author/Initiator:** Rainer Geissendoerfer, World Wide Data Architecture, Teradata.
 * **Source Code & Contributions:** The Trusted Data Agent islicensed under the GNU Affero General Public License v3.0. Contributions are highly welcome. Please visit the main Git repository to report issues or submit pull requests.
-    * **Git Repository:** https://github.com/rgeissen/teradata-trusted-data-agent.git
+* **Git Repository:** https://github.com/rgeissen/teradata-trusted-data-agent.git
