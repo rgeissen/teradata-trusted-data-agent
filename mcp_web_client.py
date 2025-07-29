@@ -59,6 +59,34 @@ BASE_SYSTEM_PROMPT = (
     "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.\n\n"
     "--- **CRITICAL RULE: SQL GENERATION** ---\n"
     "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).\n\n"
+    "--- **CRITICAL RULE: HANDLING TIME-SENSITIVE QUERIES** ---\n"
+    "If the user asks a question involving a relative date (e.g., 'today', 'yesterday', 'this week'), you do not know this information. Your first step **MUST** be to find the current date before proceeding.\n\n"
+    "**Example of CORRECT Multi-Step Plan:**\n"
+    "    -   USER: \"what is the system utilization in number of queries for today?\"\n"
+    "    -   YOUR CORRECT REASONING (Step 1): \"The user is asking about 'today'. I do not know the current date. My first step must be to get the current date from the database.\"\n"
+    "    -   YOUR CORRECT ACTION (Step 1):\n"
+    "        ```json\n"
+    "        {\n"
+    "          \"tool_name\": \"base_readQuery\",\n"
+    "          \"arguments\": { \"sql\": \"SELECT CURRENT_DATE\" }\n"
+    "        }\n"
+    "        ```\n"
+    "    -   TOOL RESPONSE (Step 1): `{\"results\": [{\"Date\": \"2025-07-29\"}]}`\n"
+    "    -   YOUR CORRECT REASONING (Step 2): \"The database returned the current date as 2025-07-29. Now I can use this date to answer the user's original question about system utilization.\"\n"
+    "    -   YOUR CORRECT ACTION (Step 2):\n"
+    "        ```json\n"
+    "        {\n"
+    "          \"tool_name\": \"dba_resusageSummary\",\n"
+    "          \"arguments\": { \"date\": \"2025-07-29\" }\n"
+    "        }\n"
+    "        ```\n\n"
+    "--- **CRITICAL RULE: TOOL FAILURE AND RECOVERY** ---\n"
+    "If a tool call fails with an error message, you **MUST** attempt to recover. Your recovery process is as follows:\n"
+    "1.  **Analyze the Error:** Read the error message carefully. If it indicates an invalid column, parameter, or dimension (e.g., 'Column not found'), identify the specific argument that caused the failure.\n"
+    "2.  **Consult Tool Docs:** Review the documentation for the failed tool that is provided in this system prompt.\n"
+    "3.  **Formulate a New Plan:** Your next thought process should explain the error and propose a corrected tool call. Typically, this means re-issuing the tool call *without* the single failing parameter.\n"
+    "4.  **Retry the Tool:** Execute the corrected tool call.\n"
+    "5.  **Ask for Help:** Only if the corrected tool call also fails should you give up and ask the user for clarification.\n\n"
     "{charting_instructions}\n\n"
     "--- **Response Formatting** ---\n"
     "-   **To execute a tool:** Respond with 'Thought:' explaining your choice, followed by a ```json ... ``` block with the `tool_name` and `arguments`.\n"
@@ -666,23 +694,33 @@ class PlanExecutor:
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
         tool_result = await invoke_mcp_tool(self.current_command)
         
+        # --- START: MODIFIED LOGIC ---
+        tool_result_str = ""
+        if isinstance(tool_result, dict) and "error" in tool_result:
+            # If the tool returns an error, format it for the LLM's context
+            error_details = tool_result.get("data", tool_result.get("error"))
+            tool_result_str = json.dumps({
+                "tool_name": self.current_command.get("tool_name"),
+                "tool_output": {
+                    "status": "error",
+                    "error_message": error_details
+                }
+            })
+            # Don't add raw error objects to collected_data, let the summary handle it
+        else:
+            # On success, proceed as before
+            tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
+            if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
+                if self.collected_data:
+                    app.logger.info("Chart generated. Removing previous data source from collected data to avoid duplicate display.")
+                    self.collected_data.pop()
+            self.collected_data.append(tool_result)
+        # --- END: MODIFIED LOGIC ---
+
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
             yield _format_sse({"details": tool_result}, "request_user_input")
             self.state = AgentState.ERROR
             return
-
-        if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
-            if self.collected_data:
-                app.logger.info("Chart generated. Removing previous data source from collected data to avoid duplicate display.")
-                self.collected_data.pop()
-
-        if self.iteration_context:
-            ctx = self.iteration_context
-            current_item_name = ctx["items"][ctx["item_index"]]
-            ctx["results_per_item"][current_item_name].append(tool_result)
-            ctx["action_count_for_item"] += 1
-        else:
-            self.collected_data.append(tool_result)
 
         yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
 
@@ -698,8 +736,6 @@ class PlanExecutor:
                         "results_per_item": {item: [] for item in items_to_iterate}
                     }
                     yield _format_sse({"step": "Starting Multi-Step Iteration", "details": f"Plan requires processing {len(items_to_iterate)} items."})
-        
-        tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
         
         yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
         await self._get_next_action_from_llm(tool_result_str=tool_result_str)
