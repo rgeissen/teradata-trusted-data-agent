@@ -123,7 +123,7 @@ GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
 
 ### Standard Mode
 
-For standard operation with the certified model (`gemini-1.5-flash`):
+For standard operation with the certified model (`gemini-1.5-flash-8b-latest`):
 
 ```bash
 python mcp_web_client.py
