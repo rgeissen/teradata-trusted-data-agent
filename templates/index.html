@@ -1189,12 +1189,11 @@
                     sessions.forEach(s => addSessionToList(s.id, s.name));
                     loadSession(sessions[0].id);
                 } else {
-                    await startNewSession();
+                    // Don't start a new session automatically, wait for configuration.
                 }
             } catch (e) {
                 console.error("Could not load sessions", e);
-                addMessage('assistant', 'Could not retrieve past sessions. Starting a new one.');
-                await startNewSession();
+                addMessage('assistant', 'Could not retrieve past sessions. Please configure the application to start.');
             }
         }
 
@@ -1382,14 +1381,12 @@
         configForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            // --- START: MODIFIED LOGIC ---
             const selectedModel = llmModelSelect.value;
             if (!selectedModel) {
                 configStatus.textContent = 'Please select your LLM Model.';
                 configStatus.className = 'text-sm text-red-400 text-center';
-                return; // Stop the submission
+                return;
             }
-            // --- END: MODIFIED LOGIC ---
 
             configLoadingSpinner.classList.remove('hidden');
             configStatus.textContent = 'Connecting to Teradata & LLM...';
@@ -1425,7 +1422,7 @@
                     
                     const activePrompt = getSystemPromptForModel(currentProvider, currentModel);
                     if (!activePrompt) {
-                        await resetSystemPrompt(true); // Force fetch and save default
+                        await resetSystemPrompt(true);
                     }
 
                     promptEditorButton.disabled = false;
