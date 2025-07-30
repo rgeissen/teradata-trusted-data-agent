@@ -87,7 +87,7 @@ The application operates on a sophisticated client-server model, ensuring a clea
 ### Step 1: Clone the Repository
 
 ```bash
-git clone [https://github.com/rgeissen/teradata-trusted-data-agent.git](https://github.com/rgeissen/teradata-trusted-data-agent.git)
+git clone https://github.com/rgeissen/teradata-trusted-data-agent.git
 cd teradata-trusted-data-agent
 ```
 
