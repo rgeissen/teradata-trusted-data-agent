@@ -31,6 +31,9 @@ from langchain_mcp_adapters.resources import load_mcp_resources
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 from anthropic import Anthropic, AsyncAnthropic, APIError
+import boto3
+from botocore.exceptions import ClientError
+
 
 # --- Globals for Web App ---
 app = Quart(__name__)
@@ -51,6 +54,11 @@ APP_CONFIG = AppConfig()
 CERTIFIED_MODEL = "gemini-1.5-flash-latest"
 CERTIFIED_ANTHROPIC_MODELS = [
     "claude-3-5-sonnet-20240620"
+]
+CERTIFIED_AMAZON_MODELS = [
+    "anthropic.claude-3-sonnet-20240229-v1:0",
+    "anthropic.claude-3-haiku-20240307-v1:0",
+    "amazon.titan-text-express-v1"
 ]
 
 
@@ -175,6 +183,81 @@ PROVIDER_SYSTEM_PROMPTS = {
         "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).\n\n"
         "--- **CRITICAL RULE: HANDLING TIME-SENSITIVE QUERIES** ---\n"
         "If the user asks a question involving a relative date (e.g., 'today', 'yesterday', 'this week'), you do not know this information. Your first step **MUST** be to find the current date before proceeding.\n\n"
+        "**Example of CORRECT Multi-Step Plan:**\n"
+        "    -   USER: \"what is the system utilization in number of queries for today?\"\n"
+        "    -   YOUR CORRECT REASONING (Step 1): \"The user is asking about 'today'. I do not know the current date. My first step must be to get the current date from the database.\"\n"
+        "    -   YOUR CORRECT ACTION (Step 1):\n"
+        "        ```json\n"
+        "        {{\n"
+        "          \"tool_name\": \"base_readQuery\",\n"
+        "          \"arguments\": {{ \"sql\": \"SELECT CURRENT_DATE\" }}\n"
+        "        }}\n"
+        "        ```\n"
+        "    -   TOOL RESPONSE (Step 1): `{{\"results\": [{{\"Date\": \"2025-07-29\"}}]}}`\n"
+        "    -   YOUR CORRECT REASONING (Step 2): \"The database returned the current date as 2025-07-29. Now I can use this date to answer the user's original question about system utilization.\"\n"
+        "    -   YOUR CORRECT ACTION (Step 2):\n"
+        "        ```json\n"
+        "        {{\n"
+        "          \"tool_name\": \"dba_resusageSummary\",\n"
+        "          \"arguments\": {{ \"date\": \"2025-07-29\" }}\n"
+        "        }}\n"
+        "        ```\n\n"
+        "--- **CRITICAL RULE: TOOL FAILURE AND RECOVERY** ---\n"
+        "If a tool call fails with an error message, you **MUST** attempt to recover. Your recovery process is as follows:\n"
+        "1.  **Analyze the Error:** Read the error message carefully. If it indicates an invalid column, parameter, or dimension (e.g., 'Column not found'), identify the specific argument that caused the failure.\n"
+        "2.  **Consult Tool Docs:** Review the documentation for the failed tool that is provided in this system prompt.\n"
+        "3.  **Formulate a New Plan:** Your next thought process should explain the error and propose a corrected tool call. Typically, this means re-issuing the tool call *without* the single failing parameter.\n"
+        "4.  **Retry the Tool:** Execute the corrected tool call.\n"
+        "5.  **Ask for Help:** Only if the corrected tool call also fails should you give up and ask the user for clarification.\n\n"
+        "{charting_instructions}\n\n"
+        "{tools_context}\n\n"
+        "{prompts_context}\n\n"
+        "{charts_context}\n\n"
+    ),
+    "Amazon": (
+        "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool or prompt.\n\n"
+        "--- **CRITICAL RESPONSE PROTOCOL** ---\n"
+        "Your primary task is to select a single capability to fulfill the user's request. You have two lists of capabilities available: `--- Available Prompts ---` and `--- Available Tools ---`.\n\n"
+        "1.  **CHOOSE ONE CAPABILITY:** First, review both lists and select the single best capability (either a prompt or a tool) that can fulfill the user's request. If a prompt can solve the entire request, you MUST choose the prompt.\n\n"
+        "2.  **IDENTIFY THE SOURCE:** Determine which list the chosen capability came from.\n\n"
+        "3.  **GENERATE RESPONSE JSON:** Your response MUST be a single JSON object. The key you use in this JSON object depends entirely on the source list of your chosen capability:\n"
+        "    -   If your chosen capability is from the `--- Available Prompts ---` list, you **MUST** use the key `\"prompt_name\"`.\n"
+        "    -   If your chosen capability is from the `--- Available Tools ---` list, you **MUST** use the key `\"tool_name\"`.\n\n"
+        "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
+        "**Example for a Prompt:**\n"
+        "```json\n"
+        "{{\n"
+        "  \"prompt_name\": \"base_tableBusinessDesc\",\n"
+        "  \"arguments\": {{\"db_name\": \"some_db\", \"table_name\": \"some_table\"}}\n"
+        "}}\n"
+        "```\n\n"
+        "**Example for a Tool:**\n"
+        "```json\n"
+        "{{\n"
+        "  \"tool_name\": \"base_tableList\",\n"
+        "  \"arguments\": {{\"db_name\": \"some_db\"}}\n"
+        "}}\n"
+        "```\n\n"
+        "--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---\n"
+        "You **MUST** remember and reuse information from previous turns.\n"
+        "**Example of CORRECT Inference:**\n"
+        "    -   USER (Turn 1): \"what is the business description for the `equipment` table in database `DEMO_Customer360_db`?\"\n"
+        "    -   ASSISTANT (Turn 1): (Executes the request)\n"
+        "    -   USER (Turn 2): \"ok now what is the quality of that table?\"\n"
+        "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters.\"\n"
+        "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.\n\n"
+        "**Another Example of CORRECT Inference:**\n"
+        "    -   USER (Turn 1): \"what's in DEMO_Customer360_db?\"\n"
+        "    -   ASSISTANT (Turn 1): (Responds with a list of tables, including `Equipment`)\n"
+        "    -   USER (Turn 2): \"what is the quality of Equipment?\"\n"
+        "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about the 'Equipment' table. The previous turns established the context of the `DEMO_Customer360_db` database. I must reuse this database name.\"\n"
+        "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `Equipment`.\n\n"
+        "--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---\n"
+        "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.\n\n"
+        "--- **CRITICAL RULE: SQL GENERATION** ---\n"
+        "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).\n\n"
+        "--- **CRITICAL RULE: HANDLING TIME-SENSITIVE QUERIES** ---\n"
+        "If the user asks a question involving a relative date (e.g., 'today', 'yesterday', 'this week'), you do not know this information. Your first step **MUST** be to find the current date before proceeding.\n"
         "**Example of CORRECT Multi-Step Plan:**\n"
         "    -   USER: \"what is the system utilization in number of queries for today?\"\n"
         "    -   YOUR CORRECT REASONING (Step 1): \"The user is asking about 'today'. I do not know the current date. My first step must be to get the current date from the database.\"\n"
@@ -449,7 +532,6 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
             elif session_id and session_id in SESSIONS:
                 system_prompt = SESSIONS[session_id]['system_prompt']
             else:
-                # This case should not be hit for session-less calls if override is provided
                 raise ValueError("A session_id or system_prompt_override is required for Anthropic provider.")
 
             history_source = chat_history if chat_history is not None else (SESSIONS.get(session_id, {}).get('chat_object', []))
@@ -481,6 +563,53 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
                 raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
             response_text = response.content[0].text.strip()
         
+        elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
+            is_session_call = session_id is not None and session_id in SESSIONS
+            
+            if is_session_call:
+                system_prompt = SESSIONS[session_id]['system_prompt']
+                history = SESSIONS[session_id]['chat_object']
+            else: # One-off call
+                system_prompt = system_prompt_override or "You are a helpful assistant."
+                history = chat_history or []
+
+            # Construct the request body based on the model provider
+            model_provider = APP_CONFIG.CURRENT_MODEL.split('.')[0]
+            
+            if model_provider == 'anthropic':
+                messages = []
+                for msg in history:
+                    messages.append({'role': msg['role'], 'content': msg['content']})
+                messages.append({'role': 'user', 'content': prompt})
+
+                body = json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 4096,
+                    "system": system_prompt,
+                    "messages": messages
+                })
+            else: # Default to Amazon Titan format
+                text_prompt = f"{system_prompt}\n\n"
+                for msg in history:
+                    text_prompt += f"{msg['role']}: {msg['content']}\n\n"
+                text_prompt += f"user: {prompt}\n\nassistant:"
+                body = json.dumps({
+                    "inputText": text_prompt,
+                    "textGenerationConfig": {
+                        "maxTokenCount": 4096,
+                        "temperature": 0.7,
+                        "topP": 0.9
+                    }
+                })
+
+            response = await llm.invoke_model(body=body, modelId=APP_CONFIG.CURRENT_MODEL)
+            response_body = json.loads(await response.get('body').read())
+
+            if model_provider == 'anthropic':
+                response_text = response_body.get('content')[0].get('text')
+            else: # Titan
+                response_text = response_body.get('results')[0].get('outputText')
+
         else:
             raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not implemented in call_llm_api.")
 
@@ -1123,10 +1252,20 @@ async def get_api_key(provider):
     key = None
     if provider.lower() == 'google':
         key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        return jsonify({"apiKey": key or ""})
     elif provider.lower() == 'anthropic':
         key = os.environ.get("ANTHROPIC_API_KEY")
+        return jsonify({"apiKey": key or ""})
+    elif provider.lower() == 'amazon':
+        keys = {
+            "aws_access_key_id": os.environ.get("AWS_ACCESS_KEY_ID"),
+            "aws_secret_access_key": os.environ.get("AWS_SECRET_ACCESS_KEY"),
+            "aws_region": os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+        }
+        return jsonify(keys)
     
-    return jsonify({"apiKey": key or ""})
+    return jsonify({"error": "Unknown provider"}), 404
+
 
 @app.route("/tools")
 async def get_tools():
@@ -1211,8 +1350,8 @@ async def new_session():
                 {"role": "model", "parts": [{"text": "Understood. I will follow all instructions."}]}
             ]
             SESSIONS[session_id]['chat_object'] = llm.start_chat(history=initial_history)
-        elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
-             SESSIONS[session_id]['chat_object'] = [] # For Anthropic, the chat object is just the history list
+        elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon"]:
+             SESSIONS[session_id]['chat_object'] = [] # For these, the chat object is just the history list
 
         app.logger.info(f"Created new session: {session_id} for provider {APP_CONFIG.CURRENT_PROVIDER}.")
         app.logger.debug(f"Final prompt for session {session_id}:\n{final_system_prompt}")
@@ -1246,8 +1385,8 @@ async def ask_stream():
             
             llm_reasoning_and_command = await call_llm_api(user_input, session_id)
             
-            # Update Anthropic history after the call
-            if APP_CONFIG.CURRENT_PROVIDER == "Anthropic" and llm_reasoning_and_command:
+            # Update history for stateless providers
+            if APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon"] and llm_reasoning_and_command:
                 SESSIONS[session_id]['chat_object'].append({'role': 'user', 'content': user_input})
                 SESSIONS[session_id]['chat_object'].append({'role': 'assistant', 'content': llm_reasoning_and_command})
 
@@ -1288,7 +1427,7 @@ async def invoke_prompt_stream():
             # Manually add user message to history for the LLM call
             if APP_CONFIG.CURRENT_PROVIDER == "Google":
                  await SESSIONS[session_id]['chat_object'].send_message_async(user_input)
-            elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
+            elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon"]:
                 SESSIONS[session_id]['chat_object'].append({'role': 'user', 'content': user_input})
             
             executor = PlanExecutor(session_id=session_id, initial_instruction=initial_instruction, original_user_input=user_input)
@@ -1481,6 +1620,18 @@ async def get_models():
             structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_ANTHROPIC_MODELS} for name in CERTIFIED_ANTHROPIC_MODELS]
             return jsonify({"status": "success", "models": structured_model_list})
 
+        elif provider == "Amazon":
+            bedrock_client = boto3.client(
+                service_name='bedrock',
+                aws_access_key_id=data.get("aws_access_key_id"),
+                aws_secret_access_key=data.get("aws_secret_access_key"),
+                region_name=data.get("aws_region")
+            )
+            response = bedrock_client.list_foundation_models(byOutputModality='TEXT')
+            models = [m['modelId'] for m in response['modelSummaries']]
+            structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_MODELS} for name in models]
+            return jsonify({"status": "success", "models": structured_model_list})
+
         else:
             return jsonify({"status": "success", "models": []})
 
@@ -1495,16 +1646,23 @@ async def configure_services():
     try:
         provider = data.get("provider")
         model = data.get("model")
-        api_key = data.get("apiKey")
 
         APP_CONFIG.CURRENT_PROVIDER = provider
         APP_CONFIG.CURRENT_MODEL = model
 
         if provider == "Google":
-            genai.configure(api_key=api_key)
+            genai.configure(api_key=data.get("apiKey"))
             llm = genai.GenerativeModel(model)
         elif provider == "Anthropic":
-            llm = AsyncAnthropic(api_key=api_key)
+            llm = AsyncAnthropic(api_key=data.get("apiKey"))
+        elif provider == "Amazon":
+            # Boto3 will use environment variables if credentials are not passed explicitly
+            llm = boto3.client(
+                service_name='bedrock-runtime',
+                aws_access_key_id=data.get("aws_access_key_id"),
+                aws_secret_access_key=data.get("aws_secret_access_key"),
+                region_name=data.get("aws_region")
+            )
         else:
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
 
@@ -1522,7 +1680,6 @@ async def configure_services():
         SERVER_CONFIGS = {}
         APP_CONFIG.TERADATA_MCP_CONNECTED = False
         app.logger.error(f"Anthropic API Error during configuration: {e}", exc_info=True)
-        # Extract the specific message from the Anthropic error body
         error_message = e.body.get('error', {}).get('message', 'Unknown Anthropic API error.')
         return jsonify({"status": "error", "message": f"Connection not possible. Please check your API key. Details: {error_message}"}), 401
     except google_exceptions.PermissionDenied as e:
@@ -1532,6 +1689,14 @@ async def configure_services():
         APP_CONFIG.TERADATA_MCP_CONNECTED = False
         app.logger.error(f"Google API Error during configuration: {e}", exc_info=True)
         return jsonify({"status": "error", "message": f"Connection not possible. Please check your API key. Details: {e.message}"}), 401
+    except ClientError as e:
+        llm = None
+        mcp_client = None
+        SERVER_CONFIGS = {}
+        APP_CONFIG.TERADATA_MCP_CONNECTED = False
+        app.logger.error(f"AWS/Bedrock API Error during configuration: {e}", exc_info=True)
+        error_message = e.response.get("Error", {}).get("Message", "Unknown AWS error.")
+        return jsonify({"status": "error", "message": f"Connection not possible. Please check your AWS credentials and permissions. Details: {error_message}"}), 401
     except Exception as e:
         llm = None
         mcp_client = None

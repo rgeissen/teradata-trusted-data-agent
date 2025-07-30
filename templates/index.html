@@ -514,15 +514,33 @@
                                 <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
                                     <option value="Google">Google</option>
                                     <option value="Anthropic">Anthropic</option>
+                                    <option value="Amazon">Amazon</option>
                                     <option value="OpenAI" disabled>OpenAI (coming soon)</option>
                                     <option value="Cohere" disabled>Cohere (coming soon)</option>
                                     <option value="Mistral" disabled>Mistral (coming soon)</option>
                                 </select>
                             </div>
-                            <div>
+                            
+                            <div id="api-key-container">
                                 <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">LLM API Key</label>
                                 <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
                             </div>
+
+                            <div id="aws-credentials-container" class="hidden space-y-4">
+                                <div>
+                                    <label for="aws-access-key-id" class="block text-sm font-medium text-gray-300 mb-1">AWS Access Key ID</label>
+                                    <input type="password" id="aws-access-key-id" name="aws_access_key_id" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your AWS Access Key ID">
+                                </div>
+                                <div>
+                                    <label for="aws-secret-access-key" class="block text-sm font-medium text-gray-300 mb-1">AWS Secret Access Key</label>
+                                    <input type="password" id="aws-secret-access-key" name="aws_secret_access_key" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your AWS Secret Access Key">
+                                </div>
+                                <div>
+                                    <label for="aws-region" class="block text-sm font-medium text-gray-300 mb-1">AWS Region</label>
+                                    <input type="text" id="aws-region" name="aws_region" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="e.g., us-east-1">
+                                </div>
+                            </div>
+
                             <div>
                                 <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
                                 <div class="flex items-center gap-2">
@@ -710,6 +728,11 @@
         const llmProviderSelect = document.getElementById('llm-provider');
         const llmModelSelect = document.getElementById('llm-model');
         const llmApiKeyInput = document.getElementById('llm-api-key');
+        const apiKeyContainer = document.getElementById('api-key-container');
+        const awsCredentialsContainer = document.getElementById('aws-credentials-container');
+        const awsAccessKeyIdInput = document.getElementById('aws-access-key-id');
+        const awsSecretAccessKeyInput = document.getElementById('aws-secret-access-key');
+        const awsRegionInput = document.getElementById('aws-region');
         
         const chartConfigForm = document.getElementById('chart-config-form');
         const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
@@ -1514,8 +1537,17 @@
                 path: config.path
             };
             localStorage.setItem('mcpConfig', JSON.stringify(mcpConfig));
-            // Save the current API key for the selected provider
-            localStorage.setItem(`${config.provider.toLowerCase()}ApiKey`, config.apiKey);
+            
+            if (config.provider === 'Amazon') {
+                const awsCreds = {
+                    aws_access_key_id: config.aws_access_key_id,
+                    aws_secret_access_key: config.aws_secret_access_key,
+                    aws_region: config.aws_region
+                };
+                localStorage.setItem('amazonApiKey', JSON.stringify(awsCreds));
+            } else {
+                localStorage.setItem(`${config.provider.toLowerCase()}ApiKey`, config.apiKey);
+            }
 
             try {
                 const res = await fetch('/configure', {
@@ -1619,11 +1651,19 @@
         });
 
         async function fetchModels() {
-            currentProvider = llmProviderSelect.value;
-            const apiKey = llmApiKeyInput.value;
+            const provider = llmProviderSelect.value;
+            let body = { provider };
 
-            if (!apiKey) {
-                configStatus.textContent = 'API Key is required to fetch models.';
+            if (provider === 'Amazon') {
+                body.aws_access_key_id = awsAccessKeyIdInput.value;
+                body.aws_secret_access_key = awsSecretAccessKeyInput.value;
+                body.aws_region = awsRegionInput.value;
+            } else {
+                body.apiKey = llmApiKeyInput.value;
+            }
+
+            if ((provider === 'Amazon' && (!body.aws_access_key_id || !body.aws_secret_access_key || !body.aws_region)) || (provider !== 'Amazon' && !body.apiKey)) {
+                 configStatus.textContent = 'API credentials are required to fetch models.';
                 configStatus.className = 'text-sm text-yellow-400 text-center';
                 return;
             }
@@ -1638,7 +1678,7 @@
                 const response = await fetch('/models', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ provider: currentProvider, apiKey })
+                    body: JSON.stringify(body)
                 });
                 const result = await response.json();
 
@@ -1647,12 +1687,8 @@
                     result.models.forEach(model => {
                         const option = document.createElement('option');
                         option.value = model.name;
-                        if (model.certified) {
-                            option.textContent = model.name;
-                        } else {
-                            option.textContent = `${model.name} (support evaluated)`;
-                            option.disabled = true;
-                        }
+                        option.textContent = model.name + (model.certified ? '' : ' (support evaluated)');
+                        option.disabled = !model.certified;
                         llmModelSelect.appendChild(option);
                     });
                     configStatus.textContent = `Successfully fetched ${result.models.length} models.`;
@@ -1691,17 +1727,45 @@
             }
         }
 
-        llmProviderSelect.addEventListener('change', () => {
+        llmProviderSelect.addEventListener('change', async () => {
             const newProvider = llmProviderSelect.value;
-            const savedApiKey = localStorage.getItem(`${newProvider.toLowerCase()}ApiKey`) || '';
-            llmApiKeyInput.value = savedApiKey;
-            fetchModels();
+            
+            if (newProvider === 'Amazon') {
+                apiKeyContainer.classList.add('hidden');
+                awsCredentialsContainer.classList.remove('hidden');
+                const savedCreds = JSON.parse(localStorage.getItem('amazonApiKey')) || {};
+                const res = await fetch('/api_key/amazon');
+                const envCreds = await res.json();
+                awsAccessKeyIdInput.value = envCreds.aws_access_key_id || savedCreds.aws_access_key_id || '';
+                awsSecretAccessKeyInput.value = envCreds.aws_secret_access_key || savedCreds.aws_secret_access_key || '';
+                awsRegionInput.value = envCreds.aws_region || savedCreds.aws_region || '';
+
+            } else {
+                apiKeyContainer.classList.remove('hidden');
+                awsCredentialsContainer.classList.add('hidden');
+                const res = await fetch(`/api_key/${newProvider.toLowerCase()}`);
+                const data = await res.json();
+                llmApiKeyInput.value = data.apiKey || localStorage.getItem(`${newProvider.toLowerCase()}ApiKey`) || '';
+            }
+            llmModelSelect.innerHTML = '<option value="">-- Select Provider & Enter API Key --</option>';
+            configStatus.textContent = '';
+        });
+
+        [awsAccessKeyIdInput, awsSecretAccessKeyInput, awsRegionInput].forEach(input => {
+            input.addEventListener('blur', () => {
+                const awsCreds = {
+                    aws_access_key_id: awsAccessKeyIdInput.value,
+                    aws_secret_access_key: awsSecretAccessKeyInput.value,
+                    aws_region: awsRegionInput.value
+                };
+                localStorage.setItem('amazonApiKey', JSON.stringify(awsCreds));
+            });
         });
 
         llmApiKeyInput.addEventListener('blur', () => {
             const provider = llmProviderSelect.value;
             const apiKey = llmApiKeyInput.value;
-            if (apiKey) {
+            if (apiKey && provider !== 'Amazon') {
                 localStorage.setItem(`${provider.toLowerCase()}ApiKey`, apiKey);
             }
         });
