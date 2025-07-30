@@ -38,7 +38,7 @@ class AppConfig:
     CHART_MCP_CONNECTED = False
 
 APP_CONFIG = AppConfig()
-CERTIFIED_MODEL = "gemini-1.5-flash-latest"
+CERTIFIED_MODEL = "gemini-2.5-flash"
 
 # --- System Prompt Templates ---
 PROVIDER_SYSTEM_PROMPTS = {
