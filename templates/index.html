@@ -1,3 +1,19 @@
+<!--
+The user wants to change the countdown timer behavior to stop on any mouse movement, not just hovering over the popup.
+
+Here's the implementation plan:
+1.  **HTML**: No changes needed to the HTML structure.
+
+2.  **JavaScript Logic**:
+    -   A new global variable `mouseMoveHandler` will be created to hold the reference to the event listener function, which is necessary for `removeEventListener` to work correctly.
+    -   Modify `openSystemPromptPopup()`:
+        -   Define the `mouseMoveHandler` function inside it. This function will call `stopPopupCountdown()`.
+        -   Add a global `mousemove` event listener to the `document` that uses this handler.
+    -   Modify `closeSystemPromptPopup()`:
+        -   Remove the global `mousemove` event listener from the `document` to clean up and prevent it from running when the popup is closed.
+    -   Remove the old `mouseenter` and `mouseleave` event listeners from the `DOMContentLoaded` section as they are no longer needed.
+-->
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -39,7 +55,8 @@
         #status-window-content::-webkit-scrollbar,
         #session-list::-webkit-scrollbar,
         .table-container::-webkit-scrollbar,
-        #prompt-editor-textarea::-webkit-scrollbar {
+        #prompt-editor-textarea::-webkit-scrollbar,
+        #system-prompt-popup-text::-webkit-scrollbar {
             width: 6px; 
         }
         #chat-container::-webkit-scrollbar-track,
@@ -47,7 +64,8 @@
         #status-window-content::-webkit-scrollbar-track,
         #session-list::-webkit-scrollbar-track,
         .table-container::-webkit-scrollbar-track,
-        #prompt-editor-textarea::-webkit-scrollbar-track {
+        #prompt-editor-textarea::-webkit-scrollbar-track,
+        #system-prompt-popup-text::-webkit-scrollbar-track {
             background: transparent; 
         }
         #chat-container::-webkit-scrollbar-thumb,
@@ -55,7 +73,8 @@
         #status-window-content::-webkit-scrollbar-thumb,
         #session-list::-webkit-scrollbar-thumb,
         .table-container::-webkit-scrollbar-thumb,
-        #prompt-editor-textarea::-webkit-scrollbar-thumb {
+        #prompt-editor-textarea::-webkit-scrollbar-thumb,
+        #system-prompt-popup-text::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.2); 
             border-radius: 3px; 
         }
@@ -104,14 +123,15 @@
         }
 
         /* Modal transitions */
-        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay, #confirm-modal-overlay { transition: opacity 0.3s ease-in-out; }
-        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content, #confirm-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
-        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden, #confirm-modal-overlay.hidden { pointer-events: none; opacity: 0; }
+        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay, #confirm-modal-overlay, #system-prompt-popup-overlay { transition: opacity 0.3s ease-in-out; }
+        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content, #confirm-modal-content, #system-prompt-popup-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden, #confirm-modal-overlay.hidden, #system-prompt-popup-overlay.hidden { pointer-events: none; opacity: 0; }
         #prompt-modal-overlay.hidden #prompt-modal-content,
         #info-modal-overlay.hidden #info-modal-content,
         #config-modal-overlay.hidden #config-modal-content,
         #prompt-editor-overlay.hidden #prompt-editor-content,
-        #confirm-modal-overlay.hidden #confirm-modal-content { transform: scale(0.95); opacity: 0; }
+        #confirm-modal-overlay.hidden #confirm-modal-content,
+        #system-prompt-popup-overlay.hidden #system-prompt-popup-content { transform: scale(0.95); opacity: 0; }
         
         .status-step {
             transition: all 0.3s ease-in-out;
@@ -434,8 +454,9 @@
         </div>
 
         <aside id="status-window" class="w-1/3 max-w-md h-full flex flex-col glass-panel rounded-l-2xl shadow-2xl border-l border-white/10">
-            <header class="p-4 border-b border-white/10 flex justify-center items-center">
+            <header class="p-4 border-b border-white/10 flex flex-col justify-center items-center">
                 <h2 id="status-title" class="header-title text-lg font-bold text-white">Live Status</h2>
+                <div id="status-prompt-name" class="text-xs text-gray-400 mt-1 flex items-center gap-x-2">No Model/Prompt Loaded</div>
             </header>
             <div id="status-window-content" class="flex-1 p-4 overflow-y-auto space-y-4">
                 <p class="text-gray-400">Waiting for a new request...</p>
@@ -629,6 +650,23 @@
         </div>
     </div>
 
+    <div id="system-prompt-popup-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="system-prompt-popup-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-3xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="system-prompt-popup-title" class="text-xl font-bold header-title">System Prompt Loaded</h3>
+            </div>
+            <div class="flex-1 w-full p-3 bg-gray-800/80 border border-gray-600 rounded-md overflow-y-auto">
+                <pre id="system-prompt-popup-text" class="font-mono text-sm whitespace-pre-wrap"></pre>
+            </div>
+            <div class="flex justify-between items-center mt-4">
+                 <div id="countdown-container" class="text-sm text-gray-400" style="visibility: hidden;">
+                    Closing in <span id="countdown-timer" class="font-bold text-white">5</span>s...
+                </div>
+                <button type="button" id="system-prompt-popup-close" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // --- START: FULLY RESTORED AND ENHANCED JAVASCRIPT ---
         const chatLog = document.getElementById('chat-log');
@@ -717,6 +755,11 @@
         const confirmModalBody = document.getElementById('confirm-modal-body');
         const confirmModalConfirm = document.getElementById('confirm-modal-confirm');
         const confirmModalCancel = document.getElementById('confirm-modal-cancel');
+        
+        const systemPromptPopupOverlay = document.getElementById('system-prompt-popup-overlay');
+        const systemPromptPopupContent = document.getElementById('system-prompt-popup-content');
+        const systemPromptPopupText = document.getElementById('system-prompt-popup-text');
+        const systemPromptPopupClose = document.getElementById('system-prompt-popup-close');
 
         let currentProvider = 'Google';
         let currentModel = '';
@@ -725,6 +768,9 @@
         let resourceData = { tools: {}, prompts: {}, resources: {}, charts: {} };
         let currentlySelectedResource = null;
         let eventSource = null;
+        let systemPromptPopupTimer = null;
+        let countdownValue = 5;
+        let mouseMoveHandler = null;
         
         // --- System Prompt Management ---
         function getSystemPrompts() {
@@ -879,6 +925,21 @@
             }
             
             statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
+        }
+
+        function updateStatusPromptName() {
+            const promptNameDiv = document.getElementById('status-prompt-name');
+            if (currentProvider && currentModel) {
+                const isCustom = isPromptCustomForModel(currentProvider, currentModel);
+                const promptType = isCustom ? `Custom` : `Default`;
+                promptNameDiv.innerHTML = `
+                    <span class="font-semibold text-gray-300">${promptType} Prompt</span>
+                    <span class="text-gray-500">/</span>
+                    <span class="font-mono text-teradata-orange text-xs">${currentModel}</span>
+                `;
+            } else {
+                promptNameDiv.innerHTML = '<span>No Model/Prompt Loaded</span>';
+            }
         }
 
         async function startStream(endpoint, body) {
@@ -1150,6 +1211,7 @@
                     if (history.length === 0) {
                          addMessage('assistant', "I'm ready to help. How can I assist you with your Teradata system today?");
                     }
+                    updateStatusPromptName();
                 } else {
                     addMessage('assistant', `Error loading session: ${history.error}`);
                 }
@@ -1378,6 +1440,73 @@
         });
         configModalClose.addEventListener('click', closeConfigModal);
         
+        function startPopupCountdown() {
+            if (systemPromptPopupTimer) {
+                clearInterval(systemPromptPopupTimer);
+            }
+
+            const countdownTimerEl = document.getElementById('countdown-timer');
+            const countdownContainerEl = document.getElementById('countdown-container');
+
+            if (countdownTimerEl && countdownContainerEl) {
+                countdownTimerEl.textContent = countdownValue;
+                countdownContainerEl.style.visibility = 'visible';
+
+                systemPromptPopupTimer = setInterval(() => {
+                    countdownValue--;
+                    countdownTimerEl.textContent = countdownValue;
+                    if (countdownValue <= 0) {
+                        closeSystemPromptPopup();
+                    }
+                }, 1000);
+            }
+        }
+
+        function stopPopupCountdown() {
+            if (systemPromptPopupTimer) {
+                clearInterval(systemPromptPopupTimer);
+                systemPromptPopupTimer = null;
+            }
+            const countdownContainerEl = document.getElementById('countdown-container');
+            if(countdownContainerEl) {
+                countdownContainerEl.style.visibility = 'hidden';
+            }
+        }
+
+        function openSystemPromptPopup() {
+            const promptText = getSystemPromptForModel(currentProvider, currentModel);
+            systemPromptPopupText.textContent = promptText || "Could not load system prompt.";
+            systemPromptPopupOverlay.classList.remove('hidden', 'opacity-0');
+            systemPromptPopupContent.classList.remove('scale-95', 'opacity-0');
+            
+            countdownValue = 5;
+            startPopupCountdown();
+            
+            mouseMoveHandler = () => {
+                stopPopupCountdown();
+                document.removeEventListener('mousemove', mouseMoveHandler);
+            };
+            document.addEventListener('mousemove', mouseMoveHandler);
+        }
+
+        function closeSystemPromptPopup() {
+            stopPopupCountdown();
+            if (mouseMoveHandler) {
+                 document.removeEventListener('mousemove', mouseMoveHandler);
+                 mouseMoveHandler = null;
+            }
+            systemPromptPopupOverlay.classList.add('opacity-0');
+            systemPromptPopupContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                systemPromptPopupOverlay.classList.add('hidden');
+            }, 300);
+        }
+
+        systemPromptPopupClose.addEventListener('click', closeSystemPromptPopup);
+        systemPromptPopupOverlay.addEventListener('click', (e) => {
+            if (e.target === systemPromptPopupOverlay) closeSystemPromptPopup();
+        });
+
         configForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -1424,6 +1553,7 @@
                     if (!activePrompt) {
                         await resetSystemPrompt(true);
                     }
+                    updateStatusPromptName();
 
                     promptEditorButton.disabled = false;
 
@@ -1436,7 +1566,12 @@
                     await startNewSession();
 
                     if (chartingFieldset.disabled) {
-                        setTimeout(closeConfigModal, 1000);
+                        setTimeout(() => {
+                            closeConfigModal();
+                            openSystemPromptPopup();
+                        }, 1000);
+                    } else {
+                        openSystemPromptPopup();
                     }
                 } else {
                     throw new Error(result.message || 'Configuration failed.');
@@ -1593,7 +1728,7 @@
         function saveSystemPromptChanges() {
             const newPrompt = promptEditorTextarea.value;
             saveSystemPromptForModel(currentProvider, currentModel, newPrompt, true);
-
+            updateStatusPromptName();
             promptEditorStatus.textContent = 'Saved!';
             promptEditorStatus.className = 'text-sm text-green-400';
             setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
@@ -1607,7 +1742,7 @@
                 if (data.system_prompt) {
                     saveSystemPromptForModel(currentProvider, currentModel, data.system_prompt, false);
                     promptEditorTextarea.value = data.system_prompt;
-
+                    updateStatusPromptName();
                     if (!force) {
                         promptEditorStatus.textContent = 'Reset to default and saved!';
                         promptEditorStatus.className = 'text-sm text-yellow-400';
@@ -1730,3 +1865,4 @@
     </script>
 </body>
 </html>
+```
