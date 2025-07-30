@@ -4,3 +4,5 @@ hypercorn
 python-dotenv
 google-generativeai
 langchain-mcp-adapters
+anthropic
+boto3
