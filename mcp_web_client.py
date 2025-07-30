@@ -58,7 +58,7 @@ CERTIFIED_ANTHROPIC_MODELS = [
     "claude-3-5-sonnet-20240620"
 ]
 CERTIFIED_AMAZON_MODELS = [
-    "amazon.amazon-nova-light-v1:0",
+    "amazon.nova-lite-v1:0",
 ]
 CERTIFIED_AMAZON_PROFILES = ["amazon.titan-text-express-v1"]
 
