@@ -1001,12 +1001,17 @@ def get_full_system_prompt(base_prompt_text, charting_intensity_val):
     
     final_charts_context = charts_context if APP_CONFIG.CHART_MCP_CONNECTED else CHARTING_INSTRUCTIONS['none']
 
-    return base_prompt_text.format(
-        charting_instructions=chart_instructions,
-        tools_context=tools_context,
-        prompts_context=prompts_context,
-        charts_context=final_charts_context
-    )
+    # Safely replace placeholders if they exist in the prompt from the client
+    final_system_prompt = base_prompt_text
+    if "{charting_instructions}" in final_system_prompt:
+        final_system_prompt = final_system_prompt.replace("{charting_instructions}", chart_instructions)
+    if "{tools_context}" in final_system_prompt:
+        final_system_prompt = final_system_prompt.replace("{tools_context}", tools_context)
+    if "{prompts_context}" in final_system_prompt:
+        final_system_prompt = final_system_prompt.replace("{prompts_context}", prompts_context)
+    if "{charts_context}" in final_system_prompt:
+        final_system_prompt = final_system_prompt.replace("{charts_context}", final_charts_context)
+    return final_system_prompt
 
 @app.route("/session", methods=["POST"])
 async def new_session():
@@ -1019,10 +1024,13 @@ async def new_session():
     
     try:
         session_id = str(uuid.uuid4())
-        # --- START: MODIFIED LOGIC ---
-        # The prompt from the client is already finalized and should not be formatted again.
-        final_system_prompt = system_prompt_from_client
-        # --- END: MODIFIED LOGIC ---
+        
+        # --- START: CORRECTED LOGIC ---
+        # The client sends a prompt that might still contain placeholders.
+        # The server must format it with the dynamic context.
+        charting_intensity = "medium" if APP_CONFIG.CHARTING_ENABLED else "none"
+        final_system_prompt = get_full_system_prompt(system_prompt_from_client, charting_intensity)
+        # --- END: CORRECTED LOGIC ---
         
         initial_history = [
             {"role": "user", "parts": [{"text": final_system_prompt}]},
@@ -1034,7 +1042,8 @@ async def new_session():
             "name": "New Chat",
             "created_at": datetime.now().isoformat()
         }
-        app.logger.info(f"Created new session: {session_id}")
+        app.logger.info(f"Created new session: {session_id} with formatted prompt.")
+        app.logger.debug(f"Final prompt for session {session_id}:\n{final_system_prompt}")
         return jsonify({"session_id": session_id, "name": SESSIONS[session_id]["name"]})
     except Exception as e:
         app.logger.error(f"Failed to create new session: {e}", exc_info=True)
@@ -1256,10 +1265,11 @@ async def load_and_categorize_chart_resources():
 
 @app.route("/system_prompt/<provider>/<model_name>", methods=["GET"])
 async def get_default_system_prompt(provider, model_name):
-    charting_intensity_val = request.args.get("charting_intensity", "medium")
-    base_prompt = PROVIDER_SYSTEM_PROMPTS.get(provider, PROVIDER_SYSTEM_PROMPTS["Google"]) # Fallback to Google
-    final_prompt = get_full_system_prompt(base_prompt, charting_intensity_val)
-    return jsonify({"status": "success", "system_prompt": final_prompt})
+    # This endpoint now returns the raw template. The client is responsible for
+    # storing it, and the /session endpoint is responsible for formatting it
+    # with the live context just before starting a session.
+    base_prompt_template = PROVIDER_SYSTEM_PROMPTS.get(provider, PROVIDER_SYSTEM_PROMPTS["Google"])
+    return jsonify({"status": "success", "system_prompt": base_prompt_template})
 
 @app.route("/models", methods=["POST"])
 async def get_models():

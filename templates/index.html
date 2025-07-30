@@ -1,19 +1,3 @@
-<!--
-The user wants to change the countdown timer behavior to stop on any mouse movement, not just hovering over the popup.
-
-Here's the implementation plan:
-1.  **HTML**: No changes needed to the HTML structure.
-
-2.  **JavaScript Logic**:
-    -   A new global variable `mouseMoveHandler` will be created to hold the reference to the event listener function, which is necessary for `removeEventListener` to work correctly.
-    -   Modify `openSystemPromptPopup()`:
-        -   Define the `mouseMoveHandler` function inside it. This function will call `stopPopupCountdown()`.
-        -   Add a global `mousemove` event listener to the `document` that uses this handler.
-    -   Modify `closeSystemPromptPopup()`:
-        -   Remove the global `mousemove` event listener from the `document` to clean up and prevent it from running when the popup is closed.
-    -   Remove the old `mouseenter` and `mouseleave` event listeners from the `DOMContentLoaded` section as they are no longer needed.
--->
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1865,4 +1849,3 @@ Here's the implementation plan:
     </script>
 </body>
 </html>
-```
