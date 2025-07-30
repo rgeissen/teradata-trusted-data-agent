@@ -541,6 +541,20 @@
                                 </div>
                             </div>
 
+                            <div id="aws-listing-method-container" class="hidden">
+                                <label class="block text-sm font-medium text-gray-300 mb-2">Model Listing Method</label>
+                                <div class="flex items-center gap-x-6">
+                                    <div class="flex items-center">
+                                        <input id="foundation_models" name="listing_method" type="radio" value="foundation_models" class="h-4 w-4 border-gray-300 text-teradata-orange focus:ring-teradata-orange" checked>
+                                        <label for="foundation_models" class="ml-3 block text-sm font-medium leading-6 text-gray-300">Foundation Models</label>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <input id="inference_profiles" name="listing_method" type="radio" value="inference_profiles" class="h-4 w-4 border-gray-300 text-teradata-orange focus:ring-teradata-orange">
+                                        <label for="inference_profiles" class="ml-3 block text-sm font-medium leading-6 text-gray-300">Inference Profiles</label>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div>
                                 <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
                                 <div class="flex items-center gap-2">
@@ -733,6 +747,7 @@
         const awsAccessKeyIdInput = document.getElementById('aws-access-key-id');
         const awsSecretAccessKeyInput = document.getElementById('aws-secret-access-key');
         const awsRegionInput = document.getElementById('aws-region');
+        const awsListingMethodContainer = document.getElementById('aws-listing-method-container');
         
         const chartConfigForm = document.getElementById('chart-config-form');
         const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
@@ -1658,6 +1673,7 @@
                 body.aws_access_key_id = awsAccessKeyIdInput.value;
                 body.aws_secret_access_key = awsSecretAccessKeyInput.value;
                 body.aws_region = awsRegionInput.value;
+                body.listing_method = document.querySelector('input[name="listing_method"]:checked').value;
             } else {
                 body.apiKey = llmApiKeyInput.value;
             }
@@ -1733,9 +1749,12 @@
             if (newProvider === 'Amazon') {
                 apiKeyContainer.classList.add('hidden');
                 awsCredentialsContainer.classList.remove('hidden');
-                const savedCreds = JSON.parse(localStorage.getItem('amazonApiKey')) || {};
+                awsListingMethodContainer.classList.remove('hidden');
+                
                 const res = await fetch('/api_key/amazon');
                 const envCreds = await res.json();
+                const savedCreds = JSON.parse(localStorage.getItem('amazonApiKey')) || {};
+                
                 awsAccessKeyIdInput.value = envCreds.aws_access_key_id || savedCreds.aws_access_key_id || '';
                 awsSecretAccessKeyInput.value = envCreds.aws_secret_access_key || savedCreds.aws_secret_access_key || '';
                 awsRegionInput.value = envCreds.aws_region || savedCreds.aws_region || '';
@@ -1743,11 +1762,13 @@
             } else {
                 apiKeyContainer.classList.remove('hidden');
                 awsCredentialsContainer.classList.add('hidden');
+                awsListingMethodContainer.classList.add('hidden');
+                
                 const res = await fetch(`/api_key/${newProvider.toLowerCase()}`);
                 const data = await res.json();
                 llmApiKeyInput.value = data.apiKey || localStorage.getItem(`${newProvider.toLowerCase()}ApiKey`) || '';
             }
-            llmModelSelect.innerHTML = '<option value="">-- Select Provider & Enter API Key --</option>';
+            llmModelSelect.innerHTML = '<option value="">-- Select Provider & Enter Credentials --</option>';
             configStatus.textContent = '';
         });
 

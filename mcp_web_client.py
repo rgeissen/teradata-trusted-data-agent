@@ -48,6 +48,8 @@ class AppConfig:
     # New state to hold the current provider and model name
     CURRENT_PROVIDER = None
     CURRENT_MODEL = None
+    # Store the underlying provider for Amazon Bedrock Inference Profiles
+    CURRENT_MODEL_PROVIDER_IN_PROFILE = None
 
 
 APP_CONFIG = AppConfig()
@@ -56,10 +58,9 @@ CERTIFIED_ANTHROPIC_MODELS = [
     "claude-3-5-sonnet-20240620"
 ]
 CERTIFIED_AMAZON_MODELS = [
-    "anthropic.claude-3-sonnet-20240229-v1:0",
-    "anthropic.claude-3-haiku-20240307-v1:0",
-    "amazon.titan-text-express-v1"
+    "amazon.amazon-nova-light-v1:0",
 ]
+CERTIFIED_AMAZON_PROFILES = ["amazon.titan-text-express-v1"]
 
 
 # --- System Prompt Templates ---
@@ -581,8 +582,8 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
                 system_prompt = system_prompt_override or "You are a helpful assistant."
                 history = chat_history or []
 
-            # Construct the request body based on the model provider
-            model_provider = APP_CONFIG.CURRENT_MODEL.split('.')[0]
+            # Determine the underlying model provider (set during configuration for profiles)
+            model_provider = APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE or APP_CONFIG.CURRENT_MODEL.split('.')[0]
             
             if model_provider == 'anthropic':
                 messages = []
@@ -609,9 +610,24 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
                         "topP": 0.9
                     }
                 })
+            
+            model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
+            
+            # Boto3's bedrock-runtime client is synchronous, so we need to run it in an executor.
+            loop = asyncio.get_running_loop()
+            
+            if model_id_to_invoke.startswith("arn:aws:bedrock:"): # It's an inference profile
+                response = await loop.run_in_executor(
+                    None, 
+                    lambda: llm.invoke_model(body=body, modelId=model_id_to_invoke)
+                )
+            else: # It's a foundation model
+                response = await loop.run_in_executor(
+                    None, 
+                    lambda: llm.invoke_model(body=body, modelId=model_id_to_invoke)
+                )
 
-            response = await llm.invoke_model(body=body, modelId=APP_CONFIG.CURRENT_MODEL)
-            response_body = json.loads(await response.get('body').read())
+            response_body = json.loads(response.get('body').read())
 
             if model_provider == 'anthropic':
                 response_text = response_body.get('content')[0].get('text')
@@ -1614,6 +1630,7 @@ async def get_models():
     try:
         data = await request.get_json()
         provider = data.get("provider")
+        listing_method = data.get("listing_method", "foundation_models") # Default to foundation models
 
         if provider == "Google":
             api_key = data.get("apiKey")
@@ -1635,9 +1652,22 @@ async def get_models():
                 aws_secret_access_key=data.get("aws_secret_access_key"),
                 region_name=data.get("aws_region")
             )
-            response = bedrock_client.list_foundation_models(byOutputModality='TEXT')
-            models = [m['modelId'] for m in response['modelSummaries']]
-            structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_MODELS} for name in models]
+            loop = asyncio.get_running_loop()
+            if listing_method == "inference_profiles":
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: bedrock_client.list_inference_profiles()
+                )
+                models = [p['inferenceProfileArn'] for p in response['inferenceProfileSummaries']]
+                structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_PROFILES} for name in models]
+            else: # Default to foundation models
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: bedrock_client.list_foundation_models(byOutputModality='TEXT')
+                )
+                models = [m['modelId'] for m in response['modelSummaries']]
+                structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_MODELS} for name in models]
+            
             return jsonify({"status": "success", "models": structured_model_list})
 
         else:
@@ -1657,6 +1687,7 @@ async def configure_services():
 
         APP_CONFIG.CURRENT_PROVIDER = provider
         APP_CONFIG.CURRENT_MODEL = model
+        APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = None # Reset on each config
 
         if provider == "Google":
             genai.configure(api_key=data.get("apiKey"))
@@ -1670,6 +1701,16 @@ async def configure_services():
                 aws_secret_access_key=data.get("aws_secret_access_key"),
                 region_name=data.get("aws_region")
             )
+            if model.startswith("arn:aws:bedrock:"):
+                # Parse the provider from the ARN instead of making a separate API call
+                # e.g., ...:inference-profile/eu.anthropic.claude-3-sonnet... -> anthropic
+                try:
+                    profile_part = model.split('/')[-1]
+                    provider_name = profile_part.split('.')[1]
+                    APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = provider_name
+                except IndexError:
+                    raise ValueError(f"Could not parse underlying provider from Inference Profile ARN: {model}")
+
         else:
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
 
