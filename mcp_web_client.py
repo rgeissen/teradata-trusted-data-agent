@@ -214,7 +214,7 @@ PROVIDER_SYSTEM_PROMPTS = {
         "{prompts_context}\n\n"
         "{charts_context}\n\n"
     ),
-    "Amazon": (
+     "Amazon": (
         "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool or prompt.\n\n"
         "--- **CRITICAL RESPONSE PROTOCOL** ---\n"
         "Your primary task is to select a single capability to fulfill the user's request. You have two lists of capabilities available: `--- Available Prompts ---` and `--- Available Tools ---`.\n\n"
@@ -257,7 +257,7 @@ PROVIDER_SYSTEM_PROMPTS = {
         "--- **CRITICAL RULE: SQL GENERATION** ---\n"
         "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).\n\n"
         "--- **CRITICAL RULE: HANDLING TIME-SENSITIVE QUERIES** ---\n"
-        "If the user asks a question involving a relative date (e.g., 'today', 'yesterday', 'this week'), you do not know this information. Your first step **MUST** be to find the current date before proceeding.\n"
+        "If the user asks a question involving a relative date (e.g., 'today', 'yesterday', 'this week'), you do not know this information. Your first step **MUST** be to find the current date before proceeding.\n\n"
         "**Example of CORRECT Multi-Step Plan:**\n"
         "    -   USER: \"what is the system utilization in number of queries for today?\"\n"
         "    -   YOUR CORRECT REASONING (Step 1): \"The user is asking about 'today'. I do not know the current date. My first step must be to get the current date from the database.\"\n"
@@ -341,6 +341,13 @@ def _format_sse(data: dict, event: str = None) -> str:
     if event is not None:
         msg += f"event: {event}\n"
     return f"{msg}\n"
+
+def _unwrap_exception(e: BaseException) -> BaseException:
+    """Recursively unwraps ExceptionGroups to find the root cause."""
+    if isinstance(e, ExceptionGroup) and e.exceptions:
+        return _unwrap_exception(e.exceptions[0])
+    return e
+
 
 # --- Core Logic ---
 
@@ -532,6 +539,7 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
             elif session_id and session_id in SESSIONS:
                 system_prompt = SESSIONS[session_id]['system_prompt']
             else:
+                # This case should not be hit for session-less calls if override is provided
                 raise ValueError("A session_id or system_prompt_override is required for Anthropic provider.")
 
             history_source = chat_history if chat_history is not None else (SESSIONS.get(session_id, {}).get('chat_object', []))
@@ -1605,10 +1613,10 @@ async def get_default_system_prompt(provider, model_name):
 async def get_models():
     try:
         data = await request.get_json()
-        api_key = data.get("apiKey")
         provider = data.get("provider")
 
         if provider == "Google":
+            api_key = data.get("apiKey")
             genai.configure(api_key=api_key)
             models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             clean_models = [name.split('/')[-1] for name in models]
@@ -1656,7 +1664,6 @@ async def configure_services():
         elif provider == "Anthropic":
             llm = AsyncAnthropic(api_key=data.get("apiKey"))
         elif provider == "Amazon":
-            # Boto3 will use environment variables if credentials are not passed explicitly
             llm = boto3.client(
                 service_name='bedrock-runtime',
                 aws_access_key_id=data.get("aws_access_key_id"),
@@ -1674,36 +1681,28 @@ async def configure_services():
         await load_and_categorize_teradata_resources()
         APP_CONFIG.TERADATA_MCP_CONNECTED = True
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
-    except APIError as e:
+    except (APIError, google_exceptions.PermissionDenied, ClientError, ExceptionGroup) as e:
         llm = None
         mcp_client = None
         SERVER_CONFIGS = {}
         APP_CONFIG.TERADATA_MCP_CONNECTED = False
-        app.logger.error(f"Anthropic API Error during configuration: {e}", exc_info=True)
-        error_message = e.body.get('error', {}).get('message', 'Unknown Anthropic API error.')
-        return jsonify({"status": "error", "message": f"Connection not possible. Please check your API key. Details: {error_message}"}), 401
-    except google_exceptions.PermissionDenied as e:
-        llm = None
-        mcp_client = None
-        SERVER_CONFIGS = {}
-        APP_CONFIG.TERADATA_MCP_CONNECTED = False
-        app.logger.error(f"Google API Error during configuration: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Connection not possible. Please check your API key. Details: {e.message}"}), 401
-    except ClientError as e:
-        llm = None
-        mcp_client = None
-        SERVER_CONFIGS = {}
-        APP_CONFIG.TERADATA_MCP_CONNECTED = False
-        app.logger.error(f"AWS/Bedrock API Error during configuration: {e}", exc_info=True)
-        error_message = e.response.get("Error", {}).get("Message", "Unknown AWS error.")
-        return jsonify({"status": "error", "message": f"Connection not possible. Please check your AWS credentials and permissions. Details: {error_message}"}), 401
-    except Exception as e:
-        llm = None
-        mcp_client = None
-        SERVER_CONFIGS = {}
-        APP_CONFIG.TERADATA_MCP_CONNECTED = False
-        app.logger.error(f"Configuration failed: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Configuration failed: {e}"}), 500
+        
+        # Recursively find the root cause of the exception
+        root_exception = _unwrap_exception(e)
+        
+        error_message = ""
+        if isinstance(root_exception, APIError):
+            error_message = root_exception.body.get('error', {}).get('message', 'Unknown Anthropic API error.')
+        elif isinstance(root_exception, google_exceptions.PermissionDenied):
+            error_message = root_exception.message
+        elif isinstance(root_exception, ClientError):
+            error_message = root_exception.response.get("Error", {}).get("Message", "Unknown AWS error.")
+        else:
+            error_message = str(root_exception)
+            
+        app.logger.error(f"Configuration failed: {error_message}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
+
 
 @app.route("/configure_chart", methods=["POST"])
 async def configure_chart_service():
