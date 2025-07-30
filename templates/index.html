@@ -1846,7 +1846,14 @@
             
             // Load the API key for the default provider on startup
             const defaultProvider = llmProviderSelect.value;
-            llmApiKeyInput.value = localStorage.getItem(`${defaultProvider.toLowerCase()}ApiKey`) || '';
+            const res = await fetch(`/api_key/${defaultProvider.toLowerCase()}`);
+            const data = await res.json();
+            if (data.apiKey) {
+                llmApiKeyInput.value = data.apiKey;
+            } else {
+                llmApiKeyInput.value = localStorage.getItem(`${defaultProvider.toLowerCase()}ApiKey`) || '';
+            }
+
 
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
             setupPanelToggle(toggleHistoryButton, sessionHistoryPanel, toggleHistoryCheckbox, historyCollapseIcon, historyExpandIcon);

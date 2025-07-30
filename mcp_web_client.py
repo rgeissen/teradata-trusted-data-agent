@@ -14,6 +14,10 @@ import hypercorn.asyncio
 from hypercorn.config import Config
 from enum import Enum, auto
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # This environment variable MUST be set to "false" before any LangChain
 # modules are imported to programmatically disable the problematic tracer.
@@ -1113,6 +1117,16 @@ async def get_app_config():
         "all_models_unlocked": APP_CONFIG.ALL_MODELS_UNLOCKED,
         "charting_enabled": APP_CONFIG.CHARTING_ENABLED
     })
+
+@app.route("/api_key/<provider>")
+async def get_api_key(provider):
+    key = None
+    if provider.lower() == 'google':
+        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    elif provider.lower() == 'anthropic':
+        key = os.environ.get("ANTHROPIC_API_KEY")
+    
+    return jsonify({"apiKey": key or ""})
 
 @app.route("/tools")
 async def get_tools():
