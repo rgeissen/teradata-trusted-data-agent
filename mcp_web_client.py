@@ -45,9 +45,6 @@ class AppConfig:
 APP_CONFIG = AppConfig()
 CERTIFIED_MODEL = "gemini-1.5-flash-latest"
 CERTIFIED_ANTHROPIC_MODELS = [
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
     "claude-3-5-sonnet-20240620"
 ]
 
@@ -420,20 +417,23 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
     try:
         # --- Provider-Aware API Call Logic ---
         if APP_CONFIG.CURRENT_PROVIDER == "Google":
-            # For Google, a session_id is required for conversation history
-            if not session_id and not chat_history:
-                raise ValueError("A session_id or chat_history is required for Google provider.")
+            is_session_call = session_id is not None and session_id in SESSIONS
             
-            chat_session = llm.start_chat(history=chat_history) if chat_history is not None else SESSIONS[session_id]['chat_object']
-            history_for_log = chat_session.history
-            if history_for_log:
-                formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_log]
-                full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n--- History ---\n" + "\n".join(formatted_lines) + "\n\n"
-            
-            full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
-            llm_logger.info(full_log_message)
+            if is_session_call:
+                chat_session = SESSIONS[session_id]['chat_object']
+                history_for_log = chat_session.history
+                if history_for_log:
+                    formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_log]
+                    full_log_message += f"--- FULL CONTEXT (Session: {session_id}) ---\n--- History ---\n" + "\n".join(formatted_lines) + "\n\n"
+                
+                full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
+                llm_logger.info(full_log_message)
+                response = await chat_session.send_message_async(prompt)
+            else: # This is a session-less, one-off call (like for categorization)
+                full_log_message += f"--- ONE-OFF CALL ---\n--- Prompt ---\n{prompt}\n"
+                llm_logger.info(full_log_message)
+                response = await llm.generate_content_async(prompt)
 
-            response = await chat_session.send_message_async(prompt)
             if not response or not hasattr(response, 'text'):
                 raise RuntimeError("Google LLM returned an empty or invalid response.")
             response_text = response.text.strip()
