@@ -513,7 +513,7 @@
                                 <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">LLM Provider</label>
                                 <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
                                     <option value="Google">Google</option>
-                                    <option value="Anthropic" disabled>Anthropic (coming soon)</option>
+                                    <option value="Anthropic">Anthropic</option>
                                     <option value="OpenAI" disabled>OpenAI (coming soon)</option>
                                     <option value="Cohere" disabled>Cohere (coming soon)</option>
                                     <option value="Mistral" disabled>Mistral (coming soon)</option>
@@ -708,7 +708,6 @@
         const refreshIcon = document.getElementById('refresh-icon');
         const refreshSpinner = document.getElementById('refresh-spinner');
         const llmProviderSelect = document.getElementById('llm-provider');
-        const llmModelSelect = document.getElementById('llm-model');
         const llmApiKeyInput = document.getElementById('llm-api-key');
         
         const chartConfigForm = document.getElementById('chart-config-form');
@@ -1514,6 +1513,8 @@
                 path: config.path
             };
             localStorage.setItem('mcpConfig', JSON.stringify(mcpConfig));
+            // Save the current API key for the selected provider
+            localStorage.setItem(`${config.provider.toLowerCase()}ApiKey`, config.apiKey);
 
             try {
                 const res = await fetch('/configure', {
@@ -1558,7 +1559,7 @@
                         openSystemPromptPopup();
                     }
                 } else {
-                    throw new Error(result.message || 'Configuration failed.');
+                    throw new Error(result.message || 'An unknown configuration error occurred.');
                 }
             } catch (error) {
                 configStatus.textContent = `Error: ${error.message}`;
@@ -1689,12 +1690,23 @@
             }
         }
 
-        llmModelSelect.addEventListener('change', handleModelChange);
-        llmApiKeyInput.addEventListener('change', fetchModels);
+        llmProviderSelect.addEventListener('change', () => {
+            const newProvider = llmProviderSelect.value;
+            const savedApiKey = localStorage.getItem(`${newProvider.toLowerCase()}ApiKey`) || '';
+            llmApiKeyInput.value = savedApiKey;
+            fetchModels();
+        });
+
+        llmApiKeyInput.addEventListener('blur', () => {
+            const provider = llmProviderSelect.value;
+            const apiKey = llmApiKeyInput.value;
+            if (apiKey) {
+                localStorage.setItem(`${provider.toLowerCase()}ApiKey`, apiKey);
+            }
+        });
 
 
         refreshModelsButton.addEventListener('click', fetchModels);
-        llmProviderSelect.addEventListener('change', fetchModels);
 
         function openPromptEditor() {
             promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentProvider} / ${currentModel}</code>`;
@@ -1831,6 +1843,10 @@
                 document.getElementById('chart-mcp-path').value = '/sse';
             }
             
+            // Load the API key for the default provider on startup
+            const defaultProvider = llmProviderSelect.value;
+            llmApiKeyInput.value = localStorage.getItem(`${defaultProvider.toLowerCase()}ApiKey`) || '';
+
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
             setupPanelToggle(toggleHistoryButton, sessionHistoryPanel, toggleHistoryCheckbox, historyCollapseIcon, historyExpandIcon);
 

@@ -82,7 +82,7 @@ The application operates on a sophisticated client-server model, ensuring a clea
 
 * **Python 3.8+** and `pip`.
 * Access to a running **Teradata MCP Server**.
-* An **API Key from a supported LLM provider**. The initial validated provider is Google. You can obtain a Gemini API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
+* An **API Key from a supported LLM provider**. The initial validated providers are Google and Anthropic. You can obtain a Gemini API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 ### Step 1: Clone the Repository
 
@@ -117,6 +117,7 @@ You can either enter your API key in the UI at runtime or, for convenience durin
 
 ```
 GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
+ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY_HERE"
 ```
 
 ## Running the Application
@@ -156,7 +157,7 @@ python mcp_web_client.py --all-models --charting
 
 The first time you launch, a configuration modal will appear.
 1.  **MCP Server:** Enter the Host, Port, and Path for your running MCP Server.
-2.  **LLM Provider:** Select your desired provider (currently Google is enabled, with more to be validated based on market demand).
+2.  **LLM Provider:** Select your desired provider (currently Google & Anthropic are enabled, with more to be validated based on market demand).
 3.  **API Key:** Enter the corresponding API Key for the selected provider.
 4.  **Model:** Click the "Refresh" button to fetch available models. The certified model will be selectable by default.
 5.  **Connect and Load:** Click the button to validate both connections and load all available capabilities.

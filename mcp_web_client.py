@@ -23,8 +23,10 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain_mcp_adapters.resources import load_mcp_resources
 
-# Using the base google.generativeai library for stateful chat
+# Import provider-specific libraries
 import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
+from anthropic import Anthropic, AsyncAnthropic, APIError
 
 # --- Globals for Web App ---
 app = Quart(__name__)
@@ -36,21 +38,33 @@ class AppConfig:
     CHARTING_ENABLED = False
     TERADATA_MCP_CONNECTED = False
     CHART_MCP_CONNECTED = False
+    # New state to hold the current provider and model name
+    CURRENT_PROVIDER = None
+    CURRENT_MODEL = None
+
 
 APP_CONFIG = AppConfig()
-CERTIFIED_MODEL = "gemini-2.5-flash"
+CERTIFIED_MODEL = "gemini-1.5-flash-latest"
+CERTIFIED_ANTHROPIC_MODELS = [
+    "claude-3-opus-20240229",
+    "claude-3-sonnet-20240229",
+    "claude-3-haiku-20240307",
+    "claude-3-5-sonnet-20240620"
+]
+
 
 # --- System Prompt Templates ---
 PROVIDER_SYSTEM_PROMPTS = {
     "Google": (
         "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool or prompt.\n\n"
-        "--- **CRITICAL RESPONSE INSTRUCTIONS** ---\n"
-        "1.  **Analyze the User's Request:** Understand the user's goal.\n"
-        "2.  **Select a Capability:** Review the `--- Available Prompts ---` and `--- Available Tools ---` sections to find the best capability to fulfill the request. Prefer a single prompt if it can accomplish the entire task.\n"
-        "3.  **Generate the Correct JSON:** Based on your selection, you **MUST** generate a JSON response with the correct key:\n"
-        "    - If you chose a capability from the `--- Available Prompts ---` list, your JSON response **MUST** use the key `\"prompt_name\"`.\n"
-        "    - If you chose a capability from the `--- Available Tools ---` list, your JSON response **MUST** use the key `\"tool_name\"`.\n"
-        "    - **Failure to use the correct key will result in a system error.**\n\n"
+        "--- **CRITICAL RESPONSE PROTOCOL** ---\n"
+        "Your primary task is to select a single capability to fulfill the user's request. You have two lists of capabilities available: `--- Available Prompts ---` and `--- Available Tools ---`.\n\n"
+        "1.  **CHOOSE ONE CAPABILITY:** First, review both lists and select the single best capability (either a prompt or a tool) that can fulfill the user's request. If a prompt can solve the entire request, you MUST choose the prompt.\n\n"
+        "2.  **IDENTIFY THE SOURCE:** Determine which list the chosen capability came from.\n\n"
+        "3.  **GENERATE RESPONSE JSON:** Your response MUST be a single JSON object. The key you use in this JSON object depends entirely on the source list of your chosen capability:\n"
+        "    -   If your chosen capability is from the `--- Available Prompts ---` list, you **MUST** use the key `\"prompt_name\"`.\n"
+        "    -   If your chosen capability is from the `--- Available Tools ---` list, you **MUST** use the key `\"tool_name\"`.\n\n"
+        "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
         "**Example for a Prompt:**\n"
         "```json\n"
         "{{\n"
@@ -73,6 +87,12 @@ PROVIDER_SYSTEM_PROMPTS = {
         "    -   USER (Turn 2): \"ok now what is the quality of that table?\"\n"
         "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters.\"\n"
         "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.\n\n"
+        "**Another Example of CORRECT Inference:**\n"
+        "    -   USER (Turn 1): \"what's in DEMO_Customer360_db?\"\n"
+        "    -   ASSISTANT (Turn 1): (Responds with a list of tables, including `Equipment`)\n"
+        "    -   USER (Turn 2): \"what is the quality of Equipment?\"\n"
+        "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about the 'Equipment' table. The previous turns established the context of the `DEMO_Customer360_db` database. I must reuse this database name.\"\n"
+        "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `Equipment`.\n\n"
         "--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---\n"
         "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.\n\n"
         "--- **CRITICAL RULE: SQL GENERATION** ---\n"
@@ -110,7 +130,81 @@ PROVIDER_SYSTEM_PROMPTS = {
         "{prompts_context}\n\n"
         "{charts_context}\n\n"
     ),
-    "Anthropic": "Placeholder prompt for Anthropic models.",
+    "Anthropic": (
+        "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool or prompt.\n\n"
+        "--- **CRITICAL RESPONSE PROTOCOL** ---\n"
+        "Your primary task is to select a single capability to fulfill the user's request. You have two lists of capabilities available: `--- Available Prompts ---` and `--- Available Tools ---`.\n\n"
+        "1.  **CHOOSE ONE CAPABILITY:** First, review both lists and select the single best capability (either a prompt or a tool) that can fulfill the user's request. If a prompt can solve the entire request, you MUST choose the prompt.\n\n"
+        "2.  **IDENTIFY THE SOURCE:** Determine which list the chosen capability came from.\n\n"
+        "3.  **GENERATE RESPONSE JSON:** Your response MUST be a single JSON object. The key you use in this JSON object depends entirely on the source list of your chosen capability:\n"
+        "    -   If your chosen capability is from the `--- Available Prompts ---` list, you **MUST** use the key `\"prompt_name\"`.\n"
+        "    -   If your chosen capability is from the `--- Available Tools ---` list, you **MUST** use the key `\"tool_name\"`.\n\n"
+        "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
+        "**Example for a Prompt:**\n"
+        "```json\n"
+        "{{\n"
+        "  \"prompt_name\": \"base_tableBusinessDesc\",\n"
+        "  \"arguments\": {{\"db_name\": \"some_db\", \"table_name\": \"some_table\"}}\n"
+        "}}\n"
+        "```\n\n"
+        "**Example for a Tool:**\n"
+        "```json\n"
+        "{{\n"
+        "  \"tool_name\": \"base_tableList\",\n"
+        "  \"arguments\": {{\"db_name\": \"some_db\"}}\n"
+        "}}\n"
+        "```\n\n"
+        "--- **CRITICAL RULE: CONTEXT and PARAMETER INFERENCE** ---\n"
+        "You **MUST** remember and reuse information from previous turns.\n"
+        "**Example of CORRECT Inference:**\n"
+        "    -   USER (Turn 1): \"what is the business description for the `equipment` table in database `DEMO_Customer360_db`?\"\n"
+        "    -   ASSISTANT (Turn 1): (Executes the request)\n"
+        "    -   USER (Turn 2): \"ok now what is the quality of that table?\"\n"
+        "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about 'that table'. The previous turn mentioned the `equipment` table in the `DEMO_Customer360_db` database. I will reuse these parameters.\"\n"
+        "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `equipment`.\n\n"
+        "**Another Example of CORRECT Inference:**\n"
+        "    -   USER (Turn 1): \"what's in DEMO_Customer360_db?\"\n"
+        "    -   ASSISTANT (Turn 1): (Responds with a list of tables, including `Equipment`)\n"
+        "    -   USER (Turn 2): \"what is the quality of Equipment?\"\n"
+        "    -   YOUR CORRECT REASONING (Turn 2): \"The user is asking about the 'Equipment' table. The previous turns established the context of the `DEMO_Customer360_db` database. I must reuse this database name.\"\n"
+        "    -   YOUR CORRECT ACTION (Turn 2): `json ...` for `qlty_columnSummary` with `db_name`: `DEMO_Customer360_db` and `table_name`: `Equipment`.\n\n"
+        "--- **CRITICAL RULE: TOOL ARGUMENT ADHERENCE** ---\n"
+        "You **MUST** use the exact parameter names provided in the tool definitions. Do not invent or guess parameter names.\n\n"
+        "--- **CRITICAL RULE: SQL GENERATION** ---\n"
+        "When using the `base_readQuery` tool, if you know the database name, you **MUST** use fully qualified table names in your SQL query (e.g., `SELECT ... FROM my_database.my_table`).\n\n"
+        "--- **CRITICAL RULE: HANDLING TIME-SENSITIVE QUERIES** ---\n"
+        "If the user asks a question involving a relative date (e.g., 'today', 'yesterday', 'this week'), you do not know this information. Your first step **MUST** be to find the current date before proceeding.\n\n"
+        "**Example of CORRECT Multi-Step Plan:**\n"
+        "    -   USER: \"what is the system utilization in number of queries for today?\"\n"
+        "    -   YOUR CORRECT REASONING (Step 1): \"The user is asking about 'today'. I do not know the current date. My first step must be to get the current date from the database.\"\n"
+        "    -   YOUR CORRECT ACTION (Step 1):\n"
+        "        ```json\n"
+        "        {{\n"
+        "          \"tool_name\": \"base_readQuery\",\n"
+        "          \"arguments\": {{ \"sql\": \"SELECT CURRENT_DATE\" }}\n"
+        "        }}\n"
+        "        ```\n"
+        "    -   TOOL RESPONSE (Step 1): `{{\"results\": [{{\"Date\": \"2025-07-29\"}}]}}`\n"
+        "    -   YOUR CORRECT REASONING (Step 2): \"The database returned the current date as 2025-07-29. Now I can use this date to answer the user's original question about system utilization.\"\n"
+        "    -   YOUR CORRECT ACTION (Step 2):\n"
+        "        ```json\n"
+        "        {{\n"
+        "          \"tool_name\": \"dba_resusageSummary\",\n"
+        "          \"arguments\": {{ \"date\": \"2025-07-29\" }}\n"
+        "        }}\n"
+        "        ```\n\n"
+        "--- **CRITICAL RULE: TOOL FAILURE AND RECOVERY** ---\n"
+        "If a tool call fails with an error message, you **MUST** attempt to recover. Your recovery process is as follows:\n"
+        "1.  **Analyze the Error:** Read the error message carefully. If it indicates an invalid column, parameter, or dimension (e.g., 'Column not found'), identify the specific argument that caused the failure.\n"
+        "2.  **Consult Tool Docs:** Review the documentation for the failed tool that is provided in this system prompt.\n"
+        "3.  **Formulate a New Plan:** Your next thought process should explain the error and propose a corrected tool call. Typically, this means re-issuing the tool call *without* the single failing parameter.\n"
+        "4.  **Retry the Tool:** Execute the corrected tool call.\n"
+        "5.  **Ask for Help:** Only if the corrected tool call also fails should you give up and ask the user for clarification.\n\n"
+        "{charting_instructions}\n\n"
+        "{tools_context}\n\n"
+        "{prompts_context}\n\n"
+        "{charts_context}\n\n"
+    ),
     "OpenAI": "Placeholder prompt for OpenAI models."
 }
 
@@ -317,37 +411,87 @@ class OutputFormatter:
             return "<p>The agent completed its work but did not produce a visible output.</p>"
         return final_html
 
-async def call_llm_api(prompt: str, session_id: str = None, chat_history=None) -> str:
+async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None) -> str:
     if not llm: raise RuntimeError("LLM is not initialized.")
     
-    # Use a passed chat_history if provided (for stateless calls), otherwise use the session's chat
-    chat_session = llm.start_chat(history=chat_history) if chat_history is not None else SESSIONS[session_id]['chat']
-
     llm_logger = logging.getLogger("llm_conversation")
+    full_log_message = ""
+    response_text = ""
+
     try:
-        full_log_message = ""
-        # Log the history from the actual session being used
-        history_for_log = chat_session.history
-        if history_for_log:
-            formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_log]
-            formatted_history = "\n".join(formatted_lines)
-            full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n--- History ---\n{formatted_history}\n\n"
+        # --- Provider-Aware API Call Logic ---
+        if APP_CONFIG.CURRENT_PROVIDER == "Google":
+            is_session_call = session_id is not None and session_id in SESSIONS
+            
+            if is_session_call:
+                chat_session = SESSIONS[session_id]['chat_object']
+                history_for_log = chat_session.history
+                if history_for_log:
+                    formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_log]
+                    full_log_message += f"--- FULL CONTEXT (Session: {session_id}) ---\n--- History ---\n" + "\n".join(formatted_lines) + "\n\n"
+                
+                full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
+                llm_logger.info(full_log_message)
+                response = await chat_session.send_message_async(prompt)
+            else: # This is a session-less, one-off call (like for categorization)
+                full_log_message += f"--- ONE-OFF CALL ---\n--- Prompt ---\n{prompt}\n"
+                llm_logger.info(full_log_message)
+                response = await llm.generate_content_async(prompt)
+
+            if not response or not hasattr(response, 'text'):
+                raise RuntimeError("Google LLM returned an empty or invalid response.")
+            response_text = response.text.strip()
+
+        elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
+            if system_prompt_override:
+                system_prompt = system_prompt_override
+            elif session_id and session_id in SESSIONS:
+                system_prompt = SESSIONS[session_id]['system_prompt']
+            else:
+                # This case should not be hit for session-less calls if override is provided
+                raise ValueError("A session_id or system_prompt_override is required for Anthropic provider.")
+
+            history_source = chat_history if chat_history is not None else (SESSIONS.get(session_id, {}).get('chat_object', []))
+
+            messages = []
+            for msg in history_source:
+                role = msg.get('role')
+                if role == 'model': role = 'assistant'
+                if role in ['user', 'assistant']:
+                    content = msg.get('content')
+                    messages.append({'role': role, 'content': content})
+            
+            messages.append({'role': 'user', 'content': prompt})
+
+            full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
+            full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n--- History ---\n"
+            for msg in messages:
+                full_log_message += f"[{msg['role']}]: {msg['content']}\n"
+            full_log_message += "\n"
+            llm_logger.info(full_log_message)
+
+            response = await llm.messages.create(
+                model=APP_CONFIG.CURRENT_MODEL,
+                system=system_prompt,
+                messages=messages,
+                max_tokens=4096
+            )
+            if not response or not response.content:
+                raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
+            response_text = response.content[0].text.strip()
         
-        full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
-        llm_logger.info(full_log_message)
+        else:
+            raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not implemented in call_llm_api.")
 
-        response = await chat_session.send_message_async(prompt)
-
-        if not response or not hasattr(response, 'text'):
-            raise RuntimeError("LLM returned an empty or invalid response.")
-
-        response_text = response.text.strip()
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
         return response_text
+
     except Exception as e:
-        app.logger.error(f"Error calling LLM API: {e}", exc_info=True)
+        app.logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
         llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
-        return None
+        if raise_on_error:
+            raise e
+        return f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the language model: {str(e)}"
 
 async def validate_and_correct_parameters(command: dict) -> dict:
     """
@@ -906,11 +1050,11 @@ class PlanExecutor:
         else:
             prompt_for_next_step = (
                 "You have just received data from a tool call. Review the data and your instructions to decide the next step.\n\n"
-                "1.  **Consider a Chart:** First, review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?\n\n"
+                "1.  **Consider a Chart:** Review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?\n\n"
                 "2.  **Choose Your Action:**\n"
-                "    -   If a chart is appropriate, your next action is to call the correct chart-generation tool. Respond with only the `Thought:` and ```json...``` block for that tool.\n"
-                "    -   If a chart is **not** appropriate and you have all the information needed to answer the user's request, you should provide the final answer. Your response **MUST** start with `FINAL_ANSWER:`.\n"
-                "    -   If you still need more information from other tools, call the next appropriate tool."
+                "    -   If a chart is appropriate, your next action is to call the correct chart-generation tool. Respond with only a `Thought:` and a ```json...``` block for that tool.\n"
+                "    -   If you still need more information from other tools, call the next appropriate tool by responding with a `Thought:` and a ```json...``` block.\n"
+                "    -   If a chart is **not** appropriate and you have all the information needed to answer the user's request, you **MUST** provide the final answer. Your response **MUST** be plain text that starts with `FINAL_ANSWER:`. **DO NOT** use a JSON block for the final answer."
             )
         
         if tool_result_str:
@@ -955,7 +1099,8 @@ class PlanExecutor:
         formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
         final_html = formatter.render()
 
-        SESSIONS[self.session_id]['history'].append({'role': 'assistant', 'content': final_html})
+        # Append assistant's final HTML response to the generic history list
+        SESSIONS[self.session_id]['generic_history'].append({'role': 'assistant', 'content': final_html})
         yield _format_sse({"final_answer": final_html}, "final_answer")
         self.state = AgentState.DONE
 
@@ -1005,7 +1150,8 @@ async def get_sessions():
 @app.route("/session/<session_id>", methods=["GET"])
 async def get_session_history(session_id):
     if session_id in SESSIONS:
-        return jsonify(SESSIONS[session_id]["history"])
+        # The history now contains generic dicts, safe to send for any provider
+        return jsonify(SESSIONS[session_id]["generic_history"])
     return jsonify({"error": "Session not found"}), 404
 
 def get_full_system_prompt(base_prompt_text, charting_intensity_val):
@@ -1038,24 +1184,26 @@ async def new_session():
     try:
         session_id = str(uuid.uuid4())
         
-        # --- START: CORRECTED LOGIC ---
-        # The client sends a prompt that might still contain placeholders.
-        # The server must format it with the dynamic context.
         charting_intensity = "medium" if APP_CONFIG.CHARTING_ENABLED else "none"
         final_system_prompt = get_full_system_prompt(system_prompt_from_client, charting_intensity)
-        # --- END: CORRECTED LOGIC ---
         
-        initial_history = [
-            {"role": "user", "parts": [{"text": final_system_prompt}]},
-            {"role": "model", "parts": [{"text": "Understood. I will follow all instructions."}]}
-        ]
         SESSIONS[session_id] = {
-            "chat": llm.start_chat(history=initial_history),
-            "history": [],
+            "system_prompt": final_system_prompt,
+            "generic_history": [], # This stores the UI-facing history
             "name": "New Chat",
             "created_at": datetime.now().isoformat()
         }
-        app.logger.info(f"Created new session: {session_id} with formatted prompt.")
+        
+        if APP_CONFIG.CURRENT_PROVIDER == "Google":
+            initial_history = [
+                {"role": "user", "parts": [{"text": final_system_prompt}]},
+                {"role": "model", "parts": [{"text": "Understood. I will follow all instructions."}]}
+            ]
+            SESSIONS[session_id]['chat_object'] = llm.start_chat(history=initial_history)
+        elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
+             SESSIONS[session_id]['chat_object'] = [] # For Anthropic, the chat object is just the history list
+
+        app.logger.info(f"Created new session: {session_id} for provider {APP_CONFIG.CURRENT_PROVIDER}.")
         app.logger.debug(f"Final prompt for session {session_id}:\n{final_system_prompt}")
         return jsonify({"session_id": session_id, "name": SESSIONS[session_id]["name"]})
     except Exception as e:
@@ -1077,7 +1225,7 @@ async def ask_stream():
             return
 
         try:
-            SESSIONS[session_id]['history'].append({'role': 'user', 'content': user_input})
+            SESSIONS[session_id]['generic_history'].append({'role': 'user', 'content': user_input})
             
             if SESSIONS[session_id]['name'] == 'New Chat':
                 SESSIONS[session_id]['name'] = user_input[:40] + '...' if len(user_input) > 40 else user_input
@@ -1087,6 +1235,11 @@ async def ask_stream():
             
             llm_reasoning_and_command = await call_llm_api(user_input, session_id)
             
+            # Update Anthropic history after the call
+            if APP_CONFIG.CURRENT_PROVIDER == "Anthropic" and llm_reasoning_and_command:
+                SESSIONS[session_id]['chat_object'].append({'role': 'user', 'content': user_input})
+                SESSIONS[session_id]['chat_object'].append({'role': 'assistant', 'content': llm_reasoning_and_command})
+
             executor = PlanExecutor(session_id=session_id, initial_instruction=llm_reasoning_and_command, original_user_input=user_input)
             async for event in executor.run():
                 yield event
@@ -1106,7 +1259,7 @@ async def invoke_prompt_stream():
     
     async def stream_generator():
         user_input = f"Manual execution of prompt: {prompt_name}"
-        SESSIONS[session_id]['history'].append({'role': 'user', 'content': user_input})
+        SESSIONS[session_id]['generic_history'].append({'role': 'user', 'content': user_input})
         if SESSIONS[session_id]['name'] == 'New Chat':
             SESSIONS[session_id]['name'] = user_input[:40] + '...' if len(user_input) > 40 else user_input
             yield _format_sse({"session_name_update": {"id": session_id, "name": SESSIONS[session_id]['name']}}, "session_update")
@@ -1121,7 +1274,11 @@ async def invoke_prompt_stream():
         ```
         """
         try:
-            await SESSIONS[session_id]['chat'].send_message_async(user_input)
+            # Manually add user message to history for the LLM call
+            if APP_CONFIG.CURRENT_PROVIDER == "Google":
+                 await SESSIONS[session_id]['chat_object'].send_message_async(user_input)
+            elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
+                SESSIONS[session_id]['chat_object'].append({'role': 'user', 'content': user_input})
             
             executor = PlanExecutor(session_id=session_id, initial_instruction=initial_instruction, original_user_input=user_input)
             async for event in executor.run():
@@ -1176,15 +1333,20 @@ async def load_and_categorize_teradata_resources():
             "and the values should be an array of tool names belonging to that category.\n\n"
             f"--- Tool List ---\n{tool_list_for_prompt}"
         )
-        categorized_tools_str = await call_llm_api(categorization_prompt, chat_history=[])
+        # This call must now raise an error on failure to stop the configuration process
+        categorization_system_prompt = "You are a helpful assistant that organizes lists into JSON format."
+        categorized_tools_str = await call_llm_api(
+            categorization_prompt, 
+            chat_history=[], 
+            raise_on_error=True, 
+            system_prompt_override=categorization_system_prompt
+        )
         app.logger.info(f"[DEBUG] LLM Tool Categorization Raw Response:\n{categorized_tools_str}")
-        try:
-            cleaned_str = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL).group(0)
-            categorized_tools = json.loads(cleaned_str)
-            structured_tools = {category: [{"name": name, "description": mcp_tools[name].description} for name in tool_names if name in mcp_tools] for category, tool_names in categorized_tools.items()}
-        except Exception as e:
-            app.logger.warning(f"Could not categorize tools for UI. Falling back. Error: {e}")
-            structured_tools = {"All Tools": [{"name": tool.name, "description": tool.description} for tool in loaded_tools]}
+        
+        # No more try/except here; if the above call fails, the /configure endpoint will catch it.
+        cleaned_str = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL).group(0)
+        categorized_tools = json.loads(cleaned_str)
+        structured_tools = {category: [{"name": name, "description": mcp_tools[name].description} for name in tool_names if name in mcp_tools] for category, tool_names in categorized_tools.items()}
 
         # Load and Process Prompts
         loaded_prompts = []
@@ -1216,15 +1378,18 @@ async def load_and_categorize_teradata_resources():
                 "and the values should be an array of prompt names belonging to that category.\n\n"
                 f"--- Prompt List ---\n{prompt_list_for_prompt}"
             )
-            categorized_prompts_str = await call_llm_api(categorization_prompt_for_prompts, chat_history=[])
+            # This call must also raise an error on failure
+            categorized_prompts_str = await call_llm_api(
+                categorization_prompt_for_prompts, 
+                chat_history=[], 
+                raise_on_error=True,
+                system_prompt_override=categorization_system_prompt
+            )
             app.logger.info(f"[DEBUG] LLM Prompt Categorization Raw Response:\n{categorized_prompts_str}")
-            try:
-                cleaned_str = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL).group(0)
-                categorized_prompts = json.loads(cleaned_str)
-                structured_prompts = {category: [p for p in serializable_prompts if p['name'] in prompt_names] for category, prompt_names in categorized_prompts.items()}
-            except Exception as e:
-                app.logger.warning(f"Could not categorize prompts. Falling back. Error: {e}")
-                structured_prompts = {"All Prompts": serializable_prompts}
+            
+            cleaned_str_prompts = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL).group(0)
+            categorized_prompts = json.loads(cleaned_str_prompts)
+            structured_prompts = {category: [p for p in serializable_prompts if p['name'] in prompt_names] for category, prompt_names in categorized_prompts.items()}
         else:
             prompts_context = "--- No Prompts Available ---"
             structured_prompts = {}
@@ -1258,23 +1423,25 @@ async def load_and_categorize_chart_resources():
             "Your response MUST be a single, valid JSON object where each key is a category name and its value is an object containing a 'description' and a 'tools' array of tool names.\n\n"
             f"--- Chart Tool List ---\n{chart_list_for_prompt}"
         )
-        categorized_charts_str = await call_llm_api(categorization_prompt, chat_history=[])
+        categorization_system_prompt = "You are a helpful assistant that organizes lists into JSON format."
+        categorized_charts_str = await call_llm_api(
+            categorization_prompt, 
+            chat_history=[], 
+            raise_on_error=True,
+            system_prompt_override=categorization_system_prompt
+        )
         app.logger.info(f"[DEBUG] LLM Chart Categorization Raw Response:\n{categorized_charts_str}")
-        try:
-            cleaned_str = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL).group(0)
-            categorized_charts = json.loads(cleaned_str)
-            
-            structured_charts = {}
-            for category, details in categorized_charts.items():
-                tool_names = details.get("tools", [])
-                structured_charts[category] = [
-                    {"name": name, "description": mcp_charts[name].description}
-                    for name in tool_names if name in mcp_charts
-                ]
-
-        except Exception as e:
-            app.logger.warning(f"Could not categorize charts for UI. Falling back. Error: {e}")
-            structured_charts = {"All Charts": [{"name": tool.name, "description": tool.description} for tool in loaded_charts]}
+        
+        cleaned_str = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL).group(0)
+        categorized_charts = json.loads(cleaned_str)
+        
+        structured_charts = {}
+        for category, details in categorized_charts.items():
+            tool_names = details.get("tools", [])
+            structured_charts[category] = [
+                {"name": name, "description": mcp_charts[name].description}
+                for name in tool_names if name in mcp_charts
+            ]
 
 @app.route("/system_prompt/<provider>/<model_name>", methods=["GET"])
 async def get_default_system_prompt(provider, model_name):
@@ -1297,6 +1464,12 @@ async def get_models():
             clean_models = [name.split('/')[-1] for name in models]
             structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name == CERTIFIED_MODEL} for name in clean_models]
             return jsonify({"status": "success", "models": structured_model_list})
+        
+        elif provider == "Anthropic":
+            # Anthropic SDK doesn't have a model list function, so we use a curated list.
+            structured_model_list = [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_ANTHROPIC_MODELS} for name in CERTIFIED_ANTHROPIC_MODELS]
+            return jsonify({"status": "success", "models": structured_model_list})
+
         else:
             return jsonify({"status": "success", "models": []})
 
@@ -1310,10 +1483,17 @@ async def configure_services():
     
     try:
         provider = data.get("provider")
+        model = data.get("model")
+        api_key = data.get("apiKey")
+
+        APP_CONFIG.CURRENT_PROVIDER = provider
+        APP_CONFIG.CURRENT_MODEL = model
+
         if provider == "Google":
-            genai.configure(api_key=data.get("apiKey"))
-            llm = genai.GenerativeModel(data.get("model"))
-            await llm.generate_content_async("test")
+            genai.configure(api_key=api_key)
+            llm = genai.GenerativeModel(model)
+        elif provider == "Anthropic":
+            llm = AsyncAnthropic(api_key=api_key)
         else:
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
 
@@ -1325,6 +1505,22 @@ async def configure_services():
         await load_and_categorize_teradata_resources()
         APP_CONFIG.TERADATA_MCP_CONNECTED = True
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
+    except APIError as e:
+        llm = None
+        mcp_client = None
+        SERVER_CONFIGS = {}
+        APP_CONFIG.TERADATA_MCP_CONNECTED = False
+        app.logger.error(f"Anthropic API Error during configuration: {e}", exc_info=True)
+        # Extract the specific message from the Anthropic error body
+        error_message = e.body.get('error', {}).get('message', 'Unknown Anthropic API error.')
+        return jsonify({"status": "error", "message": f"Connection not possible. Please check your API key. Details: {error_message}"}), 401
+    except google_exceptions.PermissionDenied as e:
+        llm = None
+        mcp_client = None
+        SERVER_CONFIGS = {}
+        APP_CONFIG.TERADATA_MCP_CONNECTED = False
+        app.logger.error(f"Google API Error during configuration: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Connection not possible. Please check your API key. Details: {e.message}"}), 401
     except Exception as e:
         llm = None
         mcp_client = None
@@ -1407,7 +1603,7 @@ if __name__ == "__main__":
 
     if args.all_models or args.unlock_models:
         APP_CONFIG.ALL_MODELS_UNLOCKED = True
-        print("\n--- DEV MODE: All Google models will be selectable. ---")
+        print("\n--- DEV MODE: All Google models will be selectable. ---\"")
     
     if args.charting:
         APP_CONFIG.CHARTING_ENABLED = True
