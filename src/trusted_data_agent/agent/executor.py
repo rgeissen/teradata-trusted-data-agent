@@ -364,9 +364,6 @@ class PlanExecutor:
         last_tool_failed = tool_result_str and '"error":' in tool_result_str.lower()
         object_does_not_exist = tool_result_str and "object does not exist" in tool_result_str.lower()
 
-        # **MODIFIED LOGIC**: This is the enhanced recovery mechanism.
-        # If a tool fails because an object doesn't exist, provide a specific,
-        # targeted prompt to guide the LLM to recover by using the conversation history.
         if last_tool_failed and object_does_not_exist and not self.active_prompt_plan:
              prompt_for_next_step = (
                 "The last tool call failed because the object (e.g., table) does not exist. This is a common error when the database name is missing.\n\n"
@@ -376,7 +373,6 @@ class PlanExecutor:
                 "3. **If you cannot find a database name in the history,** then and only then should you ask the user for clarification by responding with `FINAL_ANSWER:`."
              )
         elif self.active_prompt_plan:
-            # Logic for when executing a multi-step plan from a prompt
             app_logger.info("Applying generic plan-aware reasoning for next step.")
             last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
             prompt_for_next_step = (
@@ -391,15 +387,18 @@ class PlanExecutor:
                 "   - If the plan says the next step is to call another tool, provide the JSON for that tool call.\n"
                 "   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.\n"
             )
+        # --- MODIFIED LOGIC: Hardened Iteration Handling ---
+        # This new logic provides specific, targeted instructions to the LLM
+        # when it's inside an iterative loop, making it more resilient to failure.
         elif self.iteration_context:
-            # Logic for when iterating over a list of items (e.g., tables, columns)
             ctx = self.iteration_context
             current_item_name = ctx["items"][ctx["item_index"]]
             
             if last_tool_failed:
+                # If a tool fails, tell the LLM to acknowledge the expected error and move on.
                 prompt_for_next_step = (
-                    "The last tool call failed. This is an expected failure for tools that only work on specific data types (e.g., statistics on numeric columns).\n"
-                    f"You are still working on item: **`{current_item_name}`**.\n\n"
+                    f"You are in the middle of an iterative plan for the item: **`{current_item_name}`**. "
+                    "The last tool call failed. This is an expected failure for tools that only work on specific data types (e.g., statistics on numeric columns).\n\n"
                     "**CRITICAL INSTRUCTION:** Your task is to continue the plan. Acknowledge the minor error and proceed.\n"
                     "1. Look at the **ORIGINAL PLAN**.\n"
                     "2. Execute the **very next step** in the sequence for the **current item** (`{current_item_name}`).\n"
@@ -407,6 +406,7 @@ class PlanExecutor:
                     f"\n\n--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
                 )
             else:
+                # Logic for successful steps within an iteration
                 last_tool_table = self.current_command.get("arguments", {}).get("table_name", "")
                 
                 if last_tool_table and last_tool_table != current_item_name:
@@ -450,6 +450,7 @@ class PlanExecutor:
                         "1. Look at the **ORIGINAL PLAN** to see what the next step in the sequence is for the current item (`{current_item_name}`).\n"
                         "2. Execute the correct next step. Provide a tool call in a `json` block or perform the required text generation."
                     )
+        # --- END MODIFIED LOGIC ---
         else:
             # Default prompt for deciding the next action after a successful tool call
             prompt_for_next_step = (
