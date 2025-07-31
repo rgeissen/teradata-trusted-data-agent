@@ -59,10 +59,9 @@ CERTIFIED_ANTHROPIC_MODELS = [
     "claude-3-5-sonnet-20240620"
 ]
 CERTIFIED_AMAZON_MODELS = [
-    "amazon.nova-lite-v1:0",
+    "amazon.nova-pro-v1:0",
 ]
-CERTIFIED_AMAZON_PROFILES = ["amazon.titan-text-express-v1"]
-
+CERTIFIED_AMAZON_PROFILES = ["arn:aws:bedrock:eu-central-1:960887920495:inference-profile/eu.amazon.nova-pro-v1:0"]
 
 # --- System Prompt Templates ---
 PROVIDER_SYSTEM_PROMPTS = {
