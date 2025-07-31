@@ -570,9 +570,9 @@
                         </form>
                     </div>
                     <div class="pt-2">
-                        <button form="config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
+                        <button id="config-action-button" form="config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
                             <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            <span>Connect & Load</span>
+                            <span id="config-action-button-text">Connect & Load</span>
                         </button>
                     </div>
                 </div>
@@ -612,9 +612,9 @@
                             </form>
                         </div>
                         <div class="pt-2">
-                            <button form="chart-config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
+                            <button id="chart-config-action-button" form="chart-config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
                                 <svg id="chart-config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                <span>Connect & Load</span>
+                                <span id="chart-config-action-button-text">Connect & Load</span>
                             </button>
                         </div>
                     </fieldset>
@@ -736,6 +736,9 @@
         const configForm = document.getElementById('config-form');
         const configStatus = document.getElementById('config-status');
         const configLoadingSpinner = document.getElementById('config-loading-spinner');
+        const configActionButton = document.getElementById('config-action-button');
+        const configActionButtonText = document.getElementById('config-action-button-text');
+        
         const refreshModelsButton = document.getElementById('refresh-models-button');
         const refreshIcon = document.getElementById('refresh-icon');
         const refreshSpinner = document.getElementById('refresh-spinner');
@@ -751,6 +754,8 @@
         
         const chartConfigForm = document.getElementById('chart-config-form');
         const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
+        const chartActionButton = document.getElementById('chart-config-action-button');
+        const chartActionButtonText = document.getElementById('chart-config-action-button-text');
         const chartingIntensitySelect = document.getElementById('charting-intensity');
         const chartingEngineCard = document.getElementById('charting-engine-card');
         const chartingFieldset = document.getElementById('charting-fieldset');
@@ -793,6 +798,8 @@
         let systemPromptPopupTimer = null;
         let countdownValue = 5;
         let mouseMoveHandler = null;
+        let pristineConfig = {};
+        let pristineChartConfig = {};
         
         // --- System Prompt Management ---
         function getSystemPrompts() {
@@ -1455,10 +1462,72 @@
             configModalContent.classList.add('scale-95', 'opacity-0');
             setTimeout(() => configModalOverlay.classList.add('hidden'), 300);
         }
+        
+        function getCurrentConfig() {
+            const formData = new FormData(configForm);
+            const chartFormData = new FormData(chartConfigForm);
+            const config = Object.fromEntries(formData.entries());
+            const chartConfig = Object.fromEntries(chartFormData.entries());
+            return {...config, ...chartConfig};
+        }
+
+        function updateConfigButtonState() {
+            const isConnected = teradataStatusDot.classList.contains('connected');
+            const currentConfig = getCurrentConfig();
+            const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineConfig);
+            
+            if (!isConnected || hasChanged) {
+                configActionButtonText.textContent = 'Connect & Load';
+                configActionButton.type = 'submit';
+                configActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500');
+                configActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                configActionButton.onclick = null;
+            } else {
+                configActionButtonText.textContent = 'Close';
+                configActionButton.type = 'button';
+                configActionButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                configActionButton.classList.add('bg-gray-600', 'hover:bg-gray-500');
+                configActionButton.onclick = closeConfigModal;
+            }
+        }
+        
+        function updateChartConfigButtonState() {
+            const currentConfig = Object.fromEntries(new FormData(chartConfigForm).entries());
+            const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineChartConfig);
+
+            if (hasChanged) {
+                chartActionButtonText.textContent = 'Connect & Load';
+                chartActionButton.type = 'submit';
+                chartActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500');
+                chartActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            } else {
+                chartActionButtonText.textContent = 'Close';
+                chartActionButton.type = 'button';
+                chartActionButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                chartActionButton.classList.add('bg-gray-600', 'hover:bg-gray-500');
+                chartActionButton.onclick = closeConfigModal;
+            }
+        }
 
         configMenuButton.addEventListener('click', () => {
             configModalOverlay.classList.remove('hidden', 'opacity-0');
             configModalContent.classList.remove('scale-95', 'opacity-0');
+            
+            pristineConfig = getCurrentConfig();
+            pristineChartConfig = Object.fromEntries(new FormData(chartConfigForm).entries());
+            
+            updateConfigButtonState();
+            updateChartConfigButtonState();
+        });
+        
+        configModalClose.addEventListener('click', () => {
+            const currentConfig = getCurrentConfig();
+            const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineConfig);
+            if (hasChanged) {
+                showConfirmation('Discard Changes?', 'You have unsaved changes in your configuration. Are you sure you want to close?', closeConfigModal);
+            } else {
+                closeConfigModal();
+            }
         });
         
         function startPopupCountdown() {
@@ -1578,7 +1647,7 @@
                     teradataStatusDot.classList.remove('disconnected');
                     teradataStatusDot.classList.add('connected');
                     
-                    localStorage.setItem('lastSelectedProvider', config.provider); // <-- ADDED THIS LINE
+                    localStorage.setItem('lastSelectedProvider', config.provider);
                     
                     currentProvider = config.provider;
                     currentModel = config.model;
@@ -1618,6 +1687,8 @@
                 teradataStatusDot.classList.remove('connected');
             } finally {
                 configLoadingSpinner.classList.add('hidden');
+                pristineConfig = getCurrentConfig();
+                updateConfigButtonState();
             }
         });
         
@@ -1663,6 +1734,8 @@
                 chartStatusDot.classList.remove('connected');
             } finally {
                 chartConfigLoadingSpinner.classList.add('hidden');
+                pristineChartConfig = Object.fromEntries(new FormData(chartConfigForm).entries());
+                updateChartConfigButtonState();
             }
         });
 
@@ -1953,7 +2026,16 @@
             if (llmApiKeyInput.value || awsAccessKeyIdInput.value) {
                 await fetchModels();
             }
+            
+            const configInputs = [...configForm.elements, ...chartConfigForm.elements];
+            configInputs.forEach(input => {
+                input.addEventListener('input', () => {
+                    updateConfigButtonState();
+                    updateChartConfigButtonState();
+                });
+            });
         });
     </script>
 </body>
 </html>
+" in the canvas. I've noticed you've changed the behavior of the config modal. Could you explain the new logic to 
