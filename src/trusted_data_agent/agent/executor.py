@@ -297,15 +297,18 @@ class PlanExecutor:
             current_item_name = ctx["items"][ctx["item_index"]]
             last_tool_failed = tool_result_str and '"error":' in tool_result_str.lower()
             
+            # --- START: IMPROVED ERROR HANDLING PROMPT ---
             if last_tool_failed:
                 prompt_for_next_step = (
-                    "The last tool call failed. Analyze the error message in the history.\n"
-                    f"You are still working on item: **`{current_item_name}`**.\n"
-                    "Based on the error, is the tool incompatible with the parameters (e.g., wrong data type)?\n"
-                    "- If it is an incompatibility issue, acknowledge the error and **skip this step**. Determine the next logical step in the **ORIGINAL PLAN** for the current item.\n"
-                    "- If it is a different kind of error, try to correct it. If you cannot, ask for help.\n"
-                    f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
+                    "The last tool call failed. This is an expected failure for tools that only work on specific data types (e.g., statistics on numeric columns).\n"
+                    f"You are still working on item: **`{current_item_name}`**.\n\n"
+                    "**CRITICAL INSTRUCTION:** Your task is to continue the plan. Acknowledge the minor error and proceed.\n"
+                    "1. Look at the **ORIGINAL PLAN**.\n"
+                    "2. Execute the **very next step** in the sequence for the **current item** (`{current_item_name}`).\n"
+                    "3. **DO NOT** restart the plan. **DO NOT** skip to the next item."
+                    f"\n\n--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
                 )
+            # --- END: IMPROVED ERROR HANDLING PROMPT ---
             else:
                 last_tool_table = self.current_command.get("arguments", {}).get("table_name", "")
                 
