@@ -8,6 +8,34 @@ from trusted_data_agent.llm import handler as llm_handler
 
 app_logger = logging.getLogger("quart.app")
 
+def _patch_legacy_tool_definitions(tools: list):
+    """
+    Patches the definitions of legacy tools in-place.
+
+    This function is a temporary shim to address inconsistencies in the tool
+    definitions provided by the MCP server. It adds the 'db_name' argument
+    to older 'qlty_' tools that do not explicitly define it, ensuring that
+    the LLM is aware of this parameter.
+
+    Once the MCP tool definitions are permanently corrected on the server,
+    this function can be safely removed.
+    """
+    LEGACY_QUALITY_TOOLS = [
+        "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
+        "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
+        "qlty_rowsWithMissingValues"
+    ]
+
+    for tool in tools:
+        if tool.name in LEGACY_QUALITY_TOOLS:
+            if "db_name" not in tool.args:
+                app_logger.info(f"PATCHING TOOL DEFINITION: Adding optional 'db_name' to '{tool.name}'.")
+                tool.args["db_name"] = {
+                    "type": "string",
+                    "description": "Optional: The name of the database where the table resides. If not provided, the default database is used.",
+                    "required": False
+                }
+
 async def load_and_categorize_teradata_resources(STATE: dict):
     """
     Loads all tools and prompts from the Teradata MCP server,
@@ -21,12 +49,25 @@ async def load_and_categorize_teradata_resources(STATE: dict):
     async with mcp_client.session("teradata_mcp_server") as temp_session:
         app_logger.info("--- Loading Teradata tools and prompts... ---")
 
-        # Load and categorize tools
+        # Load Tools from MCP
         loaded_tools = await load_mcp_tools(temp_session)
+
+        # Apply the patch for legacy tool definitions.
+        # This can be removed once the MCP definitions are updated.
+        _patch_legacy_tool_definitions(loaded_tools)
+
         STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         STATE['tool_scopes'] = classify_tool_scopes(loaded_tools)
-        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join([f"- `{tool.name}`: {tool.description}" for tool in loaded_tools])
         
+        # Build a descriptive tools_context for the LLM, including arguments.
+        tool_strings = []
+        for tool in loaded_tools:
+            arg_list = ", ".join(tool.args.keys())
+            tool_strings.append(f"- `{tool.name}({arg_list})`: {tool.description}")
+        
+        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_strings)
+        
+        # Categorize tools for the UI
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
         categorization_prompt = (
             "You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. "
@@ -118,12 +159,13 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
         db_name = args.get("db_name")
         table_name = args.get("table_name")
         if db_name and table_name and '.' not in table_name:
+            # This is the improved notification message for the user.
+            notification_message = f"Applying compatibility fix for legacy tool '{tool_name}': combining database and table name for context."
+            app_logger.info(f"SHIM APPLIED: {notification_message}")
+            command['notification'] = notification_message
+            
             args["table_name"] = f"{db_name}.{table_name}"
             del args["db_name"]
-            shim_message = f"Applied shim for '{tool_name}': Combined db_name and table_name into a fully qualified name."
-            app_logger.info(shim_message)
-            # Add a notification to the command to inform the user of the transparent action
-            command['notification'] = shim_message
     # --- END SHIM ---
 
     llm_arg_names = set(args.keys())
