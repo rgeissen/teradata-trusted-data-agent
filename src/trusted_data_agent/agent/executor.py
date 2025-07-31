@@ -114,9 +114,17 @@ class PlanExecutor:
             else:
                 command = temp_command
         
-        except json.JSONDecodeError as e:
-            app_logger.error(f"JSON parsing failed. Error: {e}. Original string was: {command_str}")
+        except (json.JSONDecodeError, KeyError) as e:
+            app_logger.error(f"JSON parsing failed or 'tool_name' key missing. Error: {e}. Original string was: {command_str}")
             raise e
+            
+        if "tool_name" in command:
+            t_name = command["tool_name"]
+            mcp_tools = self.dependencies['STATE'].get('mcp_tools', {})
+            mcp_prompts = self.dependencies['STATE'].get('mcp_prompts', {})
+            if t_name not in mcp_tools and t_name in mcp_prompts:
+                app_logger.warning(f"LLM hallucinated tool '{t_name}'. Correcting to prompt.")
+                command["prompt_name"] = command.pop("tool_name")
             
         self.current_command = command
         
@@ -195,8 +203,13 @@ class PlanExecutor:
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
         base_args = base_command.get("arguments", base_command.get("parameters", {}))
+        
         db_name = base_args.get("db_name")
         table_name = base_args.get("table_name")
+
+        if table_name and '.' in table_name and not db_name:
+            db_name, table_name = table_name.split('.', 1)
+            app_logger.info(f"Parsed db_name '{db_name}' from fully qualified table_name.")
 
         specific_column = base_args.get("col_name") or base_args.get("column_name")
         if specific_column:

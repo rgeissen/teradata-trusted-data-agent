@@ -30,7 +30,11 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             f"and the values should be an array of tool names belonging to that category.\n\n"
             f"--- Tool List ---\n{tool_list_for_prompt}"
         )
-        categorized_tools_str = await llm_handler.call_llm_api(llm_instance, categorization_prompt, raise_on_error=True)
+        categorization_system_prompt = "You are a helpful assistant that organizes lists into JSON format."
+        categorized_tools_str = await llm_handler.call_llm_api(
+            llm_instance, categorization_prompt, raise_on_error=True,
+            system_prompt_override=categorization_system_prompt
+        )
         
         match = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL)
         if match is None:
@@ -56,21 +60,16 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             prompt_list_for_prompt = "\n".join([f"- {p['name']}: {p['description']}" for p in serializable_prompts])
             
             categorization_prompt_for_prompts = (
-                "You are a JSON formatting expert. Your task is to categorize the following list of Teradata system prompts into a single JSON object."
-                "\n\n**CRITICAL RULES:**"
-                "\n1. Your entire response MUST be a single, raw JSON object."
-                "\n2. DO NOT include ```json markdown wrappers, conversational text, or any explanations."
-                "\n3. The JSON keys MUST be the category names."
-                "\n4. The JSON values MUST be an array of the prompt names."
-                "\n\n**EXAMPLE OUTPUT:**"
-                "\n{"
-                "\n  \"Testing Suite\": [\"test_dbaTools\", \"test_secTools\"],"
-                "\n  \"Database Administration\": [\"dba_tableArchive\", \"dba_databaseLineage\"]"
-                "\n}"
-                f"\n\n--- Prompt List to Categorize ---\n{prompt_list_for_prompt}"
+                "You are a helpful assistant that organizes lists of technical prompts for a **Teradata database system** into logical categories for a user interface. "
+                "Your response MUST be a single, valid JSON object. The keys should be the category names, "
+                "and the values should be an array of prompt names belonging to that category.\n\n"
+                f"--- Prompt List ---\n{prompt_list_for_prompt}"
             )
 
-            categorized_prompts_str = await llm_handler.call_llm_api(llm_instance, categorization_prompt_for_prompts, raise_on_error=True)
+            categorized_prompts_str = await llm_handler.call_llm_api(
+                llm_instance, categorization_prompt_for_prompts, raise_on_error=True,
+                system_prompt_override=categorization_system_prompt
+            )
             
             match_prompts = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL)
             if match_prompts is None:
@@ -90,11 +89,18 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
         return command
 
     args = command.get("arguments", {})
-    LEGACY_QUALITY_TOOLS = ["qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories", "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics", "qlty_rowsWithMissingValues"]
-    if tool_name in LEGACY_QUALITY_TOOLS and 'db_name' in args and 'table_name' in args and '.' not in args['table_name']:
-        args["table_name"] = f"{args['db_name']}.{args['table_name']}"
-        del args["db_name"]
-        app_logger.info(f"Applied shim for '{tool_name}': Combined db_name and table_name.")
+    LEGACY_QUALITY_TOOLS = [
+        "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
+        "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
+        "qlty_rowsWithMissingValues"
+    ]
+    if tool_name in LEGACY_QUALITY_TOOLS:
+        db_name = args.get("db_name")
+        table_name = args.get("table_name")
+        if db_name and table_name and '.' not in table_name:
+            args["table_name"] = f"{db_name}.{table_name}"
+            del args["db_name"]
+            app_logger.info(f"Applied shim for '{tool_name}': Combined db_name and table_name.")
 
     llm_arg_names = set(args.keys())
     tool_spec = mcp_tools[tool_name]
@@ -120,27 +126,46 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
     correction_response_text = await llm_handler.call_llm_api(llm_instance, prompt=correction_prompt, chat_history=[])
     
     try:
-        json_match = re.search(r'\{.*\}', correction_response_text, re.DOTALL)
-        if not json_match: raise ValueError("LLM did not return valid JSON for mapping.")
+        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", correction_response_text, re.DOTALL)
+        if not json_match:
+            json_match = re.search(r'\{.*\}', correction_response_text, re.DOTALL)
         
+        if not json_match:
+             raise ValueError("LLM did not return a valid JSON object for parameter mapping.")
+
         name_mapping = json.loads(json_match.group(0).strip())
-        if any(v is None for v in name_mapping.values()): raise ValueError("LLM could not map all parameters.")
+
+        if any(v is None for v in name_mapping.values()):
+            raise ValueError("LLM could not confidently map all parameters.")
+
+        corrected_args = {}
+        for llm_name, spec_name in name_mapping.items():
+            if llm_name in args and spec_name in spec_arg_names:
+                corrected_args[spec_name] = args[llm_name]
         
-        corrected_args = {spec_name: args[llm_name] for llm_name, spec_name in name_mapping.items() if llm_name in args and spec_name in spec_arg_names}
-        
-        if not required_params.issubset(set(corrected_args.keys())): raise ValueError("Corrected parameters still missing required args.")
+        if not required_params.issubset(set(corrected_args.keys())):
+             raise ValueError(f"Corrected parameters are still missing required arguments. Missing: {required_params - set(corrected_args.keys())}")
 
         app_logger.info(f"Successfully corrected parameters for tool '{tool_name}'. New args: {corrected_args}")
         command['arguments'] = corrected_args
         return command
+
     except (ValueError, json.JSONDecodeError, AttributeError) as e:
-        app_logger.warning(f"Parameter correction failed for '{tool_name}': {e}.")
+        app_logger.warning(f"Parameter correction failed for '{tool_name}': {e}. Requesting user input.")
         spec_arguments = list(tool_spec.args.values())
-        return { "error": "parameter_mismatch", "tool_name": tool_name, "message": "The agent could not determine the correct parameters.", "specification": {"name": tool_name, "description": tool_spec.description, "arguments": spec_arguments} }
+        return {
+            "error": "parameter_mismatch",
+            "tool_name": tool_name,
+            "message": "The agent could not determine the correct parameters for the tool. Please provide them below.",
+            "specification": {
+                "name": tool_name,
+                "description": tool_spec.description,
+                "arguments": spec_arguments
+            }
+        }
 
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_client = STATE.get('mcp_client')
-    mcp_tools = STATE.get('mcp_tools', {})
     mcp_charts = STATE.get('mcp_charts', {})
 
     if command.get("tool_name") not in mcp_charts:
@@ -205,7 +230,11 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
         if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
             text_content = call_tool_result.content[0]
             if hasattr(text_content, 'text') and isinstance(text_content.text, str):
-                return json.loads(text_content.text)
+                try:
+                    return json.loads(text_content.text)
+                except json.JSONDecodeError:
+                    app_logger.warning(f"Tool '{tool_name}' returned a non-JSON string: '{text_content.text}'")
+                    return {"error": "Tool returned non-JSON string", "data": text_content.text}
         
         raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
     except Exception as e:
