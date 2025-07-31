@@ -9,6 +9,10 @@ from trusted_data_agent.llm import handler as llm_handler
 app_logger = logging.getLogger("quart.app")
 
 async def load_and_categorize_teradata_resources(STATE: dict):
+    """
+    Loads all tools and prompts from the Teradata MCP server,
+    categorizes them using an LLM, and stores them in the application state.
+    """
     mcp_client = STATE.get('mcp_client')
     llm_instance = STATE.get('llm')
     if not mcp_client or not llm_instance:
@@ -17,7 +21,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
     async with mcp_client.session("teradata_mcp_server") as temp_session:
         app_logger.info("--- Loading Teradata tools and prompts... ---")
 
-        # Load Tools
+        # Load and categorize tools
         loaded_tools = await load_mcp_tools(temp_session)
         STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         STATE['tool_scopes'] = classify_tool_scopes(loaded_tools)
@@ -43,7 +47,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         categorized_tools = json.loads(cleaned_str)
         STATE['structured_tools'] = {category: [{"name": name, "description": STATE['mcp_tools'][name].description} for name in tool_names if name in STATE['mcp_tools']] for category, tool_names in categorized_tools.items()}
 
-        # Load and Process Prompts
+        # Load and categorize prompts
         loaded_prompts = []
         try:
             list_prompts_result = await temp_session.list_prompts()
@@ -90,6 +94,10 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             STATE['structured_prompts'] = {}
 
 async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
+    """
+    Validates tool parameters, applies shims for legacy tools, and attempts
+    to correct mismatches using an LLM before finally asking the user for input.
+    """
     mcp_tools = STATE.get('mcp_tools', {})
     llm_instance = STATE.get('llm')
     tool_name = command.get("tool_name")
@@ -98,7 +106,9 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
 
     args = command.get("arguments", {})
     
-    # --- START: MODIFIED SHIM LOGIC ---
+    # --- SHIM FOR LEGACY QUALITY TOOLS ---
+    # This logic intercepts calls to older 'qlty_' tools and reformats the
+    # arguments to what the tool expects (a single fully qualified table name).
     LEGACY_QUALITY_TOOLS = [
         "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
         "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
@@ -112,18 +122,20 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
             del args["db_name"]
             shim_message = f"Applied shim for '{tool_name}': Combined db_name and table_name into a fully qualified name."
             app_logger.info(shim_message)
-            # Add the notification to the command itself
+            # Add a notification to the command to inform the user of the transparent action
             command['notification'] = shim_message
-    # --- END: MODIFIED SHIM LOGIC ---
+    # --- END SHIM ---
 
     llm_arg_names = set(args.keys())
     tool_spec = mcp_tools[tool_name]
     spec_arg_names = set(tool_spec.args.keys())
     required_params = {name for name, field in tool_spec.args.items() if field.get("required", False)}
 
+    # If all required parameters are present, proceed.
     if required_params.issubset(llm_arg_names):
         return command
 
+    # If parameters are missing, attempt correction with an LLM.
     app_logger.info(f"Parameter mismatch for tool '{tool_name}'. Attempting correction with LLM.")
     correction_prompt = f"""
         You are a parameter-mapping specialist. Your task is to map the 'LLM-Generated Parameters' to the 'Official Tool Parameters'.
@@ -165,6 +177,7 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
         return command
 
     except (ValueError, json.JSONDecodeError, AttributeError) as e:
+        # If correction fails, ask the user for the parameters directly.
         app_logger.warning(f"Parameter correction failed for '{tool_name}': {e}. Requesting user input.")
         spec_arguments = list(tool_spec.args.values())
         return {
@@ -179,6 +192,10 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
         }
 
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
+    """
+    Invokes a tool, either by calling the MCP client or by handling it
+    locally (e.g., for chart generation). It validates and corrects parameters first.
+    """
     mcp_client = STATE.get('mcp_client')
     mcp_charts = STATE.get('mcp_charts', {})
 
@@ -190,11 +207,13 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     else:
         validated_command = command
 
-    if not mcp_client: return {"error": "MCP client is not connected."}
+    if not mcp_client:
+        return {"error": "MCP client is not connected."}
 
     tool_name = validated_command.get("tool_name")
     args = validated_command.get("arguments", validated_command.get("parameters", {}))
 
+    # Handle chart generation locally
     if tool_name in mcp_charts:
         app_logger.info(f"Locally handling chart generation for tool: {tool_name}")
         try:
@@ -206,12 +225,14 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             angle_field = args.get("angle_field")
             color_field = args.get("color_field")
 
+            # Infer axes if not provided
             if not x_field or not y_field:
                 if data:
                     first_row = data[0]
                     x_field = next((k for k, v in first_row.items() if isinstance(v, str)), None)
                     y_field = next((k for k, v in first_row.items() if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace('.', '', 1).isdigit())), None)
 
+            # Ensure numeric data for y-axis
             if y_field and data:
                 for row in data:
                     try:
@@ -237,11 +258,13 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error during local chart generation: {e}", exc_info=True)
             return {"error": f"Failed to generate chart spec locally: {e}"}
 
+    # Invoke tool via MCP client
     try:
         app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
         async with mcp_client.session("teradata_mcp_server") as temp_session:
             call_tool_result = await temp_session.call_tool(tool_name, args)
         
+        # Parse the tool's response
         if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
             text_content = call_tool_result.content[0]
             if hasattr(text_content, 'text') and isinstance(text_content.text, str):
@@ -257,10 +280,17 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
         return {"error": f"An exception occurred while invoking tool '{tool_name}'."}
 
 def classify_tool_scopes(tools: list) -> dict:
+    """
+    Classifies tools based on their argument names to determine if they
+    operate at a database, table, or column level.
+    """
     scopes = {}
     for tool in tools:
         arg_names = set(tool.args.keys())
-        if 'col_name' in arg_names or 'column_name' in arg_names: scopes[tool.name] = 'column'
-        elif 'table_name' in arg_names or 'obj_name' in arg_names: scopes[tool.name] = 'table'
-        else: scopes[tool.name] = 'database'
+        if 'col_name' in arg_names or 'column_name' in arg_names:
+            scopes[tool.name] = 'column'
+        elif 'table_name' in arg_names or 'obj_name' in arg_names:
+            scopes[tool.name] = 'table'
+        else:
+            scopes[tool.name] = 'database'
     return scopes
