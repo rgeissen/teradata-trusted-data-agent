@@ -1460,7 +1460,6 @@
             configModalOverlay.classList.remove('hidden', 'opacity-0');
             configModalContent.classList.remove('scale-95', 'opacity-0');
         });
-        configModalClose.addEventListener('click', closeConfigModal);
         
         function startPopupCountdown() {
             if (systemPromptPopupTimer) {
@@ -1578,6 +1577,8 @@
                     configStatus.className = 'text-sm text-green-400 text-center';
                     teradataStatusDot.classList.remove('disconnected');
                     teradataStatusDot.classList.add('connected');
+                    
+                    localStorage.setItem('lastSelectedProvider', config.provider); // <-- ADDED THIS LINE
                     
                     currentProvider = config.provider;
                     currentModel = config.model;
@@ -1929,15 +1930,13 @@
                 document.getElementById('chart-mcp-path').value = '/sse';
             }
             
-            // Load the API key for the default provider on startup
-            const defaultProvider = llmProviderSelect.value;
-            const res = await fetch(`/api_key/${defaultProvider.toLowerCase()}`);
-            const data = await res.json();
-            if (data.apiKey) {
-                llmApiKeyInput.value = data.apiKey;
-            } else {
-                llmApiKeyInput.value = localStorage.getItem(`${defaultProvider.toLowerCase()}ApiKey`) || '';
+            // Restore last selected provider and trigger key loading
+            const lastProvider = localStorage.getItem('lastSelectedProvider');
+            if (lastProvider) {
+                llmProviderSelect.value = lastProvider;
             }
+            // Programmatically trigger the change event to load the correct UI and keys
+            llmProviderSelect.dispatchEvent(new Event('change'));
 
 
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
@@ -1951,7 +1950,7 @@
             
             configMenuButton.click();
 
-            if (llmApiKeyInput.value) {
+            if (llmApiKeyInput.value || awsAccessKeyIdInput.value) {
                 await fetchModels();
             }
         });
