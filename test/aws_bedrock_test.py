@@ -189,7 +189,12 @@ def main():
     """
     Main function to orchestrate listing models, user selection, and conversation.
     """
-    models = list_bedrock_models(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)
+    # Prompt user for AWS credentials and region
+    aws_access_key_id = input("Enter your AWS Access Key ID: ")
+    aws_secret_access_key = input("Enter your AWS Secret Access Key: ")
+    aws_region = input("Enter your AWS Region (e.g., eu-central-1): ")
+
+    models = list_bedrock_models(aws_access_key_id, aws_secret_access_key, aws_region)
 
     if not models:
         print("Exiting program.")
@@ -210,7 +215,7 @@ def main():
                 # Start a simple conversation
                 prompt = "Hello"
                 response_text = invoke_bedrock_model(
-                    AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION,
+                    aws_access_key_id, aws_secret_access_key, aws_region,
                     selected_model_id, prompt
                 )
 
