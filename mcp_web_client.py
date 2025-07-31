@@ -48,6 +48,7 @@ class AppConfig:
     # New state to hold the current provider and model name
     CURRENT_PROVIDER = None
     CURRENT_MODEL = None
+    CURRENT_AWS_REGION = None # Store the current AWS region
     # Store the underlying provider for Amazon Bedrock Inference Profiles
     CURRENT_MODEL_PROVIDER_IN_PROFILE = None
 
@@ -582,20 +583,60 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
                 system_prompt = system_prompt_override or "You are a helpful assistant."
                 history = chat_history or []
 
-            # Determine the underlying model provider (set during configuration for profiles)
-            model_provider = APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE or APP_CONFIG.CURRENT_MODEL.split('.')[0]
-            
-            if model_provider == 'anthropic':
+            # --- START: ENHANCED PAYLOAD AND MODEL ID LOGIC ---
+            model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
+            # Adjust model_id for Nova models if they are foundation models (not ARNs)
+            if "amazon.nova" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
+                region = APP_CONFIG.CURRENT_AWS_REGION
+                if region.startswith("us-"):
+                    prefix = "us."
+                elif region.startswith("eu-"):
+                    prefix = "eu."
+                elif region.startswith("ap-"):
+                    prefix = "apac."
+                else:
+                    prefix = ""
+                
+                if prefix:
+                    adjusted_id = f"{prefix}{model_id_to_invoke}"
+                    app.logger.info(f"Adjusting Nova model ID from '{model_id_to_invoke}' to '{adjusted_id}' for region '{region}'.")
+                    model_id_to_invoke = adjusted_id
+
+            # Determine the payload structure based on the model ID string
+            if "anthropic" in model_id_to_invoke:
                 messages = []
                 for msg in history:
                     messages.append({'role': msg['role'], 'content': msg['content']})
                 messages.append({'role': 'user', 'content': prompt})
-
                 body = json.dumps({
                     "anthropic_version": "bedrock-2023-05-31",
                     "max_tokens": 4096,
                     "system": system_prompt,
                     "messages": messages
+                })
+            elif "amazon.nova" in model_id_to_invoke:
+                messages = []
+                # Add history messages
+                for msg in history:
+                    role = 'assistant' if msg.get('role') == 'assistant' or msg.get('role') == 'model' else 'user'
+                    messages.append({'role': role, 'content': [{'text': msg.get('content')}]})
+                # Add the current user prompt
+                messages.append({"role": "user", "content": [{"text": prompt}]})
+
+                body_dict = {
+                    "messages": messages,
+                    "inferenceConfig": { "maxTokens": 4096, "temperature": 0.7, "topP": 0.9 }
+                }
+                # Add the system prompt if it exists
+                if system_prompt:
+                    body_dict["system"] = [{"text": system_prompt}]
+                
+                body = json.dumps(body_dict)
+            elif "meta" in model_id_to_invoke:
+                 body = json.dumps({
+                    "prompt": prompt,
+                    "max_gen_len": 2048,
+                    "temperature": 0.5,
                 })
             else: # Default to Amazon Titan format
                 text_prompt = f"{system_prompt}\n\n"
@@ -604,38 +645,32 @@ async def call_llm_api(prompt: str, session_id: str = None, chat_history=None, r
                 text_prompt += f"user: {prompt}\n\nassistant:"
                 body = json.dumps({
                     "inputText": text_prompt,
-                    "textGenerationConfig": {
-                        "maxTokenCount": 4096,
-                        "temperature": 0.7,
-                        "topP": 0.9
-                    }
+                    "textGenerationConfig": { "maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9 }
                 })
             
-            model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
-            
-            # Boto3's bedrock-runtime client is synchronous, so we need to run it in an executor.
             loop = asyncio.get_running_loop()
             
-            if model_id_to_invoke.startswith("arn:aws:bedrock:"): # It's an inference profile
-                response = await loop.run_in_executor(
-                    None, 
-                    lambda: llm.invoke_model(body=body, modelId=model_id_to_invoke)
-                )
-            else: # It's a foundation model
-                response = await loop.run_in_executor(
-                    None, 
-                    lambda: llm.invoke_model(body=body, modelId=model_id_to_invoke)
-                )
+            # Boto3's bedrock-runtime client is synchronous, so we need to run it in an executor.
+            response = await loop.run_in_executor(
+                None, 
+                lambda: llm.invoke_model(body=body, modelId=model_id_to_invoke)
+            )
 
             response_body = json.loads(response.get('body').read())
 
-            if model_provider == 'anthropic':
+            # Extract the text based on model type
+            if "anthropic" in model_id_to_invoke:
                 response_text = response_body.get('content')[0].get('text')
+            elif "amazon.nova" in model_id_to_invoke:
+                response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
+            elif "meta" in model_id_to_invoke:
+                response_text = response_body.get('generation')
             else: # Titan
                 response_text = response_body.get('results')[0].get('outputText')
+            # --- END: ENHANCED PAYLOAD AND MODEL ID LOGIC ---
 
         else:
-            raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not implemented in call_llm_api.")
+            raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
 
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
         return response_text
@@ -1695,11 +1730,13 @@ async def configure_services():
         elif provider == "Anthropic":
             llm = AsyncAnthropic(api_key=data.get("apiKey"))
         elif provider == "Amazon":
+            aws_region = data.get("aws_region")
+            APP_CONFIG.CURRENT_AWS_REGION = aws_region # Store region
             llm = boto3.client(
                 service_name='bedrock-runtime',
                 aws_access_key_id=data.get("aws_access_key_id"),
                 aws_secret_access_key=data.get("aws_secret_access_key"),
-                region_name=data.get("aws_region")
+                region_name=aws_region
             )
             if model.startswith("arn:aws:bedrock:"):
                 # Parse the provider from the ARN instead of making a separate API call

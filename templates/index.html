@@ -811,9 +811,23 @@
                 return {};
             }
         }
+        
+        function getNormalizedModelId(modelId) {
+            if (!modelId) return '';
+            // If it's an ARN, extract the underlying model name
+            if (modelId.startsWith('arn:aws:bedrock:')) {
+                const parts = modelId.split('/');
+                const modelPart = parts[parts.length - 1];
+                // Remove regional prefixes like 'eu.' or 'us.' to get the base model
+                return modelPart.replace(/^(eu|us|apac)\./, '');
+            }
+            // Otherwise, it's a foundation model ID, return as is
+            return modelId;
+        }
 
         function getPromptStorageKey(provider, model) {
-            return `${provider}-${model}`;
+            const normalizedModel = getNormalizedModelId(model);
+            return `${provider}-${normalizedModel}`;
         }
 
         function saveSystemPromptForModel(provider, model, promptText, isCustom) {
@@ -964,7 +978,7 @@
                 promptNameDiv.innerHTML = `
                     <span class="font-semibold text-gray-300">${promptType} Prompt</span>
                     <span class="text-gray-500">/</span>
-                    <span class="font-mono text-teradata-orange text-xs">${currentModel}</span>
+                    <span class="font-mono text-teradata-orange text-xs">${getNormalizedModelId(currentModel)}</span>
                 `;
             } else {
                 promptNameDiv.innerHTML = '<span>No Model/Prompt Loaded</span>';
@@ -1473,10 +1487,19 @@
 
         function updateConfigButtonState() {
             const isConnected = teradataStatusDot.classList.contains('connected');
+            if (!isConnected) {
+                configActionButtonText.textContent = 'Connect & Load';
+                configActionButton.type = 'submit';
+                configActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500');
+                configActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                configActionButton.onclick = null;
+                return;
+            }
+
             const currentConfig = getCurrentConfig();
             const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineConfig);
             
-            if (!isConnected || hasChanged) {
+            if (hasChanged) {
                 configActionButtonText.textContent = 'Connect & Load';
                 configActionButton.type = 'submit';
                 configActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500');
@@ -1809,10 +1832,10 @@
 
             const activePrompt = getSystemPromptForModel(currentProvider, currentModel);
             if (!activePrompt) {
-                configStatus.textContent = `Fetching default prompt for ${currentModel}...`;
+                configStatus.textContent = `Fetching default prompt for ${getNormalizedModelId(currentModel)}...`;
                 configStatus.className = 'text-sm text-gray-400 text-center';
                 await resetSystemPrompt(true); 
-                configStatus.textContent = `Default prompt for ${currentModel} loaded.`;
+                configStatus.textContent = `Default prompt for ${getNormalizedModelId(currentModel)} loaded.`;
                 setTimeout(() => { configStatus.textContent = ''; }, 2000);
             }
         }
@@ -1869,7 +1892,7 @@
         refreshModelsButton.addEventListener('click', fetchModels);
 
         function openPromptEditor() {
-            promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentProvider} / ${currentModel}</code>`;
+            promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentProvider} / ${getNormalizedModelId(currentModel)}</code>`;
             promptEditorTextarea.value = getSystemPromptForModel(currentProvider, currentModel);
             promptEditorOverlay.classList.remove('hidden', 'opacity-0');
             promptEditorContent.classList.remove('scale-95', 'opacity-0');
@@ -1893,7 +1916,7 @@
         async function resetSystemPrompt(force = false) {
             try {
                 const chartingIntensity = chartingIntensitySelect.value;
-                const res = await fetch(`/system_prompt/${currentProvider}/${currentModel}?charting_intensity=${chartingIntensity}`);
+                const res = await fetch(`/system_prompt/${currentProvider}/${getNormalizedModelId(currentModel)}?charting_intensity=${chartingIntensity}`);
                 const data = await res.json();
                 if (data.system_prompt) {
                     saveSystemPromptForModel(currentProvider, currentModel, data.system_prompt, false);
@@ -2038,4 +2061,3 @@
     </script>
 </body>
 </html>
-" in the canvas. I've noticed you've changed the behavior of the config modal. Could you explain the new logic to 

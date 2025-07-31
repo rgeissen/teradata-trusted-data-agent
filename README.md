@@ -19,7 +19,7 @@ This solution provides unparalleled, real-time insight into the complete convers
   - [Prerequisites](#prerequisites)
   - [Step 1: Clone the Repository](#step-1-clone-the-repository)
   - [Step 2: Set Up Dependencies](#step-2-set-up-dependencies)
-  - [Step 3: Configure API Key (Optional)](#step-3-configure-api-key-optional)
+  - [Step 3: Configure API Keys (Optional)](#step-3-configure-api-keys-optional)
 - [Running the Application](#running-the-application)
   - [Standard Mode](#standard-mode)
   - [Developer Mode: Unlocking Models](#developer-mode-unlocking-models)
@@ -42,7 +42,7 @@ Its core superiority lies in its **unmatched transparency and dynamic configurab
 
 1.  **Deep Insight:** The **Live Status** panel is more than a log; it's a real-time window into the AI's mind, revealing its reasoning, tool selection, and the raw data it receives. This makes it an indispensable tool for debugging, learning, and building trust in AI systems.
 2.  **Unprecedented Flexibility:** Unlike static applications, the Trusted Data Agent allows you to dynamically configure your LLM provider, select specific models, and even edit the core **System Prompt** that dictates the agent's behavior—all from within the UI.
-3.  **Comparative LLM Analysis:** The ability to instantly switch between different LLM providers (e.g., Google and Anthropic) and their models is a critical feature for developers. It allows for direct, real-time testing of how different reasoning engines interpret the same MCP tools and prompts. This is invaluable for validating the robustness of MCP capabilities and understanding the nuances of various LLMs in an enterprise context.
+3.  **Comparative LLM Analysis:** The ability to instantly switch between different LLM providers (e.g., Google, Anthropic, and AWS Bedrock) and their models is a critical feature for developers. It allows for direct, real-time testing of how different reasoning engines interpret the same MCP tools and prompts. This is invaluable for validating the robustness of MCP capabilities and understanding the nuances of various LLMs in an enterprise context.
 
 This combination of power and transparency makes it the definitive tool for anyone serious about developing or deploying enterprise-grade AI data agents.
 
@@ -61,12 +61,15 @@ The application operates on a sophisticated client-server model, ensuring a clea
 
 1.  **Frontend (`index.html`):** A sleek, single-page application built with HTML, Tailwind CSS, and vanilla JavaScript. It captures user input and uses Server-Sent Events (SSE) to render real-time updates from the backend.
 2.  **Backend (`mcp_web_client.py`):** A high-performance asynchronous web server built with **Quart**. It serves the frontend, manages user sessions, and orchestrates the entire AI workflow.
-3.  **Large Language Model (LLM):** The reasoning engine. The backend dynamically initializes the connection to the selected LLM provider (e.g., Google, Anthropic) based on user-provided credentials and sends structured prompts to the model's API.
+3.  **Large Language Model (LLM):** The reasoning engine. The backend dynamically initializes the connection to the selected LLM provider (e.g., Google, Anthropic, AWS Bedrock) based on user-provided credentials and sends structured prompts to the model's API.
 4.  **Teradata MCP Server:** The **Model Context Protocol (MCP)** server acts as the secure, powerful bridge to the database, exposing functionalities as a well-defined API of "tools" for the AI agent.
 
 ## Key Features
 
-* **Multi-Provider LLM Configuration:** Dynamically switch between LLM providers like Google and Anthropic, configure API keys, and select from a list of available models directly within the application's UI.
+* **Multi-Provider LLM Configuration:** Dynamically switch between LLM providers like Google, Anthropic, and AWS Bedrock, configure API keys, and select from a list of available models directly within the application's UI.
+* **Support for AWS Bedrock:**
+    * **Foundation Models:** Directly access and utilize foundational models available on Bedrock.
+    * **Inference Profiles:** Connect to custom, provisioned, or third-party models via Bedrock Inference Profiles.
 * **Comparative MCP Testing:** The multi-provider support is crucial for testing and validating how different LLMs interpret and utilize the same set of MCP tools and prompts, providing essential insights into model behavior and capability robustness.
 * **Live Model Refresh:** Fetch an up-to-date list of supported models from your provider with the click of a button.
 * **System Prompt Editor:** Take full control of the agent's behavior. Edit, save, and reset the core system prompt for each model, with changes persisting across sessions.
@@ -83,9 +86,10 @@ The application operates on a sophisticated client-server model, ensuring a clea
 
 * **Python 3.8+** and `pip`.
 * Access to a running **Teradata MCP Server**.
-* An **API Key from a supported LLM provider**. The initial validated providers are **Google** and **Anthropic**.
+* An **API Key from a supported LLM provider**. The initial validated providers are **Google**, **Anthropic**, and **Amazon Web Services (AWS)**.
     * You can obtain a Gemini API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
     * You can obtain a Claude API key from the [Anthropic Console](https://console.anthropic.com/dashboard).
+    * For AWS, you will need an **AWS Access Key ID**, **Secret Access Key**, and the **Region** for your Bedrock service.
 
 ### Step 1: Clone the Repository
 
@@ -114,9 +118,9 @@ It is highly recommended to use a Python virtual environment.
     pip install -r requirements.txt
     ```
 
-### Step 3: Configure API Key (Optional)
+### Step 3: Configure API Keys (Optional)
 
-You can either enter your API key in the UI at runtime or, for convenience during development, create a `.env` file in the project root. The application will automatically load these keys.
+You can either enter your API keys in the UI at runtime or, for convenience during development, create a `.env` file in the project root. The application will automatically load these keys.
 
 ```
 # For Google Models
@@ -124,6 +128,11 @@ GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
 
 # For Anthropic Models
 ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY_HERE"
+
+# For AWS Bedrock Models
+AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
+AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
+AWS_REGION="your-bedrock-region"
 ```
 
 ## Running the Application
@@ -163,9 +172,13 @@ python mcp_web_client.py --all-models --charting
 
 The first time you launch, a configuration modal will appear.
 1.  **MCP Server:** Enter the Host, Port, and Path for your running MCP Server.
-2.  **LLM Provider:** Select your desired provider (Google and Anthropic are currently enabled).
-3.  **API Key:** Enter the corresponding API Key for the selected provider. The application will automatically load a key if it's set as an environment variable (`GEMINI_API_KEY` or `ANTHROPIC_API_KEY`).
-4.  **Model:** Click the "Refresh" button to fetch available models. The certified models will be selectable by default.
+2.  **LLM Provider:** Select your desired provider (Google, Anthropic, and Amazon are currently enabled).
+3.  **API Credentials:**
+    * For **Google/Anthropic**, enter your API Key.
+    * For **Amazon**, enter your AWS Access Key ID, Secret Access Key, and Region.
+4.  **Model:**
+    * For **Amazon**, first select your desired "Model Listing Method" (**Foundation Models** or **Inference Profiles**).
+    * Click the "Refresh" button to fetch available models. The certified models will be selectable by default.
 5.  **Connect and Load:** Click the button to validate both connections and load all available capabilities.
 6.  **Charting Engine (Optional):** If you started the application with the `--charting` flag, the configuration panel for the Charting Engine will be enabled. Enter the connection details for your Chart MCP server to activate data visualization.
 
@@ -193,6 +206,9 @@ Type your question into the input box. The agent will now follow the instruction
 * **Stale UI on Startup:** If the configuration dialog doesn't appear, check the browser's developer console for JavaScript errors. Ensure your `index.html` file is complete and up-to-date.
 * **Connection Errors:** Double-check all host, port, path, and API key information. Ensure no firewalls are blocking the connection. If you receive an API key error, verify that the key is correct and has permissions for the model you selected.
 * **"Failed to fetch models":** This usually indicates an invalid API key or a network issue preventing connection to the provider's API.
+* **AWS Bedrock Errors:**
+    * Ensure your AWS credentials have the necessary IAM permissions (`bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles`, `bedrock-runtime:InvokeModel`).
+    * Verify that the selected model is enabled for access in the AWS Bedrock console for your specified region.
 
 ## License
 
