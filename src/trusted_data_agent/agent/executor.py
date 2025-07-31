@@ -1,0 +1,390 @@
+# src/trusted_data_agent/agent/executor.py
+import re
+import json
+import logging
+from enum import Enum, auto
+
+from trusted_data_agent.agent.formatter import OutputFormatter
+from trusted_data_agent.core import session_manager
+from trusted_data_agent.mcp import adapter as mcp_adapter
+from trusted_data_agent.llm import handler as llm_handler
+
+app_logger = logging.getLogger("quart.app")
+
+class AgentState(Enum):
+    DECIDING = auto()
+    EXECUTING_TOOL = auto()
+    SUMMARIZING = auto()
+    DONE = auto()
+    ERROR = auto()
+
+def _format_sse(data: dict, event: str = None) -> str:
+    msg = f"data: {json.dumps(data)}\n"
+    if event is not None:
+        msg += f"event: {event}\n"
+    return f"{msg}\n"
+
+def _evaluate_inline_math(json_str: str) -> str:
+    math_expr_pattern = re.compile(r'\b(\d+\.?\d*)\s*([+\-*/])\s*(\d+\.?\d*)\b')
+    while True:
+        match = math_expr_pattern.search(json_str)
+        if not match: break
+        num1_str, op, num2_str = match.groups()
+        try:
+            num1, num2 = float(num1_str), float(num2_str)
+            result = 0
+            if op == '+': result = num1 + num2
+            elif op == '-': result = num1 - num2
+            elif op == '*': result = num1 * num2
+            elif op == '/': result = num1 / num2
+            json_str = json_str.replace(match.group(0), str(result), 1)
+        except (ValueError, ZeroDivisionError):
+            break
+    return json_str
+
+class PlanExecutor:
+    def __init__(self, session_id: str, initial_instruction: str, original_user_input: str, dependencies: dict):
+        self.session_id = session_id
+        self.original_user_input = original_user_input
+        self.state = AgentState.DECIDING
+        self.next_action_str = initial_instruction
+        self.collected_data = []
+        self.max_steps = 40
+        self.active_prompt_plan = None
+        self.active_prompt_name = None
+        self.current_command = None
+        self.iteration_context = None
+        self.dependencies = dependencies
+
+    async def run(self):
+        for i in range(self.max_steps):
+            if self.state in [AgentState.DONE, AgentState.ERROR]: break
+            try:
+                if self.state == AgentState.DECIDING:
+                    yield _format_sse({"step": "Assistant has decided on an action", "details": self.next_action_str}, "llm_thought")
+                    async for event in self._handle_deciding(): yield event
+                elif self.state == AgentState.EXECUTING_TOOL:
+                    tool_name = self.current_command.get("tool_name")
+                    tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
+                    if tool_scopes.get(tool_name) == 'column':
+                        async for event in self._execute_column_iteration(): yield event
+                    else:
+                        async for event in self._execute_standard_tool(): yield event
+                elif self.state == AgentState.SUMMARIZING:
+                    async for event in self._handle_summarizing(): yield event
+            except Exception as e:
+                app_logger.error(f"Error in state {self.state.name}: {e}", exc_info=True)
+                self.state = AgentState.ERROR
+                yield _format_sse({"error": "An error occurred during execution.", "details": str(e)}, "error")
+        
+        if self.state not in [AgentState.DONE, AgentState.ERROR]:
+            async for event in self._handle_summarizing(): yield event
+
+    async def _handle_deciding(self):
+        if re.search(r'FINAL_ANSWER:', self.next_action_str, re.IGNORECASE):
+            self.state = AgentState.SUMMARIZING
+            return
+
+        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", self.next_action_str, re.DOTALL)
+        if not json_match:
+            if self.iteration_context:
+                ctx = self.iteration_context
+                current_item_name = ctx["items"][ctx["item_index"]]
+                ctx["results_per_item"][current_item_name].append(self.next_action_str)
+                ctx["action_count_for_item"] += 1
+                await self._get_next_action_from_llm()
+                return
+
+            app_logger.warning(f"LLM response not a tool command or FINAL_ANSWER. Summarizing. Response: {self.next_action_str}")
+            self.state = AgentState.SUMMARIZING
+            return
+
+        command_str = json_match.group(1).strip()
+        
+        try:
+            temp_command = json.loads(command_str)
+            tool_name = temp_command.get("tool_name")
+            mcp_charts = self.dependencies['STATE'].get('mcp_charts', {})
+
+            if tool_name in mcp_charts:
+                corrected_command_str = _evaluate_inline_math(command_str)
+                command = json.loads(corrected_command_str)
+                if command_str != corrected_command_str:
+                    app_logger.info(f"Corrected inline math in chart JSON. Corrected string: {corrected_command_str}")
+            else:
+                command = temp_command
+        
+        except json.JSONDecodeError as e:
+            app_logger.error(f"JSON parsing failed. Error: {e}. Original string was: {command_str}")
+            raise e
+            
+        self.current_command = command
+        
+        if "prompt_name" in command:
+            prompt_name = command.get("prompt_name")
+            self.active_prompt_name = prompt_name
+            arguments = command.get("arguments", command.get("parameters", {}))
+            
+            if 'db_name' in arguments and 'database_name' not in arguments:
+                arguments['database_name'] = arguments.pop('db_name')
+
+            mcp_client = self.dependencies['STATE'].get('mcp_client')
+            if not mcp_client:
+                raise RuntimeError("MCP client is not connected.")
+
+            try:
+                get_prompt_result = None
+                async with mcp_client.session("teradata_mcp_server") as temp_session:
+                    get_prompt_result = await temp_session.get_prompt(name=prompt_name)
+                
+                if get_prompt_result is None:
+                    raise ValueError("Prompt retrieval from MCP server returned None.")
+
+                prompt_text = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') and hasattr(get_prompt_result.content, 'text') else str(get_prompt_result)
+                self.active_prompt_plan = prompt_text.format(**arguments)
+
+                yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
+
+                await self._get_next_action_from_llm()
+            except Exception as e:
+                app_logger.error(f"Failed to get or process prompt '{prompt_name}': {e}", exc_info=True)
+                raise RuntimeError(f"Could not retrieve the plan for prompt '{prompt_name}'.") from e
+
+        elif "tool_name" in command:
+            self.state = AgentState.EXECUTING_TOOL
+        else:
+            self.state = AgentState.SUMMARIZING
+    
+    async def _execute_standard_tool(self):
+        yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
+        tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+        
+        tool_result_str = ""
+        if isinstance(tool_result, dict) and "error" in tool_result:
+            error_details = tool_result.get("data", tool_result.get("error"))
+            tool_result_str = json.dumps({ "tool_name": self.current_command.get("tool_name"), "tool_output": { "status": "error", "error_message": error_details } })
+        else:
+            tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
+            if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
+                if self.collected_data:
+                    app_logger.info("Chart generated. Removing previous data source from collected data to avoid duplicate display.")
+                    self.collected_data.pop()
+            self.collected_data.append(tool_result)
+
+        if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
+            yield _format_sse({"details": tool_result}, "request_user_input")
+            self.state = AgentState.ERROR
+            return
+
+        yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
+
+        if self.active_prompt_plan and not self.iteration_context:
+            plan_text = self.active_prompt_plan.lower()
+            is_iterative_plan = any(keyword in plan_text for keyword in ["cycle through", "for each", "iterate"])
+            
+            if is_iterative_plan and self.current_command.get("tool_name") == "base_tableList" and isinstance(tool_result, dict) and tool_result.get("status") == "success":
+                items_to_iterate = [res.get("TableName") for res in tool_result.get("results", []) if res.get("TableName")]
+                if items_to_iterate:
+                    self.iteration_context = { "items": items_to_iterate, "item_index": 0, "action_count_for_item": 0, "results_per_item": {item: [] for item in items_to_iterate} }
+                    yield _format_sse({"step": "Starting Multi-Step Iteration", "details": f"Plan requires processing {len(items_to_iterate)} items."})
+        
+        yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
+        await self._get_next_action_from_llm(tool_result_str=tool_result_str)
+
+    async def _execute_column_iteration(self):
+        base_command = self.current_command
+        tool_name = base_command.get("tool_name")
+        base_args = base_command.get("arguments", base_command.get("parameters", {}))
+        db_name = base_args.get("db_name")
+        table_name = base_args.get("table_name")
+
+        specific_column = base_args.get("col_name") or base_args.get("column_name")
+        if specific_column:
+            yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
+            col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], base_command)
+            
+            if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
+                yield _format_sse({"details": col_result}, "request_user_input")
+                self.state = AgentState.ERROR
+                return
+
+            yield _format_sse({"step": f"Tool Execution Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
+            self.collected_data.append(col_result)
+            tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
+            yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
+            await self._get_next_action_from_llm(tool_result_str=tool_result_str)
+            return
+
+        yield _format_sse({"step": f"Column tool detected: {tool_name}", "details": "Fetching column list to begin iteration."})
+        cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
+        cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
+
+        if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
+            raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
+        
+        all_columns = cols_result.get('results', [])
+        columns_to_iterate = all_columns
+        
+        all_column_results = []
+        for column_info in columns_to_iterate:
+            col_name = column_info.get("ColumnName")
+            iter_args = base_args.copy()
+            iter_args['col_name'] = col_name
+            
+            if db_name and table_name and '.' not in table_name:
+                iter_args["table_name"] = f"{db_name}.{table_name}"
+                if 'db_name' in iter_args: del iter_args["db_name"]
+
+            iter_command = {"tool_name": tool_name, "arguments": iter_args}
+
+            yield _format_sse({"step": "Tool Execution Intent", "details": iter_command}, "tool_result")
+            col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
+            
+            if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
+                yield _format_sse({"details": col_result}, "request_user_input")
+                self.state = AgentState.ERROR
+                return
+
+            yield _format_sse({"step": f"Tool Execution Result for column: {col_name}", "details": col_result, "tool_name": tool_name}, "tool_result")
+            all_column_results.append(col_result)
+
+        if self.iteration_context:
+            ctx = self.iteration_context
+            current_item_name = ctx["items"][ctx["item_index"]]
+            ctx["results_per_item"][current_item_name].append(all_column_results)
+            ctx["action_count_for_item"] += 1
+        else:
+            self.collected_data.append(all_column_results)
+        
+        tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": all_column_results})
+
+        yield _format_sse({"step": "Thinking about the next action...", "details": "Column iteration complete. Resuming main plan."})
+        await self._get_next_action_from_llm(tool_result_str=tool_result_str)
+
+    async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
+        prompt_for_next_step = "" 
+        
+        if self.active_prompt_plan:
+            app_logger.info("Applying generic plan-aware reasoning for next step.")
+            last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
+            prompt_for_next_step = (
+                "You are executing a multi-step plan. Your goal is to follow it precisely.\n\n"
+                f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
+                "--- CURRENT STATE ---\n"
+                f"- The last action was the execution of the tool `{last_tool_name}`.\n"
+                "- The result of this tool call is now in the conversation history.\n\n"
+                "--- YOUR TASK ---\n"
+                "1. **Analyze the ORIGINAL PLAN.** Determine which phase of the plan you have just completed.\n"
+                "2. **Determine the NEXT STEP.** Based on the plan, what is the very next action you must take?\n"
+                "   - If the plan says the next step is to call another tool, provide the JSON for that tool call.\n"
+                "   - If the plan says the next step is to analyze the previous results and provide a final answer, your response **MUST** start with `FINAL_ANSWER:`. Do not call any more tools.\n"
+            )
+        elif self.iteration_context:
+            ctx = self.iteration_context
+            current_item_name = ctx["items"][ctx["item_index"]]
+            last_tool_failed = tool_result_str and '"error":' in tool_result_str.lower()
+            
+            if last_tool_failed:
+                prompt_for_next_step = (
+                    "The last tool call failed. Analyze the error message in the history.\n"
+                    f"You are still working on item: **`{current_item_name}`**.\n"
+                    "Based on the error, is the tool incompatible with the parameters (e.g., wrong data type)?\n"
+                    "- If it is an incompatibility issue, acknowledge the error and **skip this step**. Determine the next logical step in the **ORIGINAL PLAN** for the current item.\n"
+                    "- If it is a different kind of error, try to correct it. If you cannot, ask for help.\n"
+                    f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
+                )
+            else:
+                last_tool_table = self.current_command.get("arguments", {}).get("table_name", "")
+                
+                if last_tool_table and last_tool_table != current_item_name:
+                    try:
+                        new_index = ctx["items"].index(last_tool_table)
+                        ctx["item_index"] = new_index
+                        ctx["action_count_for_item"] = 1
+                        current_item_name = ctx["items"][ctx["item_index"]]
+                    except ValueError:
+                        pass 
+
+                if ctx["action_count_for_item"] >= 4:
+                    ctx["item_index"] += 1
+                    ctx["action_count_for_item"] = 0
+                    if ctx["item_index"] >= len(ctx["items"]):
+                        self.iteration_context = None
+                        prompt_for_next_step = (
+                            "You have successfully completed all steps for all items in the iterative phase of the plan. "
+                            "All results are now in the conversation history. Your next and final task is to proceed to the next major phase of the **ORIGINAL PLAN** (Phase 3). "
+                            "This final phase requires you to synthesize all the information you have gathered into a comprehensive dashboard or report. "
+                            "This is a text generation task. Do not call any more tools. "
+                            "Your response **MUST** start with `FINAL_ANSWER:`."
+                        )
+                    else:
+                         current_item_name = ctx["items"][ctx["item_index"]]
+                         prompt_for_next_step = (
+                            f"You have finished all steps for the previous item. Now, begin Phase 2 for the **next item**: `{current_item_name}`. "
+                            "According to the original plan, what is the first step for this new item?"
+                        )
+                else:
+                    prompt_for_next_step = (
+                        "You are executing a multi-step, iterative plan.\n\n"
+                        f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
+                        f"--- CURRENT FOCUS ---\n"
+                        f"- You are working on item: **`{current_item_name}`**.\n"
+                        f"- You have taken {ctx['action_count_for_item']} action(s) for this item so far.\n"
+                        "- The result of the last action is in the conversation history.\n\n"
+                        "--- YOUR NEXT TASK ---\n"
+                        "1. Look at the **ORIGINAL PLAN** to see what the next step in the sequence is for the current item (`{current_item_name}`).\n"
+                        "2. Execute the correct next step. Provide a tool call in a `json` block or perform the required text generation."
+                    )
+        else:
+            prompt_for_next_step = (
+                "You have just received data from a tool call. Review the data and your instructions to decide the next step.\n\n"
+                "1.  **Consider a Chart:** Review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?\n\n"
+                "2.  **Choose Your Action:**\n"
+                "    -   If a chart is appropriate, your next action is to call the correct chart-generation tool. Respond with only a `Thought:` and a ```json...``` block for that tool.\n"
+                "    -   If you still need more information from other tools, call the next appropriate tool by responding with a `Thought:` and a ```json...``` block.\n"
+                "    -   If a chart is **not** appropriate and you have all the information needed to answer the user's request, you **MUST** provide the final answer. Your response **MUST** be plain text that starts with `FINAL_ANSWER:`. **DO NOT** use a JSON block for the final answer."
+            )
+        
+        if tool_result_str:
+            final_prompt_to_llm = f"{prompt_for_next_step}\n\nThe last tool execution returned the following result. Use this to inform your next action:\n\n{tool_result_str}"
+        else:
+            final_prompt_to_llm = prompt_for_next_step
+
+        self.next_action_str = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
+        
+        if not self.next_action_str: raise ValueError("LLM failed to provide a response.")
+        self.state = AgentState.DECIDING
+
+    async def _handle_summarizing(self):
+        llm_response = self.next_action_str
+        summary_text = ""
+
+        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response, re.DOTALL | re.IGNORECASE)
+
+        if final_answer_match:
+            summary_text = final_answer_match.group(1).strip()
+            thought_process = llm_response.split(final_answer_match.group(0))[0]
+            yield _format_sse({"step": "Agent finished execution", "details": thought_process}, "llm_thought")
+        else:
+            yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
+            final_prompt = (
+                "You have executed a multi-step plan. All results are in the history. "
+                f"Your final task is to synthesize this information into a comprehensive, natural language answer for the user's original request: '{self.original_user_input}'. "
+                "Your response MUST start with `FINAL_ANSWER:`.\n\n"
+                "**CRITICAL INSTRUCTIONS:**\n"
+                "1. Provide a concise, user-focused summary in plain text or simple markdown.\n"
+                "2. **DO NOT** include raw data, SQL code, or complex tables in your summary. The system will format and append this data automatically.\n"
+                "3. Do not describe your internal thought process."
+            )
+            final_llm_response = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+            final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
+            if final_answer_match_inner:
+                summary_text = final_answer_match_inner.group(1).strip()
+            else:
+                summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
+
+        formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
+        final_html = formatter.render()
+        session_manager.add_to_history(self.session_id, 'assistant', final_html)
+        yield _format_sse({"final_answer": final_html}, "final_answer")
+        self.state = AgentState.DONE
