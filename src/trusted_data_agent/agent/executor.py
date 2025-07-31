@@ -167,6 +167,13 @@ class PlanExecutor:
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
         tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         
+        # --- START: ADDED NOTIFICATION CHECK ---
+        if 'notification' in self.current_command:
+            yield _format_sse({"step": "System Notification", "details": self.current_command['notification']})
+            # Clean up the command so the notification isn't processed again
+            del self.current_command['notification']
+        # --- END: ADDED NOTIFICATION CHECK ---
+
         tool_result_str = ""
         if isinstance(tool_result, dict) and "error" in tool_result:
             error_details = tool_result.get("data", tool_result.get("error"))
@@ -216,6 +223,12 @@ class PlanExecutor:
             yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], base_command)
             
+            # --- START: ADDED NOTIFICATION CHECK ---
+            if 'notification' in self.current_command:
+                yield _format_sse({"step": "System Notification", "details": self.current_command['notification']})
+                del self.current_command['notification']
+            # --- END: ADDED NOTIFICATION CHECK ---
+
             if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
                 yield _format_sse({"details": col_result}, "request_user_input")
                 self.state = AgentState.ERROR
@@ -253,6 +266,10 @@ class PlanExecutor:
             yield _format_sse({"step": "Tool Execution Intent", "details": iter_command}, "tool_result")
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
             
+            if 'notification' in iter_command:
+                yield _format_sse({"step": "System Notification", "details": iter_command['notification']})
+                del iter_command['notification']
+
             if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
                 yield _format_sse({"details": col_result}, "request_user_input")
                 self.state = AgentState.ERROR
@@ -277,7 +294,18 @@ class PlanExecutor:
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
         prompt_for_next_step = "" 
         
-        if self.active_prompt_plan:
+        last_tool_failed = tool_result_str and '"error":' in tool_result_str.lower()
+        object_does_not_exist = tool_result_str and "object does not exist" in tool_result_str.lower()
+
+        if last_tool_failed and object_does_not_exist and not self.active_prompt_plan:
+             prompt_for_next_step = (
+                "The last tool call failed because the object (e.g., table) does not exist. This is a common error when the database name is missing.\n\n"
+                "**CRITICAL RECOVERY INSTRUCTION:**\n"
+                "1. **Review the conversation history.** Look for a recently mentioned database name (e.g., `DEMO_Customer360_db`).\n"
+                "2. **If you find a database name,** your next action is to **retry the failed tool call**, but this time include the `db_name` argument with the value you found in the history.\n"
+                "3. **If you cannot find a database name in the history,** then and only then should you ask the user for clarification by responding with `FINAL_ANSWER:`."
+             )
+        elif self.active_prompt_plan:
             app_logger.info("Applying generic plan-aware reasoning for next step.")
             last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
             prompt_for_next_step = (
@@ -295,9 +323,7 @@ class PlanExecutor:
         elif self.iteration_context:
             ctx = self.iteration_context
             current_item_name = ctx["items"][ctx["item_index"]]
-            last_tool_failed = tool_result_str and '"error":' in tool_result_str.lower()
             
-            # --- START: IMPROVED ERROR HANDLING PROMPT ---
             if last_tool_failed:
                 prompt_for_next_step = (
                     "The last tool call failed. This is an expected failure for tools that only work on specific data types (e.g., statistics on numeric columns).\n"
@@ -308,7 +334,6 @@ class PlanExecutor:
                     "3. **DO NOT** restart the plan. **DO NOT** skip to the next item."
                     f"\n\n--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
                 )
-            # --- END: IMPROVED ERROR HANDLING PROMPT ---
             else:
                 last_tool_table = self.current_command.get("arguments", {}).get("table_name", "")
                 

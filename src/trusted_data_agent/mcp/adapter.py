@@ -60,10 +60,18 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             prompt_list_for_prompt = "\n".join([f"- {p['name']}: {p['description']}" for p in serializable_prompts])
             
             categorization_prompt_for_prompts = (
-                "You are a helpful assistant that organizes lists of technical prompts for a **Teradata database system** into logical categories for a user interface. "
-                "Your response MUST be a single, valid JSON object. The keys should be the category names, "
-                "and the values should be an array of prompt names belonging to that category.\n\n"
-                f"--- Prompt List ---\n{prompt_list_for_prompt}"
+                "You are a JSON formatting expert. Your task is to categorize the following list of Teradata system prompts into a single JSON object."
+                "\n\n**CRITICAL RULES:**"
+                "\n1. Your entire response MUST be a single, raw JSON object."
+                "\n2. DO NOT include ```json markdown wrappers, conversational text, or any explanations."
+                "\n3. The JSON keys MUST be the category names."
+                "\n4. The JSON values MUST be an array of the prompt names."
+                "\n\n**EXAMPLE OUTPUT:**"
+                "\n{"
+                "\n  \"Testing Suite\": [\"test_dbaTools\", \"test_secTools\"],"
+                "\n  \"Database Administration\": [\"dba_tableArchive\", \"dba_databaseLineage\"]"
+                "\n}"
+                f"\n\n--- Prompt List to Categorize ---\n{prompt_list_for_prompt}"
             )
 
             categorized_prompts_str = await llm_handler.call_llm_api(
@@ -89,6 +97,8 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
         return command
 
     args = command.get("arguments", {})
+    
+    # --- START: MODIFIED SHIM LOGIC ---
     LEGACY_QUALITY_TOOLS = [
         "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
         "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
@@ -100,7 +110,11 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
         if db_name and table_name and '.' not in table_name:
             args["table_name"] = f"{db_name}.{table_name}"
             del args["db_name"]
-            app_logger.info(f"Applied shim for '{tool_name}': Combined db_name and table_name.")
+            shim_message = f"Applied shim for '{tool_name}': Combined db_name and table_name into a fully qualified name."
+            app_logger.info(shim_message)
+            # Add the notification to the command itself
+            command['notification'] = shim_message
+    # --- END: MODIFIED SHIM LOGIC ---
 
     llm_arg_names = set(args.keys())
     tool_spec = mcp_tools[tool_name]
@@ -169,6 +183,7 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_charts = STATE.get('mcp_charts', {})
 
     if command.get("tool_name") not in mcp_charts:
+        # The command dict is modified in-place by this function if a shim is applied
         validated_command = await validate_and_correct_parameters(STATE, command)
         if "error" in validated_command:
             return validated_command

@@ -39,11 +39,9 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                     full_log_message += f"--- FULL CONTEXT (Session: {session_id}) ---\n--- History ---\n" + "\n".join(formatted_lines) + "\n\n"
                 
                 full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
-                llm_logger.info(full_log_message)
                 response = await chat_session.send_message_async(prompt)
             else:
                 full_log_message += f"--- ONE-OFF CALL ---\n--- Prompt ---\n{prompt}\n"
-                llm_logger.info(full_log_message)
                 response = await llm_instance.generate_content_async(prompt)
 
             if not response or not hasattr(response, 'text'):
@@ -55,11 +53,9 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             if not system_prompt:
                  raise ValueError("A session_id or system_prompt_override is required for Anthropic provider.")
 
-            # --- START: CORRECTED LOGIC ---
             history_source = chat_history
             if history_source is None:
                 history_source = session_data.get('chat_object', []) if session_data else []
-            # --- END: CORRECTED LOGIC ---
 
             messages = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history_source if msg.get('role') in ['user', 'model', 'assistant']]
             messages.append({'role': 'user', 'content': prompt})
@@ -67,8 +63,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
             full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
             for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
-            llm_logger.info(full_log_message)
-
+            
             response = await llm_instance.messages.create(
                 model=APP_CONFIG.CURRENT_MODEL,
                 system=system_prompt,
@@ -88,6 +83,13 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             else:
                 system_prompt = system_prompt_override or "You are a helpful assistant."
                 history = chat_history or []
+
+            # --- START: RESTORED DETAILED LOGGING FOR AMAZON ---
+            full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
+            full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
+            for msg in history: full_log_message += f"[{msg.get('role')}]: {msg.get('content')}\n"
+            full_log_message += f"[user]: {prompt}\n"
+            # --- END: RESTORED DETAILED LOGGING FOR AMAZON ---
 
             model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
             if "amazon.nova" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
@@ -127,11 +129,15 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
         else:
             raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
 
+        # This now logs the full context before the response
+        llm_logger.info(full_log_message)
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
         return response_text
 
     except Exception as e:
         app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
+        # Also log the context if an error occurs
+        llm_logger.error(full_log_message)
         llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
         if raise_on_error:
             raise e
