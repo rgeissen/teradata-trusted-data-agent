@@ -427,13 +427,15 @@ class PlanExecutor:
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
             
-            # --- ROBUST FIX ---
-            # Try a list of possible keys for the data type.
-            possible_keys = ["Datatype", "ColumnType", "Type", "DataType"]
+            # --- ROBUST FIX: Deterministic Data Type Parsing ---
+            # Try a list of possible keys for the data type and handle case-insensitivity.
+            possible_keys = ["DataType", "ColumnType", "Type", "Datatype"]
             col_type = ""
+            # Create a case-insensitive copy of the column_info keys
+            column_info_lower = {k.lower(): v for k, v in column_info.items()}
             for key in possible_keys:
-                if key in column_info:
-                    col_type = (column_info[key] or "").upper()
+                if key.lower() in column_info_lower:
+                    col_type = (column_info_lower[key.lower()] or "").upper()
                     break
             # --- END ROBUST FIX ---
 
