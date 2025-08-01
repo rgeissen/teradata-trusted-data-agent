@@ -173,6 +173,11 @@ class PlanExecutor:
             mcp_prompts = self.dependencies['STATE'].get('mcp_prompts', {})
             if t_name not in mcp_tools and t_name in mcp_prompts:
                 app_logger.warning(f"LLM hallucinated tool '{t_name}'. Correcting to prompt.")
+                yield _format_sse({
+                    "step": "System Correction",
+                    "details": f"LLM incorrectly used 'tool_name' for a prompt. Corrected '{t_name}' to be a prompt.",
+                    "type": "workaround"
+                })
                 command["prompt_name"] = command.pop("tool_name")
             
         self.current_command = command
@@ -212,6 +217,11 @@ class PlanExecutor:
                     # Heuristic to find a database name from the user's original query.
                     match = re.search(r'\b([A-Z0-9_]+_db)\b', self.original_user_input, re.IGNORECASE)
                     if match:
+                        yield _format_sse({
+                            "step": "System Correction",
+                            "details": f"LLM failed to provide database name for prompt. Attempting to recover it from user's original query.",
+                            "type": "workaround"
+                        })
                         extracted_db_name = match.group(1)
                         # Add both possible keys to the arguments to ensure compatibility.
                         arguments['db_name'] = extracted_db_name
@@ -246,7 +256,11 @@ class PlanExecutor:
         
         # Display any system notifications (e.g., from parameter shims)
         if 'notification' in self.current_command:
-            yield _format_sse({"step": "System Notification", "details": self.current_command['notification']})
+            yield _format_sse({
+                "step": "System Notification", 
+                "details": self.current_command['notification'],
+                "type": "workaround"
+            })
             del self.current_command['notification']
 
         tool_result_str = ""
@@ -309,7 +323,11 @@ class PlanExecutor:
                 "Example response for a statistical tool: {\"dataType\": \"numeric\"}"
             )
             
-            yield _format_sse({"step": f"Inferring constraints for tool: {tool_name}", "details": "Asking LLM to analyze tool requirements..."})
+            yield _format_sse({
+                "step": f"Inferring constraints for tool: {tool_name}",
+                "details": "Asking LLM to analyze tool requirements...",
+                "type": "workaround"
+            })
 
             response_text = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], 
@@ -356,7 +374,11 @@ class PlanExecutor:
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], base_command)
             
             if 'notification' in self.current_command:
-                yield _format_sse({"step": "System Notification", "details": self.current_command['notification']})
+                yield _format_sse({
+                    "step": "System Notification", 
+                    "details": self.current_command['notification'],
+                    "type": "workaround"
+                })
                 del self.current_command['notification']
 
             if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":
@@ -372,7 +394,11 @@ class PlanExecutor:
             return
 
         # Fetch all column descriptions first to get their data types.
-        yield _format_sse({"step": f"Adaptive column tool detected: {tool_name}", "details": "Fetching column metadata to determine compatibility."})
+        yield _format_sse({
+            "step": f"Adaptive column tool detected: {tool_name}", 
+            "details": "Fetching column metadata to determine compatibility.",
+            "type": "workaround"
+        })
         cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
         cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
 
@@ -423,7 +449,12 @@ class PlanExecutor:
                         "reason": skip_reason,
                         "metadata": {"tool_name": tool_name, "table_name": table_name, "col_name": col_name}
                     }
-                    yield _format_sse({"step": f"Skipping tool for column: {col_name}", "details": skip_result, "tool_name": tool_name}, "tool_result")
+                    yield _format_sse({
+                        "step": f"Skipping tool for column: {col_name}", 
+                        "details": skip_result, 
+                        "tool_name": tool_name,
+                        "type": "workaround"
+                    }, "tool_result")
                     all_column_results.append(skip_result)
                     continue
 
@@ -441,7 +472,11 @@ class PlanExecutor:
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
             
             if 'notification' in iter_command:
-                yield _format_sse({"step": "System Notification", "details": iter_command['notification']})
+                yield _format_sse({
+                    "step": "System Notification", 
+                    "details": iter_command['notification'],
+                    "type": "workaround"
+                })
                 del iter_command['notification']
 
             if isinstance(col_result, dict) and col_result.get("error") == "parameter_mismatch":

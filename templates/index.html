@@ -133,6 +133,14 @@
             border-left-color: #10b981;
             opacity: 0.7;
         }
+        .status-step.workaround {
+            border-left-color: #facc15; /* yellow-400 */
+            background-color: rgba(250, 204, 21, 0.1);
+        }
+        .status-step.error {
+            border-left-color: #f87171; /* red-400 */
+            background-color: rgba(248, 113, 113, 0.1);
+        }
 
         .response-card {
             background-color: rgba(255, 255, 255, 0.03);
@@ -992,18 +1000,23 @@
             loadingSpinner.classList.toggle('hidden', !isLoading);
         }
 
-        function updateStatusWindow(step, details, isFinal=false) {
+        function updateStatusWindow(eventData, isFinal = false) {
+            const { step, details, type } = eventData;
+
+            // Check if user is scrolled to the bottom before adding new content
+            const shouldScroll = statusWindowContent.scrollHeight - statusWindowContent.scrollTop <= statusWindowContent.clientHeight + 10;
+
             const lastStep = document.getElementById(`status-step-${currentStatusId}`);
             if (lastStep) {
                 lastStep.classList.remove('active');
                 lastStep.classList.add('completed');
             }
-            
+
             currentStatusId++;
             const stepEl = document.createElement('div');
             stepEl.id = `status-step-${currentStatusId}`;
             stepEl.className = 'status-step p-3 rounded-md';
-            
+
             const stepTitle = document.createElement('h4');
             stepTitle.className = 'font-bold text-sm text-white mb-2';
             stepTitle.textContent = step;
@@ -1020,15 +1033,25 @@
                 }
                 stepEl.appendChild(pre);
             }
-            
+
             statusWindowContent.appendChild(stepEl);
+
+            if (type === 'workaround') {
+                stepEl.classList.add('workaround');
+            } else if (type === 'error') {
+                stepEl.classList.add('error');
+            }
+
             if (!isFinal) {
                 stepEl.classList.add('active');
             } else {
                 stepEl.classList.add('completed');
             }
-            
-            statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
+
+            // Only scroll to the bottom if the user was already there
+            if (shouldScroll) {
+                statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
+            }
         }
 
         function updateStatusPromptName() {
@@ -1095,7 +1118,7 @@
                             const eventData = JSON.parse(dataLine);
 
                             if (eventName === 'request_user_input') {
-                                updateStatusWindow("Action Required", "Waiting for user to correct parameters.");
+                                updateStatusWindow({ step: "Action Required", details: "Waiting for user to correct parameters.", type: 'workaround' });
                                 toggleLoading(false); // Unlock the UI
                                 openCorrectionModal(eventData.details);
                             } else if (eventName === 'session_update') {
@@ -1105,29 +1128,28 @@
                                     sessionItem.querySelector('span').textContent = name;
                                 }
                             } else if (eventName === 'llm_thought') {
-                                updateStatusWindow("Assistant's Thought Process", eventData.details);
+                                updateStatusWindow({ step: "Assistant's Thought Process", ...eventData });
                             } else if (eventName === 'prompt_selected') {
-                                updateStatusWindow("Assistant Selected Prompt", eventData.details);
+                                updateStatusWindow(eventData);
                                 if (eventData.prompt_name) {
                                     highlightResource(eventData.prompt_name, 'prompts');
                                 }
                             } else if (eventName === 'tool_result') {
-                                // FIX: Use the dynamic 'step' value from the event data
-                                updateStatusWindow(eventData.step, eventData.details);
+                                updateStatusWindow(eventData);
                                 if (eventData.tool_name) {
                                     const toolType = eventData.tool_name.startsWith('generate_') ? 'charts' : 'tools';
                                     highlightResource(eventData.tool_name, toolType);
                                 }
                             } else if (eventName === 'final_answer') {
                                 addMessage('assistant', eventData.final_answer);
-                                updateStatusWindow("Finished", "Response sent to chat.", true);
+                                updateStatusWindow({ step: "Finished", details: "Response sent to chat." }, true);
                                 toggleLoading(false);
                             } else if (eventName === 'error') {
                                 addMessage('assistant', `Sorry, an error occurred: ${eventData.error}`);
-                                updateStatusWindow("Error", eventData.details, true);
+                                updateStatusWindow({ step: "Error", ...eventData, type: 'error' }, true);
                                 toggleLoading(false);
                             } else {
-                                updateStatusWindow(eventData.step, eventData.details);
+                                updateStatusWindow(eventData);
                             }
                         }
                     }
@@ -1135,7 +1157,7 @@
 
             } catch (error) {
                 addMessage('assistant', `Sorry, a connection error occurred: ${error.message}`);
-                updateStatusWindow("Error", error.stack, true);
+                updateStatusWindow({ step: "Error", details: error.stack, type: 'error' }, true);
                 toggleLoading(false);
             }
         }
