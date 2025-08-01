@@ -515,6 +515,8 @@
                                     <option value="Google">Google</option>
                                     <option value="Anthropic">Anthropic</option>
                                     <option value="Amazon">Amazon</option>
+                                    <!-- NEW: Added Ollama as a provider -->
+                                    <option value="Ollama">Ollama (Local)</option>
                                     <option value="OpenAI" disabled>OpenAI (coming soon)</option>
                                     <option value="Cohere" disabled>Cohere (coming soon)</option>
                                     <option value="Mistral" disabled>Mistral (coming soon)</option>
@@ -524,6 +526,12 @@
                             <div id="api-key-container">
                                 <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">LLM API Key</label>
                                 <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
+                            </div>
+
+                            <!-- NEW: Container for Ollama Host configuration -->
+                            <div id="ollama-host-container" class="hidden">
+                                <label for="ollama-host" class="block text-sm font-medium text-gray-300 mb-1">Ollama Host</label>
+                                <input type="text" id="ollama-host" name="ollama_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="e.g., http://localhost:11434">
                             </div>
 
                             <div id="aws-credentials-container" class="hidden space-y-4">
@@ -559,7 +567,7 @@
                                 <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
                                 <div class="flex items-center gap-2">
                                     <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                                        <option value="">-- Select Provider & Enter API Key --</option>
+                                        <option value="">-- Select Provider & Enter Credentials --</option>
                                     </select>
                                     <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
                                         <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
@@ -751,6 +759,9 @@
         const awsSecretAccessKeyInput = document.getElementById('aws-secret-access-key');
         const awsRegionInput = document.getElementById('aws-region');
         const awsListingMethodContainer = document.getElementById('aws-listing-method-container');
+        // --- NEW: Ollama UI element reference ---
+        const ollamaHostContainer = document.getElementById('ollama-host-container');
+        const ollamaHostInput = document.getElementById('ollama-host');
         
         const chartConfigForm = document.getElementById('chart-config-form');
         const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
@@ -1651,6 +1662,9 @@
                     aws_region: config.aws_region
                 };
                 localStorage.setItem('amazonApiKey', JSON.stringify(awsCreds));
+            // --- NEW: Save Ollama host to local storage ---
+            } else if (config.provider === 'Ollama') {
+                localStorage.setItem('ollamaHost', config.ollama_host);
             } else {
                 localStorage.setItem(`${config.provider.toLowerCase()}ApiKey`, config.apiKey);
             }
@@ -1771,12 +1785,19 @@
                 body.aws_secret_access_key = awsSecretAccessKeyInput.value;
                 body.aws_region = awsRegionInput.value;
                 body.listing_method = document.querySelector('input[name="listing_method"]:checked').value;
+            // --- NEW: Add Ollama host to the request body ---
+            } else if (provider === 'Ollama') {
+                body.host = ollamaHostInput.value;
             } else {
                 body.apiKey = llmApiKeyInput.value;
             }
 
-            if ((provider === 'Amazon' && (!body.aws_access_key_id || !body.aws_secret_access_key || !body.aws_region)) || (provider !== 'Amazon' && !body.apiKey)) {
-                 configStatus.textContent = 'API credentials are required to fetch models.';
+            if (
+                (provider === 'Amazon' && (!body.aws_access_key_id || !body.aws_secret_access_key || !body.aws_region)) ||
+                (provider === 'Ollama' && !body.host) ||
+                (!['Amazon', 'Ollama'].includes(provider) && !body.apiKey)
+            ) {
+                 configStatus.textContent = 'API credentials or host are required to fetch models.';
                 configStatus.className = 'text-sm text-yellow-400 text-center';
                 return;
             }
@@ -1840,11 +1861,17 @@
             }
         }
 
+        // --- MODIFIED: Event listener to handle UI changes for different providers ---
         llmProviderSelect.addEventListener('change', async () => {
             const newProvider = llmProviderSelect.value;
             
+            // Hide all provider-specific containers first
+            apiKeyContainer.classList.add('hidden');
+            awsCredentialsContainer.classList.add('hidden');
+            awsListingMethodContainer.classList.add('hidden');
+            ollamaHostContainer.classList.add('hidden');
+
             if (newProvider === 'Amazon') {
-                apiKeyContainer.classList.add('hidden');
                 awsCredentialsContainer.classList.remove('hidden');
                 awsListingMethodContainer.classList.remove('hidden');
                 
@@ -1856,11 +1883,13 @@
                 awsSecretAccessKeyInput.value = envCreds.aws_secret_access_key || savedCreds.aws_secret_access_key || '';
                 awsRegionInput.value = envCreds.aws_region || savedCreds.aws_region || '';
 
-            } else {
+            } else if (newProvider === 'Ollama') {
+                ollamaHostContainer.classList.remove('hidden');
+                const res = await fetch('/api_key/ollama');
+                const data = await res.json();
+                ollamaHostInput.value = data.host || localStorage.getItem('ollamaHost') || 'http://localhost:11434';
+            } else { // For Google, Anthropic, etc.
                 apiKeyContainer.classList.remove('hidden');
-                awsCredentialsContainer.classList.add('hidden');
-                awsListingMethodContainer.classList.add('hidden');
-                
                 const res = await fetch(`/api_key/${newProvider.toLowerCase()}`);
                 const data = await res.json();
                 llmApiKeyInput.value = data.apiKey || localStorage.getItem(`${newProvider.toLowerCase()}ApiKey`) || '';
@@ -1883,9 +1912,14 @@
         llmApiKeyInput.addEventListener('blur', () => {
             const provider = llmProviderSelect.value;
             const apiKey = llmApiKeyInput.value;
-            if (apiKey && provider !== 'Amazon') {
+            if (apiKey && !['Amazon', 'Ollama'].includes(provider)) {
                 localStorage.setItem(`${provider.toLowerCase()}ApiKey`, apiKey);
             }
+        });
+        
+        // --- NEW: Save Ollama host on blur ---
+        ollamaHostInput.addEventListener('blur', () => {
+            localStorage.setItem('ollamaHost', ollamaHostInput.value);
         });
 
 
@@ -2046,7 +2080,7 @@
             
             configMenuButton.click();
 
-            if (llmApiKeyInput.value || awsAccessKeyIdInput.value) {
+            if (llmApiKeyInput.value || awsAccessKeyIdInput.value || ollamaHostInput.value) {
                 await fetchModels();
             }
             

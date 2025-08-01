@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import httpx
 
 import google.generativeai as genai
 from anthropic import AsyncAnthropic
@@ -11,12 +12,44 @@ from trusted_data_agent.core.config import APP_CONFIG
 from trusted_data_agent.core.session_manager import get_session
 from trusted_data_agent.core.config import (
     CERTIFIED_GOOGLE_MODELS, CERTIFIED_ANTHROPIC_MODELS,
-    CERTIFIED_AMAZON_MODELS, CERTIFIED_AMAZON_PROFILES
+    CERTIFIED_AMAZON_MODELS, CERTIFIED_AMAZON_PROFILES,
+    CERTIFIED_OLLAMA_MODELS
 )
 from trusted_data_agent.core.utils import unwrap_exception
 
 llm_logger = logging.getLogger("llm_conversation")
 app_logger = logging.getLogger("quart.app")
+
+# --- NEW: Ollama Client ---
+class OllamaClient:
+    """A simple async client for interacting with the Ollama API."""
+    def __init__(self, host: str):
+        self.host = host
+        self.client = httpx.AsyncClient(base_url=self.host, timeout=60.0)
+
+    async def list_models(self):
+        try:
+            response = await self.client.get("/api/tags")
+            response.raise_for_status()
+            return response.json().get("models", [])
+        except httpx.RequestError as e:
+            app_logger.error(f"Ollama API request error: {e}")
+            raise RuntimeError("Could not connect to Ollama server.") from e
+
+    async def chat(self, model: str, messages: list, system_prompt: str):
+        try:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "system": system_prompt,
+                "stream": False # Ensure we get the full response at once
+            }
+            response = await self.client.post("/api/chat", json=payload)
+            response.raise_for_status()
+            return response.json()
+        except httpx.RequestError as e:
+            app_logger.error(f"Ollama API request error: {e}")
+            raise RuntimeError("Error during chat completion with Ollama.") from e
 
 async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None) -> str:
     if not llm_instance:
@@ -84,12 +117,10 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 system_prompt = system_prompt_override or "You are a helpful assistant."
                 history = chat_history or []
 
-            # --- START: RESTORED DETAILED LOGGING FOR AMAZON ---
             full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
             full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
             for msg in history: full_log_message += f"[{msg.get('role')}]: {msg.get('content')}\n"
             full_log_message += f"[user]: {prompt}\n"
-            # --- END: RESTORED DETAILED LOGGING FOR AMAZON ---
 
             model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
             if "amazon.nova" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
@@ -125,18 +156,38 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             if "anthropic" in model_id_to_invoke: response_text = response_body.get('content')[0].get('text')
             elif "amazon.nova" in model_id_to_invoke: response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
             else: response_text = response_body.get('results')[0].get('outputText')
+        
+        # --- NEW: Ollama API Call Logic ---
+        elif APP_CONFIG.CURRENT_PROVIDER == "Ollama":
+            system_prompt = system_prompt_override or (session_data['system_prompt'] if session_data else "")
+            history_source = chat_history or (session_data.get('chat_object', []) if session_data else [])
+            
+            messages = [{'role': msg.get('role'), 'content': msg.get('content')} for msg in history_source]
+            messages.append({'role': 'user', 'content': prompt})
+
+            full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
+            full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
+            for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
+
+            response = await llm_instance.chat(
+                model=APP_CONFIG.CURRENT_MODEL,
+                messages=messages,
+                system_prompt=system_prompt
+            )
+            if not response or "message" not in response or "content" not in response["message"]:
+                raise RuntimeError("Ollama LLM returned an empty or invalid response.")
+            response_text = response["message"]["content"].strip()
+        # --- END NEW LOGIC ---
 
         else:
             raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
 
-        # This now logs the full context before the response
         llm_logger.info(full_log_message)
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
         return response_text
 
     except Exception as e:
         app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
-        # Also log the context if an error occurs
         llm_logger.error(full_log_message)
         llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
         if raise_on_error:
@@ -170,4 +221,12 @@ async def list_models(provider: str, credentials: dict) -> list[dict]:
             models = [m['modelId'] for m in response['modelSummaries']]
             return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_MODELS} for name in models]
     
+    # --- NEW: Ollama Model Listing ---
+    elif provider == "Ollama":
+        client = OllamaClient(host=credentials.get("host"))
+        models_data = await client.list_models()
+        model_names = [m.get("name") for m in models_data]
+        return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_OLLAMA_MODELS} for name in model_names]
+    # --- END NEW LOGIC ---
+
     return []
