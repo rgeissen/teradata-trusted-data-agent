@@ -40,7 +40,8 @@
         #session-list::-webkit-scrollbar,
         .table-container::-webkit-scrollbar,
         #prompt-editor-textarea::-webkit-scrollbar,
-        #system-prompt-popup-text::-webkit-scrollbar {
+        #system-prompt-popup-text::-webkit-scrollbar,
+        #chat-modal-log::-webkit-scrollbar {
             width: 6px; 
         }
         #chat-container::-webkit-scrollbar-track,
@@ -49,7 +50,8 @@
         #session-list::-webkit-scrollbar-track,
         .table-container::-webkit-scrollbar-track,
         #prompt-editor-textarea::-webkit-scrollbar-track,
-        #system-prompt-popup-text::-webkit-scrollbar-track {
+        #system-prompt-popup-text::-webkit-scrollbar-track,
+        #chat-modal-log::-webkit-scrollbar-track {
             background: transparent; 
         }
         #chat-container::-webkit-scrollbar-thumb,
@@ -58,7 +60,8 @@
         #session-list::-webkit-scrollbar-thumb,
         .table-container::-webkit-scrollbar-thumb,
         #prompt-editor-textarea::-webkit-scrollbar-thumb,
-        #system-prompt-popup-text::-webkit-scrollbar-thumb {
+        #system-prompt-popup-text::-webkit-scrollbar-thumb,
+        #chat-modal-log::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.2); 
             border-radius: 3px; 
         }
@@ -107,15 +110,16 @@
         }
 
         /* Modal transitions */
-        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay, #confirm-modal-overlay, #system-prompt-popup-overlay { transition: opacity 0.3s ease-in-out; }
-        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content, #confirm-modal-content, #system-prompt-popup-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
-        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden, #confirm-modal-overlay.hidden, #system-prompt-popup-overlay.hidden { pointer-events: none; opacity: 0; }
+        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay, #confirm-modal-overlay, #system-prompt-popup-overlay, #chat-modal-overlay { transition: opacity 0.3s ease-in-out; }
+        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content, #confirm-modal-content, #system-prompt-popup-content, #chat-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden, #confirm-modal-overlay.hidden, #system-prompt-popup-overlay.hidden, #chat-modal-overlay.hidden { pointer-events: none; opacity: 0; }
         #prompt-modal-overlay.hidden #prompt-modal-content,
         #info-modal-overlay.hidden #info-modal-content,
         #config-modal-overlay.hidden #config-modal-content,
         #prompt-editor-overlay.hidden #prompt-editor-content,
         #confirm-modal-overlay.hidden #confirm-modal-content,
-        #system-prompt-popup-overlay.hidden #system-prompt-popup-content { transform: scale(0.95); opacity: 0; }
+        #system-prompt-popup-overlay.hidden #system-prompt-popup-content,
+        #chat-modal-overlay.hidden #chat-modal-content { transform: scale(0.95); opacity: 0; }
         
         .status-step {
             transition: all 0.3s ease-in-out;
@@ -304,48 +308,59 @@
 </head>
 <body class="flex h-screen flex-col">
 
+    <!-- MODIFIED: Restructured Nav Bar -->
     <nav class="w-full bg-black/30 backdrop-blur-md border-b border-white/10 px-4 py-2 flex items-center justify-between flex-shrink-0 z-40">
         <div class="flex items-center gap-x-4">
             <h1 class="header-title text-xl font-bold text-white">Trusted Data Agent</h1>
         </div>
-        <div class="flex items-center gap-x-4">
-            <div class="flex items-center gap-x-2" title="Teradata MCP Server Status">
-                <div id="teradata-status-dot" class="connection-dot disconnected"></div>
-                <span class="text-sm text-gray-300">Teradata</span>
-            </div>
-            <div class="flex items-center gap-x-2" title="Chart MCP Server Status">
-                <div id="chart-status-dot" class="connection-dot disconnected"></div>
-                <span class="text-sm text-gray-300">Chart</span>
-            </div>
-            
-            <div class="menu-item">
-                <button id="config-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Config</button>
-            </div>
-            <div class="menu-item">
-                <button id="prompt-editor-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50" disabled>System Prompt</button>
-            </div>
-            <div class="menu-item">
-                <button id="window-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Window</button>
-                <div id="window-dropdown-menu" class="dropdown-menu mt-2 w-56 rounded-md shadow-lg glass-panel p-1">
-                    <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
-                        <span>History Panel</span>
-                        <input type="checkbox" id="toggle-history-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
-                    </label>
-                    <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
-                        <span>Capabilities Panel</span>
-                        <input type="checkbox" id="toggle-header-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
-                    </label>
-                    <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
-                        <span>Status Panel</span>
-                        <input type="checkbox" id="toggle-status-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
-                    </label>
+        <div class="flex items-center gap-x-6">
+            <!-- Connection Status Group -->
+            <div class="flex items-center gap-x-4 pr-4 border-r border-white/10">
+                <div class="flex items-center gap-x-2" title="Database MCP Server Status">
+                    <div id="teradata-status-dot" class="connection-dot disconnected"></div>
+                    <span class="text-sm text-gray-300">Database</span>
+                </div>
+                <div class="flex items-center gap-x-2" title="Chart MCP Server Status">
+                    <div id="chart-status-dot" class="connection-dot disconnected"></div>
+                    <span class="text-sm text-gray-300">Chart</span>
                 </div>
             </div>
-            <div class="menu-item">
-                <button id="info-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Info</button>
+            
+            <!-- Application Menu Items -->
+            <div class="flex items-center gap-x-1">
+                <div class="menu-item">
+                    <button id="chat-modal-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50" disabled>Chat</button>
+                </div>
+                <div class="menu-item">
+                    <button id="config-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Config</button>
+                </div>
+                <div class="menu-item">
+                    <button id="prompt-editor-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50" disabled>System Prompt</button>
+                </div>
+                <div class="menu-item">
+                    <button id="window-menu-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Window</button>
+                    <div id="window-dropdown-menu" class="dropdown-menu mt-2 w-56 rounded-md shadow-lg glass-panel p-1">
+                        <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
+                            <span>History Panel</span>
+                            <input type="checkbox" id="toggle-history-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
+                        </label>
+                        <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
+                            <span>Capabilities Panel</span>
+                            <input type="checkbox" id="toggle-header-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
+                        </label>
+                        <label class="flex items-center justify-between w-full px-3 py-2 text-sm text-gray-200 rounded-md hover:bg-white/10 cursor-pointer">
+                            <span>Status Panel</span>
+                            <input type="checkbox" id="toggle-status-checkbox" class="h-4 w-4 rounded text-teradata-orange bg-gray-700 border-gray-600 focus:ring-teradata-orange">
+                        </label>
+                    </div>
+                </div>
+                <div class="menu-item">
+                    <button id="info-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors">Info</button>
+                </div>
             </div>
         </div>
     </nav>
+    <!-- END MODIFIED NAV -->
 
     <div class="flex flex-1 min-h-0">
         <aside id="session-history-panel" class="w-1/4 max-w-xs h-full flex flex-col glass-panel rounded-r-2xl shadow-2xl border-r border-white/10 collapsed">
@@ -448,6 +463,33 @@
         </aside>
     </div>
 
+    <!-- NEW: Chat Modal for direct LLM interaction -->
+    <div id="chat-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="chat-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-2xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold header-title">Direct Chat with Model</h3>
+                <button type="button" id="chat-modal-close" class="p-2 rounded-full text-gray-400 hover:bg-white/10 hover:text-white transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div id="chat-modal-log" class="flex-1 w-full p-3 bg-gray-800/80 border border-gray-600 rounded-md overflow-y-auto space-y-4">
+                <!-- Chat messages will be appended here -->
+            </div>
+            <form id="chat-modal-form" class="mt-4 flex items-center gap-3">
+                <input type="text" id="chat-modal-input" placeholder="Send a message..."
+                    class="flex-1 p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-teradata-orange text-white placeholder-gray-400"
+                    autocomplete="off" />
+                <button type="submit" id="chat-modal-submit"
+                    class="p-3 bg-teradata-orange rounded-lg hover:bg-teradata-orange-dark flex items-center justify-center w-12 h-12 transition-colors">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                </button>
+            </form>
+        </div>
+    </div>
+    <!-- END NEW CHAT MODAL -->
+
     <div id="info-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="info-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 class="text-xl font-bold mb-4 header-title">About This Project</h3>
@@ -515,7 +557,6 @@
                                     <option value="Google">Google</option>
                                     <option value="Anthropic">Anthropic</option>
                                     <option value="Amazon">Amazon</option>
-                                    <!-- NEW: Added Ollama as a provider -->
                                     <option value="Ollama">Ollama (Local)</option>
                                     <option value="OpenAI" disabled>OpenAI (coming soon)</option>
                                     <option value="Cohere" disabled>Cohere (coming soon)</option>
@@ -528,7 +569,6 @@
                                 <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
                             </div>
 
-                            <!-- NEW: Container for Ollama Host configuration -->
                             <div id="ollama-host-container" class="hidden">
                                 <label for="ollama-host" class="block text-sm font-medium text-gray-300 mb-1">Ollama Host</label>
                                 <input type="text" id="ollama-host" name="ollama_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="e.g., http://localhost:11434">
@@ -759,7 +799,6 @@
         const awsSecretAccessKeyInput = document.getElementById('aws-secret-access-key');
         const awsRegionInput = document.getElementById('aws-region');
         const awsListingMethodContainer = document.getElementById('aws-listing-method-container');
-        // --- NEW: Ollama UI element reference ---
         const ollamaHostContainer = document.getElementById('ollama-host-container');
         const ollamaHostInput = document.getElementById('ollama-host');
         
@@ -798,6 +837,17 @@
         const systemPromptPopupContent = document.getElementById('system-prompt-popup-content');
         const systemPromptPopupText = document.getElementById('system-prompt-popup-text');
         const systemPromptPopupClose = document.getElementById('system-prompt-popup-close');
+
+        // --- NEW: Chat Modal elements ---
+        const chatModalButton = document.getElementById('chat-modal-button');
+        const chatModalOverlay = document.getElementById('chat-modal-overlay');
+        const chatModalContent = document.getElementById('chat-modal-content');
+        const chatModalClose = document.getElementById('chat-modal-close');
+        const chatModalForm = document.getElementById('chat-modal-form');
+        const chatModalInput = document.getElementById('chat-modal-input');
+        const chatModalLog = document.getElementById('chat-modal-log');
+        let simpleChatHistory = [];
+        // --- END NEW ---
 
         let currentProvider = 'Google';
         let currentModel = '';
@@ -1662,7 +1712,6 @@
                     aws_region: config.aws_region
                 };
                 localStorage.setItem('amazonApiKey', JSON.stringify(awsCreds));
-            // --- NEW: Save Ollama host to local storage ---
             } else if (config.provider === 'Ollama') {
                 localStorage.setItem('ollamaHost', config.ollama_host);
             } else {
@@ -1695,6 +1744,8 @@
                     }
                     updateStatusPromptName();
 
+                    // --- NEW: Enable Chat button on successful config ---
+                    chatModalButton.disabled = false;
                     promptEditorButton.disabled = false;
 
                     await loadResources('tools');
@@ -1720,6 +1771,7 @@
                 configStatus.textContent = `Error: ${error.message}`;
                 configStatus.className = 'text-sm text-red-400 text-center';
                 promptEditorButton.disabled = true;
+                chatModalButton.disabled = true; // Disable on error
                 teradataStatusDot.classList.add('disconnected');
                 teradataStatusDot.classList.remove('connected');
             } finally {
@@ -1785,7 +1837,6 @@
                 body.aws_secret_access_key = awsSecretAccessKeyInput.value;
                 body.aws_region = awsRegionInput.value;
                 body.listing_method = document.querySelector('input[name="listing_method"]:checked').value;
-            // --- NEW: Add Ollama host to the request body ---
             } else if (provider === 'Ollama') {
                 body.host = ollamaHostInput.value;
             } else {
@@ -1861,11 +1912,9 @@
             }
         }
 
-        // --- MODIFIED: Event listener to handle UI changes for different providers ---
         llmProviderSelect.addEventListener('change', async () => {
             const newProvider = llmProviderSelect.value;
             
-            // Hide all provider-specific containers first
             apiKeyContainer.classList.add('hidden');
             awsCredentialsContainer.classList.add('hidden');
             awsListingMethodContainer.classList.add('hidden');
@@ -1888,7 +1937,7 @@
                 const res = await fetch('/api_key/ollama');
                 const data = await res.json();
                 ollamaHostInput.value = data.host || localStorage.getItem('ollamaHost') || 'http://localhost:11434';
-            } else { // For Google, Anthropic, etc.
+            } else { 
                 apiKeyContainer.classList.remove('hidden');
                 const res = await fetch(`/api_key/${newProvider.toLowerCase()}`);
                 const data = await res.json();
@@ -1917,7 +1966,6 @@
             }
         });
         
-        // --- NEW: Save Ollama host on blur ---
         ollamaHostInput.addEventListener('blur', () => {
             localStorage.setItem('ollamaHost', ollamaHostInput.value);
         });
@@ -2020,6 +2068,71 @@
         promptEditorClose.addEventListener('click', closePromptEditor);
         promptEditorSave.addEventListener('click', saveSystemPromptChanges);
         promptEditorReset.addEventListener('click', () => resetSystemPrompt(false));
+
+        // --- MODIFIED: Chat Modal Logic ---
+        function openChatModal() {
+            chatModalOverlay.classList.remove('hidden', 'opacity-0');
+            chatModalContent.classList.remove('scale-95', 'opacity-0');
+            chatModalInput.focus();
+        }
+
+        function closeChatModal() {
+            chatModalOverlay.classList.add('opacity-0');
+            chatModalContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => chatModalOverlay.classList.add('hidden'), 300);
+        }
+
+        function addMessageToModal(role, content) {
+            const messageEl = document.createElement('div');
+            messageEl.className = `p-3 rounded-lg max-w-xs ${role === 'user' ? 'bg-blue-600 self-end' : 'bg-gray-600 self-start'}`;
+            messageEl.textContent = content;
+            chatModalLog.appendChild(messageEl);
+            chatModalLog.scrollTop = chatModalLog.scrollHeight;
+        }
+
+        chatModalButton.addEventListener('click', openChatModal);
+        chatModalClose.addEventListener('click', closeChatModal);
+        chatModalOverlay.addEventListener('click', (e) => {
+            if (e.target === chatModalOverlay) closeChatModal();
+        });
+
+        chatModalForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const message = chatModalInput.value.trim();
+            if (!message) return;
+
+            addMessageToModal('user', message);
+            simpleChatHistory.push({ role: 'user', content: message });
+            chatModalInput.value = '';
+            chatModalInput.disabled = true;
+
+            try {
+                const res = await fetch('/simple_chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        history: simpleChatHistory
+                    })
+                });
+                
+                const data = await res.json();
+
+                if (res.ok) {
+                    addMessageToModal('assistant', data.response);
+                    simpleChatHistory.push({ role: 'assistant', content: data.response });
+                } else {
+                    throw new Error(data.error || 'An unknown error occurred.');
+                }
+
+            } catch (error) {
+                addMessageToModal('assistant', `Error: ${error.message}`);
+            } finally {
+                chatModalInput.disabled = false;
+                chatModalInput.focus();
+            }
+        });
+        // --- END MODIFIED ---
         
         document.addEventListener('DOMContentLoaded', async () => {
             try {

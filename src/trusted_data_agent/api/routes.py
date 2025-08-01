@@ -32,6 +32,46 @@ async def index():
     """Serves the main HTML page."""
     return await render_template("index.html")
 
+# --- NEW: Simple Chat Endpoint ---
+@api_bp.route("/simple_chat", methods=["POST"])
+async def simple_chat():
+    """
+    Handles direct, tool-less chat with the configured LLM.
+    This is used by the 'Chat' modal in the UI.
+    """
+    if not STATE.get('llm'):
+        return jsonify({"error": "LLM not configured."}), 400
+
+    data = await request.get_json()
+    message = data.get("message")
+    history = data.get("history", [])
+    
+    if not message:
+        return jsonify({"error": "No message provided."}), 400
+
+    try:
+        # Use a simple, generic system prompt for direct chat.
+        system_prompt = "You are a helpful assistant."
+        
+        # Call the LLM without providing the main session_id to ensure
+        # it doesn't use the tool-aware context.
+        response_text = await llm_handler.call_llm_api(
+            llm_instance=STATE.get('llm'),
+            prompt=message,
+            chat_history=history,
+            system_prompt_override=system_prompt
+        )
+        
+        # The handler might return a "FINAL_ANSWER:" prefix, which we remove for direct chat.
+        final_response = response_text.replace("FINAL_ANSWER:", "").strip()
+
+        return jsonify({"response": final_response})
+
+    except Exception as e:
+        app_logger.error(f"Error in simple_chat: {e}", exc_info=True)
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+# --- END NEW ---
+
 @api_bp.route("/app-config")
 async def get_app_config():
     """Returns the startup configuration flags."""
@@ -114,18 +154,14 @@ def get_full_system_prompt(base_prompt_text, charting_intensity_val):
 @api_bp.route("/session", methods=["POST"])
 async def new_session():
     """Creates a new chat session."""
-    # --- NEW LOGIC: Clear conversation log for a cleaner developer experience ---
     try:
         log_file_path = os.path.join("logs", "llm_conversations.log")
         if os.path.exists(log_file_path):
-            # Truncate the file to clear it without deleting, which is safer
-            # for active file handlers used by the logging module.
             with open(log_file_path, 'w'):
                 pass
             app_logger.info(f"Cleared LLM conversation log: {log_file_path}")
     except Exception as e:
         app_logger.error(f"Could not clear log file: {e}")
-    # --- END NEW LOGIC ---
 
     if not STATE.get('llm') or not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
