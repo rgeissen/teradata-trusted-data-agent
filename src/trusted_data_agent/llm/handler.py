@@ -15,7 +15,6 @@ from trusted_data_agent.core.config import (
     CERTIFIED_AMAZON_MODELS, CERTIFIED_AMAZON_PROFILES,
     CERTIFIED_OLLAMA_MODELS
 )
-from trusted_data_agent.core.utils import unwrap_exception
 
 llm_logger = logging.getLogger("llm_conversation")
 app_logger = logging.getLogger("quart.app")

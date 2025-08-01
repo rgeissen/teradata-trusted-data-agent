@@ -17,10 +17,15 @@ from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS, CHARTING_I
 from trusted_data_agent.agent.executor import PlanExecutor, _format_sse
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.mcp import adapter as mcp_adapter
-from trusted_data_agent.core.utils import unwrap_exception
 
 api_bp = Blueprint('api', __name__)
 app_logger = logging.getLogger("quart.app")
+
+def unwrap_exception(e: BaseException) -> BaseException:
+    """Recursively unwraps ExceptionGroups to find the root cause."""
+    if isinstance(e, ExceptionGroup) and e.exceptions:
+        return unwrap_exception(e.exceptions[0])
+    return e
 
 def set_dependencies(app_state):
     """Injects the global application state into this blueprint."""

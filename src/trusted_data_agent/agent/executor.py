@@ -84,6 +84,7 @@ class PlanExecutor:
         self.current_command = None
         self.iteration_context = None
         self.dependencies = dependencies
+        self.tool_constraints_cache = {} # Cache for inferred tool constraints
 
     async def run(self):
         """
@@ -263,7 +264,7 @@ class PlanExecutor:
 
         # Handle parameter mismatch errors by requesting user input
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
-            yield _format_sse({"details": tool_result}, "request_user_input")
+            yield _format_sse({"details": col_result}, "request_user_input")
             self.state = AgentState.ERROR
             return
 
@@ -283,11 +284,59 @@ class PlanExecutor:
         yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
         await self._get_next_action_from_llm(tool_result_str=tool_result_str)
 
+    async def _get_tool_constraints(self, tool_name: str):
+        """
+        Infers and caches the operational constraints of a tool (e.g., data type)
+        by using the LLM. This is a generator function that yields status updates
+        and finally yields the constraint dictionary.
+        """
+        if tool_name in self.tool_constraints_cache:
+            yield self.tool_constraints_cache[tool_name]
+            return
+
+        mcp_tools = self.dependencies['STATE'].get('mcp_tools', {})
+        tool_definition = mcp_tools.get(tool_name)
+        
+        constraints = {}  # Default to no constraints
+        
+        if tool_definition:
+            prompt = (
+                "You are a tool analyzer. Based on the tool's name and description, determine if its `col_name` "
+                "argument is intended for 'numeric' types, 'character' types, or 'any' type. "
+                "Respond with a single, raw JSON object with one key, 'dataType', and the value 'numeric', 'character', or 'any'.\n\n"
+                f"Tool Name: `{tool_definition.name}`\n"
+                f"Tool Description: \"{tool_definition.description}\"\n\n"
+                "Example response for a statistical tool: {\"dataType\": \"numeric\"}"
+            )
+            
+            yield _format_sse({"step": f"Inferring constraints for tool: {tool_name}", "details": "Asking LLM to analyze tool requirements..."})
+
+            response_text = await llm_handler.call_llm_api(
+                self.dependencies['STATE']['llm'], 
+                prompt, 
+                raise_on_error=True,
+                system_prompt_override="You are a JSON-only responding assistant."
+            )
+            
+            try:
+                match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if not match:
+                    raise ValueError("LLM did not return valid JSON for constraints.")
+                
+                constraints = json.loads(match.group(0))
+                app_logger.info(f"Inferred constraints for tool '{tool_name}': {constraints}")
+            except (json.JSONDecodeError, ValueError) as e:
+                app_logger.error(f"Failed to infer constraints for {tool_name}: {e}. Assuming no constraints.")
+                constraints = {}
+        
+        self.tool_constraints_cache[tool_name] = constraints
+        yield constraints
+
     async def _execute_column_iteration(self):
         """
         Handles the execution of tools that operate on a per-column basis.
         This version is adaptive: it fetches column metadata first and only
-        runs tools on columns with a compatible data type.
+        runs tools on columns with a compatible data type based on LLM-inferred constraints.
         """
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
@@ -331,28 +380,54 @@ class PlanExecutor:
             raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
         
         all_columns_metadata = cols_result.get('results', [])
-        
         all_column_results = []
+        
+        # Infer constraints for the tool being used in the iteration.
+        tool_constraints = None
+        async for event in self._get_tool_constraints(tool_name):
+            if isinstance(event, dict): # It's the final constraints object
+                tool_constraints = event
+            else: # It's an SSE event string
+                yield event
+        
+        required_type = tool_constraints.get("dataType") if tool_constraints else None
+
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
-            col_type = column_info.get("ColumnType", "").upper()
+            
+            # --- ROBUST FIX ---
+            # Try a list of possible keys for the data type.
+            possible_keys = ["Datatype", "ColumnType", "Type", "DataType"]
+            col_type = ""
+            for key in possible_keys:
+                if key in column_info:
+                    col_type = (column_info[key] or "").upper()
+                    break
+            # --- END ROBUST FIX ---
 
-            # Check if the tool is compatible with the column's data type.
-            is_numeric_tool = tool_name in ["qlty_univariateStatistics", "qlty_standardDeviation"]
-            is_numeric_column = any(t in col_type for t in ["INT", "NUM", "DEC", "FLOAT"])
+            if required_type:
+                is_numeric_column = any(t in col_type for t in ["INT", "NUM", "DEC", "FLOAT", "BYTEINT", "SMALLINT", "BIGINT"])
+                is_char_column = any(t in col_type for t in ["CHAR", "VARCHAR"])
+                
+                should_skip = False
+                if required_type == "numeric" and not is_numeric_column:
+                    should_skip = True
+                elif required_type == "character" and not is_char_column:
+                    should_skip = True
 
-            if is_numeric_tool and not is_numeric_column:
-                # Skip the tool and record the reason.
-                skip_result = {
-                    "status": "skipped",
-                    "reason": f"Tool '{tool_name}' requires a numeric column, but '{col_name}' is of type {col_type}.",
-                    "metadata": {"tool_name": tool_name, "table_name": table_name, "col_name": col_name}
-                }
-                yield _format_sse({"step": f"Skipping tool for column: {col_name}", "details": skip_result, "tool_name": tool_name}, "tool_result")
-                all_column_results.append(skip_result)
-                continue
+                if should_skip:
+                    skip_reason = f"Tool '{tool_name}' requires a {required_type} column, but '{col_name}' is of type {col_type}."
+                    app_logger.info(f"SKIPPING: {skip_reason}")
+                    skip_result = {
+                        "status": "skipped",
+                        "reason": skip_reason,
+                        "metadata": {"tool_name": tool_name, "table_name": table_name, "col_name": col_name}
+                    }
+                    yield _format_sse({"step": f"Skipping tool for column: {col_name}", "details": skip_result, "tool_name": tool_name}, "tool_result")
+                    all_column_results.append(skip_result)
+                    continue
 
-            # If compatible, proceed with execution.
+            # If compatible (or no constraints specified), proceed with execution.
             iter_args = base_args.copy()
             iter_args['col_name'] = col_name
             
