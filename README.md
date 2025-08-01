@@ -89,10 +89,12 @@ This structure separates concerns, making it easier to navigate and extend the a
 
 ## Key Features
 
-* **Multi-Provider LLM Configuration:** Dynamically switch between LLM providers like Google, Anthropic, and AWS Bedrock, configure API keys, and select from a list of available models directly within the application's UI.
+* **Multi-Provider LLM Configuration:** Dynamically switch between LLM providers like Google, Anthropic, AWS Bedrock, and **Ollama**, configure API keys or hosts, and select from a list of available models directly within the application's UI.
 * **Support for AWS Bedrock:**
     * **Foundation Models:** Directly access and utilize foundational models available on Bedrock.
     * **Inference Profiles:** Connect to custom, provisioned, or third-party models via Bedrock Inference Profiles.
+* **Ollama (Local LLM) Integration:** Run the agent with open-source models on your local machine for privacy, offline use, and development.
+* **Direct Model Chat:** A dedicated chat interface (accessible from the "Chat" menu item) allows for direct, tool-less conversations with the configured LLM. This is an invaluable feature for testing a model's baseline reasoning capabilities without the complexity of the agent's tool-use logic.
 * **Comparative MCP Testing:** The multi-provider support is crucial for testing and validating how different LLMs interpret and utilize the same set of MCP tools and prompts, providing essential insights into model behavior and capability robustness.
 * **Live Model Refresh:** Fetch an up-to-date list of supported models from your provider with the click of a button.
 * **System Prompt Editor:** Take full control of the agent's behavior. Edit, save, and reset the core system prompt for each model, with changes persisting across sessions.
@@ -108,10 +110,11 @@ This structure separates concerns, making it easier to navigate and extend the a
 
 * **Python 3.8+** and `pip`.
 * Access to a running **Teradata MCP Server**.
-* An **API Key from a supported LLM provider**. The initial validated providers are **Google**, **Anthropic**, and **Amazon Web Services (AWS)**.
+* An **API Key from a supported LLM provider** or a **local Ollama installation**. The initial validated providers are **Google**, **Anthropic**, **Amazon Web Services (AWS)**, and **Ollama**.
   * You can obtain a Gemini API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
   * You can obtain a Claude API key from the [Anthropic Console](https://console.anthropic.com/dashboard).
   * For AWS, you will need an **AWS Access Key ID**, **Secret Access Key**, and the **Region** for your Bedrock service.
+  * For Ollama, download and install it from [ollama.com](https://ollama.com/) and pull a model (e.g., `ollama run llama2`).
 
 ### Step 1: Clone the Repository
 
@@ -184,6 +187,9 @@ ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY_HERE"
 AWS_ACCESS_KEY_ID="YOUR_AWS_ACCESS_KEY_ID"
 AWS_SECRET_ACCESS_KEY="YOUR_AWS_SECRET_ACCESS_KEY"
 AWS_REGION="your-bedrock-region"
+
+# For Ollama (Local)
+OLLAMA_HOST="http://localhost:11434"
 ```
 
 ## Running the Application
@@ -203,6 +209,8 @@ To enable all discovered models for testing and development purposes, start the 
 ```bash
 python -m trusted_data_agent.main --all-models
 ```
+
+**Note:** **No Ollama models are currently certified.** For testing purposes, Ollama models can be evaluated by starting the server with the `--all-models` developer flag.
 
 ### Developer Mode: Enabling Charting
 
@@ -224,7 +232,7 @@ python -m trusted_data_agent.main --all-models --charting
 
 * **`ModuleNotFoundError`:** This error almost always means you are either (1) not in the project's root directory, or (2) you have not run `pip install -e .` successfully in your active virtual environment.
 * **Connection Errors:** Double-check all host, port, path, and API key information. Ensure no firewalls are blocking the connection. If you receive an API key error, verify that the key is correct and has permissions for the model you selected.
-* **"Failed to fetch models":** This usually indicates an invalid API key or a network issue preventing connection to the provider's API.
+* **"Failed to fetch models":** This usually indicates an invalid API key, an incorrect Ollama host, or a network issue preventing connection to the provider's API.
 * **AWS Bedrock Errors:**
   * Ensure your AWS credentials have the necessary IAM permissions (`bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles`, `bedrock-runtime:InvokeModel`).
   * Verify that the selected model is enabled for access in the AWS Bedrock console for your specified region.
