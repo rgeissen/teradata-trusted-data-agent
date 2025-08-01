@@ -76,11 +76,15 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             f"--- Tool List ---\n{tool_list_for_prompt}"
         )
         categorization_system_prompt = "You are a helpful assistant that organizes lists into JSON format."
-        categorized_tools_str = await llm_handler.call_llm_api(
+        
+        # --- MODIFIED: Handle dictionary response from LLM call ---
+        llm_response_tools = await llm_handler.call_llm_api(
             llm_instance, categorization_prompt, raise_on_error=True,
             system_prompt_override=categorization_system_prompt
         )
-        
+        categorized_tools_str = llm_response_tools.get('text', '')
+        # --- END MODIFICATION ---
+
         match = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL)
         if match is None:
             raise ValueError(f"LLM failed to return a valid JSON for tool categorization. Response: '{categorized_tools_str}'")
@@ -119,10 +123,13 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 f"\n\n--- Prompt List to Categorize ---\n{prompt_list_for_prompt}"
             )
 
-            categorized_prompts_str = await llm_handler.call_llm_api(
+            # --- MODIFIED: Handle dictionary response from LLM call ---
+            llm_response_prompts = await llm_handler.call_llm_api(
                 llm_instance, categorization_prompt_for_prompts, raise_on_error=True,
                 system_prompt_override=categorization_system_prompt
             )
+            categorized_prompts_str = llm_response_prompts.get('text', '')
+            # --- END MODIFICATION ---
             
             match_prompts = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL)
             if match_prompts is None:
@@ -191,7 +198,10 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
         Example response: {{"database": "db_name", "table": "table_name", "extra_param": null}}
     """
     
-    correction_response_text = await llm_handler.call_llm_api(llm_instance, prompt=correction_prompt, chat_history=[])
+    # --- MODIFIED: Handle dictionary response ---
+    correction_response = await llm_handler.call_llm_api(llm_instance, prompt=correction_prompt, chat_history=[])
+    correction_response_text = correction_response.get('text', '')
+    # --- END MODIFICATION ---
     
     try:
         json_match = re.search(r"```json\s*\n(.*?)\n\s*```", correction_response_text, re.DOTALL)
@@ -221,7 +231,7 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
     except (ValueError, json.JSONDecodeError, AttributeError) as e:
         # If correction fails, ask the user for the parameters directly.
         app_logger.warning(f"Parameter correction failed for '{tool_name}': {e}. Requesting user input.")
-        spec_arguments = list(tool_spec.args.values())
+        spec_arguments = [arg for arg_name, arg_spec in tool_spec.args.items()]
         return {
             "error": "parameter_mismatch",
             "tool_name": tool_name,

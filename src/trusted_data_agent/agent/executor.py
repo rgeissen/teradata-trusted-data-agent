@@ -96,6 +96,7 @@ class PlanExecutor:
                 break
             try:
                 if self.state == AgentState.DECIDING:
+                    # The initial thought process is passed from the route, without token usage yet
                     yield _format_sse({"step": "Assistant has decided on an action", "details": self.next_action_str}, "llm_thought")
                     async for event in self._handle_deciding():
                         yield event
@@ -139,7 +140,8 @@ class PlanExecutor:
                 current_item_name = ctx["items"][ctx["item_index"]]
                 ctx["results_per_item"][current_item_name].append(self.next_action_str)
                 ctx["action_count_for_item"] += 1
-                await self._get_next_action_from_llm()
+                async for event in self._get_next_action_from_llm():
+                    yield event
                 return
 
             app_logger.warning(f"LLM response not a tool command or FINAL_ANSWER. Summarizing. Response: {self.next_action_str}")
@@ -235,7 +237,8 @@ class PlanExecutor:
 
                 yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
 
-                await self._get_next_action_from_llm()
+                async for event in self._get_next_action_from_llm():
+                    yield event
             except Exception as e:
                 app_logger.error(f"Failed to get or process prompt '{prompt_name}': {e}", exc_info=True)
                 raise RuntimeError(f"Could not retrieve the plan for prompt '{prompt_name}'.") from e
@@ -296,7 +299,8 @@ class PlanExecutor:
                     yield _format_sse({"step": "Starting Multi-Step Iteration", "details": f"Plan requires processing {len(items_to_iterate)} items."})
         
         yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
-        await self._get_next_action_from_llm(tool_result_str=tool_result_str)
+        async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+            yield event
 
     async def _get_tool_constraints(self, tool_name: str):
         """
@@ -329,12 +333,13 @@ class PlanExecutor:
                 "type": "workaround"
             })
 
-            response_text = await llm_handler.call_llm_api(
+            llm_response = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], 
                 prompt, 
                 raise_on_error=True,
                 system_prompt_override="You are a JSON-only responding assistant."
             )
+            response_text = llm_response.get('text')
             
             try:
                 match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -390,7 +395,8 @@ class PlanExecutor:
             self.collected_data.append(col_result)
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
             yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
-            await self._get_next_action_from_llm(tool_result_str=tool_result_str)
+            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                yield event
             return
 
         # Fetch all column descriptions first to get their data types.
@@ -498,12 +504,14 @@ class PlanExecutor:
         tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": all_column_results})
 
         yield _format_sse({"step": "Thinking about the next action...", "details": "Adaptive column iteration complete. Resuming main plan."})
-        await self._get_next_action_from_llm(tool_result_str=tool_result_str)
+        async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+            yield event
 
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
         """
         Determines the appropriate prompt to send to the LLM to get the next
         action, based on the current state and the result of the last action.
+        This is a generator that yields SSE events.
         """
         prompt_for_next_step = "" 
         
@@ -518,9 +526,6 @@ class PlanExecutor:
                 "2. **If you find a database name,** your next action is to **retry the failed tool call**, but this time include the `db_name` argument with the value you found in the history.\n"
                 "3. **If you cannot find a database name in the history,** then and only then should you ask the user for clarification by responding with `FINAL_ANSWER:`."
              )
-        # --- MODIFIED LOGIC: More Forceful Directive Guidance ---
-        # This provides stronger, more explicit instructions to the LLM to prevent
-        # it from looping or getting lost during a multi-step plan.
         elif self.active_prompt_plan:
             app_logger.info("Applying forceful, plan-aware reasoning for next step.")
             last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
@@ -536,7 +541,6 @@ class PlanExecutor:
                 "   - If the next step is to call another tool, provide the JSON for that tool call.\n"
                 "   - If the next step is to generate text (like a description or summary), you **MUST** start your response with `FINAL_ANSWER:`.\n"
             )
-        # --- END MODIFIED LOGIC ---
         elif self.iteration_context:
             ctx = self.iteration_context
             current_item_name = ctx["items"][ctx["item_index"]]
@@ -608,10 +612,27 @@ class PlanExecutor:
         else:
             final_prompt_to_llm = prompt_for_next_step
 
-        self.next_action_str = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
+        llm_response = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
         
+        # Update session token count
+        usage = llm_response.get('usage', {})
+        session_manager.update_token_usage(self.session_id, usage.get('input_tokens', 0), usage.get('output_tokens', 0))
+        
+        # Yield the updated total token count to the frontend
+        total_usage = session_manager.get_token_usage(self.session_id)
+        yield _format_sse({"token_usage": total_usage}, "token_update")
+
+        self.next_action_str = llm_response.get('text')
         if not self.next_action_str:
             raise ValueError("LLM failed to provide a response.")
+            
+        # Yield the thought process with statement-level token usage
+        yield _format_sse({
+            "step": "Assistant has decided on an action", 
+            "details": self.next_action_str,
+            "usage": usage  # Include statement-level token usage
+        }, "llm_thought")
+
         self.state = AgentState.DECIDING
 
     async def _handle_summarizing(self):
@@ -620,14 +641,14 @@ class PlanExecutor:
         It synthesizes all collected data and the LLM's final thoughts into a
         formatted HTML response.
         """
-        llm_response = self.next_action_str
+        llm_response_text = self.next_action_str
         summary_text = ""
 
-        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response, re.DOTALL | re.IGNORECASE)
+        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response_text, re.DOTALL | re.IGNORECASE)
 
         if final_answer_match:
             summary_text = final_answer_match.group(1).strip()
-            thought_process = llm_response.split(final_answer_match.group(0))[0]
+            thought_process = llm_response_text.split(final_answer_match.group(0))[0]
             yield _format_sse({"step": "Agent finished execution", "details": thought_process}, "llm_thought")
         else:
             yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
@@ -642,11 +663,20 @@ class PlanExecutor:
                 "4. Do not describe your internal thought process."
             )
             final_llm_response = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
-            final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
+            
+            # Update and yield token usage for the final summarization call
+            usage = final_llm_response.get('usage', {})
+            session_manager.update_token_usage(self.session_id, usage.get('input_tokens', 0), usage.get('output_tokens', 0))
+            total_usage = session_manager.get_token_usage(self.session_id)
+            yield _format_sse({"token_usage": total_usage}, "token_update")
+            
+            final_llm_text = final_llm_response.get('text', '')
+            final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_text, re.DOTALL | re.IGNORECASE)
+            
             if final_answer_match_inner:
                 summary_text = final_answer_match_inner.group(1).strip()
             else:
-                summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
+                summary_text = final_llm_text or "The agent finished its plan but did not provide a final summary."
 
         formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
         final_html = formatter.render()

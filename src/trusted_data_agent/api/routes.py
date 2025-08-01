@@ -37,7 +37,6 @@ async def index():
     """Serves the main HTML page."""
     return await render_template("index.html")
 
-# --- NEW: Simple Chat Endpoint ---
 @api_bp.route("/simple_chat", methods=["POST"])
 async def simple_chat():
     """
@@ -55,19 +54,16 @@ async def simple_chat():
         return jsonify({"error": "No message provided."}), 400
 
     try:
-        # Use a simple, generic system prompt for direct chat.
         system_prompt = "You are a helpful assistant."
         
-        # Call the LLM without providing the main session_id to ensure
-        # it doesn't use the tool-aware context.
-        response_text = await llm_handler.call_llm_api(
+        llm_response = await llm_handler.call_llm_api(
             llm_instance=STATE.get('llm'),
             prompt=message,
             chat_history=history,
             system_prompt_override=system_prompt
         )
         
-        # The handler might return a "FINAL_ANSWER:" prefix, which we remove for direct chat.
+        response_text = llm_response.get('text', '')
         final_response = response_text.replace("FINAL_ANSWER:", "").strip()
 
         return jsonify({"response": final_response})
@@ -75,7 +71,6 @@ async def simple_chat():
     except Exception as e:
         app_logger.error(f"Error in simple_chat: {e}", exc_info=True)
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-# --- END NEW ---
 
 @api_bp.route("/app-config")
 async def get_app_config():
@@ -143,6 +138,14 @@ async def get_session_history(session_id):
     if history is not None:
         return jsonify(history)
     return jsonify({"error": "Session not found"}), 404
+
+# --- NEW: Endpoint to get token usage for a session ---
+@api_bp.route("/session/<session_id>/tokens", methods=["GET"])
+async def get_session_tokens(session_id):
+    """Retrieves the token usage for a specific session."""
+    tokens = session_manager.get_token_usage(session_id)
+    return jsonify(tokens)
+# --- END NEW ---
 
 def get_full_system_prompt(base_prompt_text, charting_intensity_val):
     """Constructs the final system prompt by injecting context."""
@@ -359,8 +362,16 @@ async def ask_stream():
 
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
-            llm_reasoning_and_command = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
-            
+            # --- MODIFIED: Handle new return type and update tokens ---
+            llm_response = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
+            llm_reasoning_and_command = llm_response.get('text', '')
+            usage = llm_response.get('usage', {})
+
+            session_manager.update_token_usage(session_id, usage.get('input_tokens', 0), usage.get('output_tokens', 0))
+            total_usage = session_manager.get_token_usage(session_id)
+            yield _format_sse({"token_usage": total_usage}, "token_update")
+            # --- END MODIFICATION ---
+
             if STATE['llm'] and APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama"]:
                 session_data['chat_object'].append({'role': 'user', 'content': user_input})
                 session_data['chat_object'].append({'role': 'assistant', 'content': llm_reasoning_and_command})

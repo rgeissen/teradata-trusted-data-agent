@@ -50,12 +50,21 @@ class OllamaClient:
             app_logger.error(f"Ollama API request error: {e}")
             raise RuntimeError("Error during chat completion with Ollama.") from e
 
-async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None) -> str:
+async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None) -> dict:
+    """
+    Calls the configured LLM provider and returns the response text along with token usage.
+    
+    Returns:
+        A dictionary containing 'text' and 'usage' keys.
+        e.g., {'text': '...', 'usage': {'input_tokens': 100, 'output_tokens': 50}}
+    """
     if not llm_instance:
         raise RuntimeError("LLM is not initialized.")
     
     full_log_message = ""
     response_text = ""
+    input_tokens = 0
+    output_tokens = 0
 
     try:
         session_data = get_session(session_id) if session_id else None
@@ -79,6 +88,11 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             if not response or not hasattr(response, 'text'):
                 raise RuntimeError("Google LLM returned an empty or invalid response.")
             response_text = response.text.strip()
+            
+            # Extract token usage for Google
+            if hasattr(response, 'usage_metadata'):
+                input_tokens = response.usage_metadata.prompt_token_count
+                output_tokens = response.usage_metadata.candidates_token_count
 
         elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
             system_prompt = system_prompt_override or (session_data['system_prompt'] if session_data else "")
@@ -105,6 +119,11 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             if not response or not response.content:
                 raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
             response_text = response.content[0].text.strip()
+            
+            # Extract token usage for Anthropic
+            if hasattr(response, 'usage'):
+                input_tokens = response.usage.input_tokens
+                output_tokens = response.usage.output_tokens
         
         elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
             is_session_call = session_data is not None
@@ -149,14 +168,34 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 body = json.dumps({"inputText": text_prompt, "textGenerationConfig": {"maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9}})
             
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
-            response_body = json.loads(response.get('body').read())
+            response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model_with_response_stream(body=body, modelId=model_id_to_invoke))
+            
+            response_body = {}
+            chunk_texts = []
+            
+            for event in response.get("body"):
+                chunk = json.loads(event["chunk"]["bytes"])
+                if "anthropic" in model_id_to_invoke:
+                    if chunk['type'] == 'content_block_delta':
+                        chunk_texts.append(chunk['delta']['text'])
+                    elif chunk['type'] == 'message_stop':
+                        response_body = chunk
+                elif "amazon.nova" in model_id_to_invoke:
+                    if chunk['type'] == 'content_block_delta':
+                        chunk_texts.append(chunk['delta']['text'])
+                    elif chunk['type'] == 'message_stop':
+                        response_body = chunk
+                else: # Titan
+                    chunk_texts.append(chunk['outputText'])
+                    response_body = chunk
 
-            if "anthropic" in model_id_to_invoke: response_text = response_body.get('content')[0].get('text')
-            elif "amazon.nova" in model_id_to_invoke: response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
-            else: response_text = response_body.get('results')[0].get('outputText')
-        
-        # --- NEW: Ollama API Call Logic ---
+            response_text = "".join(chunk_texts).strip()
+
+            # Extract token usage for Amazon Bedrock
+            metrics = response_body.get('amazon-bedrock-invocationMetrics', {})
+            input_tokens = metrics.get('inputTokenCount', 0)
+            output_tokens = metrics.get('outputTokenCount', 0)
+
         elif APP_CONFIG.CURRENT_PROVIDER == "Ollama":
             system_prompt = system_prompt_override or (session_data['system_prompt'] if session_data else "")
             history_source = chat_history or (session_data.get('chat_object', []) if session_data else [])
@@ -176,14 +215,24 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             if not response or "message" not in response or "content" not in response["message"]:
                 raise RuntimeError("Ollama LLM returned an empty or invalid response.")
             response_text = response["message"]["content"].strip()
-        # --- END NEW LOGIC ---
+            
+            # Extract token usage for Ollama
+            input_tokens = response.get('prompt_eval_count', 0)
+            output_tokens = response.get('eval_count', 0)
 
         else:
             raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
 
         llm_logger.info(full_log_message)
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
-        return response_text
+        
+        return {
+            "text": response_text,
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens
+            }
+        }
 
     except Exception as e:
         app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
@@ -191,7 +240,10 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
         llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
         if raise_on_error:
             raise e
-        return f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the language model: {str(e)}"
+        return {
+            "text": f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the language model: {str(e)}",
+            "usage": {"input_tokens": 0, "output_tokens": 0}
+        }
 
 async def list_models(provider: str, credentials: dict) -> list[dict]:
     if provider == "Google":

@@ -464,6 +464,16 @@
             <header class="p-4 border-b border-white/10 flex flex-col justify-center items-center">
                 <h2 id="status-title" class="header-title text-lg font-bold text-white">Live Status</h2>
                 <div id="status-prompt-name" class="text-xs text-gray-400 mt-1 flex items-center gap-x-2">No Model/Prompt Loaded</div>
+                <!-- NEW: Token Usage Display -->
+                <div id="status-token-usage" class="w-full text-xs text-gray-400 mt-3 pt-3 border-t border-white/10 flex justify-between items-center">
+                    <span>Tokens Used:</span>
+                    <div class="flex gap-x-3 text-right">
+                        <span>Input: <strong id="total-input-tokens" class="text-white font-mono">0</strong></span>
+                        <span>Output: <strong id="total-output-tokens" class="text-white font-mono">0</strong></span>
+                        <span>Total: <strong id="total-tokens" class="text-teradata-orange font-mono">0</strong></span>
+                    </div>
+                </div>
+                <!-- END NEW -->
             </header>
             <div id="status-window-content" class="flex-1 p-4 overflow-y-auto space-y-4">
                 <p class="text-gray-400">Waiting for a new request...</p>
@@ -857,6 +867,12 @@
         let simpleChatHistory = [];
         // --- END NEW ---
 
+        // --- NEW: Token Display Elements ---
+        const totalInputTokensEl = document.getElementById('total-input-tokens');
+        const totalOutputTokensEl = document.getElementById('total-output-tokens');
+        const totalTokensEl = document.getElementById('total-tokens');
+        // --- END NEW ---
+
         let currentProvider = 'Google';
         let currentModel = '';
         let currentStatusId = 0;
@@ -1000,10 +1016,18 @@
             loadingSpinner.classList.toggle('hidden', !isLoading);
         }
 
-        function updateStatusWindow(eventData, isFinal = false) {
-            const { step, details, type } = eventData;
+        // --- MODIFIED: updateTokenDisplay function ---
+        function updateTokenDisplay(usage) {
+            const { input_tokens = 0, output_tokens = 0 } = usage;
+            const total = input_tokens + output_tokens;
+            totalInputTokensEl.textContent = input_tokens.toLocaleString();
+            totalOutputTokensEl.textContent = output_tokens.toLocaleString();
+            totalTokensEl.textContent = total.toLocaleString();
+        }
 
-            // Check if user is scrolled to the bottom before adding new content
+        function updateStatusWindow(eventData, isFinal = false) {
+            const { step, details, type, usage } = eventData;
+
             const shouldScroll = statusWindowContent.scrollHeight - statusWindowContent.scrollTop <= statusWindowContent.clientHeight + 10;
 
             const lastStep = document.getElementById(`status-step-${currentStatusId}`);
@@ -1017,10 +1041,26 @@
             stepEl.id = `status-step-${currentStatusId}`;
             stepEl.className = 'status-step p-3 rounded-md';
 
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'flex justify-between items-center mb-2';
+            
             const stepTitle = document.createElement('h4');
-            stepTitle.className = 'font-bold text-sm text-white mb-2';
+            stepTitle.className = 'font-bold text-sm text-white';
             stepTitle.textContent = step;
-            stepEl.appendChild(stepTitle);
+            headerDiv.appendChild(stepTitle);
+
+            // --- NEW: Display statement-level token usage ---
+            if (usage && (usage.input_tokens > 0 || usage.output_tokens > 0)) {
+                const tokenDisplay = document.createElement('div');
+                tokenDisplay.className = 'text-xs text-gray-400 font-mono';
+                tokenDisplay.innerHTML = `
+                    <span title="Input Tokens">${usage.input_tokens}</span> / 
+                    <span title="Output Tokens">${usage.output_tokens}</span>
+                `;
+                headerDiv.appendChild(tokenDisplay);
+            }
+            stepEl.appendChild(headerDiv);
+            // --- END NEW ---
 
             if (details) {
                 const pre = document.createElement('pre');
@@ -1048,7 +1088,6 @@
                 stepEl.classList.add('completed');
             }
 
-            // Only scroll to the bottom if the user was already there
             if (shouldScroll) {
                 statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
             }
@@ -1117,7 +1156,10 @@
                         if (dataLine) {
                             const eventData = JSON.parse(dataLine);
 
-                            if (eventName === 'request_user_input') {
+                            // --- MODIFIED: Handle new token_update event ---
+                            if (eventName === 'token_update') {
+                                updateTokenDisplay(eventData.token_usage);
+                            } else if (eventName === 'request_user_input') {
                                 updateStatusWindow({ step: "Action Required", details: "Waiting for user to correct parameters.", type: 'workaround' });
                                 toggleLoading(false); // Unlock the UI
                                 openCorrectionModal(eventData.details);
@@ -1292,6 +1334,8 @@
             }
             chatLog.innerHTML = '';
             statusWindowContent.innerHTML = '<p class="text-gray-400">Waiting for a new request...</p>';
+            // --- MODIFIED: Reset token display on new session ---
+            updateTokenDisplay({ input_tokens: 0, output_tokens: 0 });
             addMessage('assistant', "Starting a new conversation... Please wait.");
             toggleLoading(true);
             try {
@@ -1322,13 +1366,19 @@
 
             toggleLoading(true);
             try {
-                const res = await fetch(`/session/${sessionId}`);
-                const history = await res.json();
+                const [historyRes, tokensRes] = await Promise.all([
+                    fetch(`/session/${sessionId}`),
+                    fetch(`/session/${sessionId}/tokens`)
+                ]);
+                
+                const history = await historyRes.json();
+                const tokens = await tokensRes.json();
 
-                if (res.ok) {
+                if (historyRes.ok && tokensRes.ok) {
                     currentSessionId = sessionId;
                     chatLog.innerHTML = '';
                     history.forEach(msg => addMessage(msg.role, msg.content));
+                    updateTokenDisplay(tokens);
                     
                     document.querySelectorAll('.session-item').forEach(item => {
                         item.classList.toggle('active', item.dataset.sessionId === sessionId);
@@ -1339,7 +1389,7 @@
                     }
                     updateStatusPromptName();
                 } else {
-                    addMessage('assistant', `Error loading session: ${history.error}`);
+                    addMessage('assistant', `Error loading session: ${history.error || tokens.error}`);
                 }
             } catch (error) {
                 addMessage('assistant', `Failed to load session: ${error.message}`);
