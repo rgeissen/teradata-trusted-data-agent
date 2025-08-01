@@ -165,52 +165,103 @@ async def get_default_system_prompt(provider, model_name):
     base_prompt_template = PROVIDER_SYSTEM_PROMPTS.get(provider, PROVIDER_SYSTEM_PROMPTS["Google"])
     return jsonify({"status": "success", "system_prompt": base_prompt_template})
 
+# --- MODIFIED LOGIC: Centralized Configuration Endpoint ---
 @api_bp.route("/configure", methods=["POST"])
 async def configure_services():
-    """Configures the core LLM and MCP services."""
+    """
+    Configures and validates the core LLM and MCP services.
+    This function now performs a pre-flight check to validate credentials
+    before committing any changes to the application's state.
+    """
     data = await request.get_json()
+    provider = data.get("provider")
+    model = data.get("model")
+    
+    # Create temporary instances for validation
+    temp_llm_instance = None
+    temp_mcp_client = None
+    
     try:
-        provider = data.get("provider")
-        model = data.get("model")
-        APP_CONFIG.CURRENT_PROVIDER = provider
-        APP_CONFIG.CURRENT_MODEL = model
-        APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = None
-
+        # --- Step 1: Validate LLM Credentials with a test call ---
+        app_logger.info(f"Validating credentials for provider: {provider}")
         if provider == "Google":
+            # The genai.configure is global, so we do it once.
             genai.configure(api_key=data.get("apiKey"))
-            STATE['llm'] = genai.GenerativeModel(model)
+            temp_llm_instance = genai.GenerativeModel(model)
+            # A simple list_models call will validate the API key.
+            await llm_handler.list_models(provider, {"apiKey": data.get("apiKey")})
         elif provider == "Anthropic":
-            STATE['llm'] = AsyncAnthropic(api_key=data.get("apiKey"))
+            temp_llm_instance = AsyncAnthropic(api_key=data.get("apiKey"))
+            # Make a lightweight test call to validate the key.
+            await temp_llm_instance.models.list()
         elif provider == "Amazon":
             aws_region = data.get("aws_region")
-            APP_CONFIG.CURRENT_AWS_REGION = aws_region
-            STATE['llm'] = boto3.client(
+            temp_llm_instance = boto3.client(
                 service_name='bedrock-runtime',
                 aws_access_key_id=data.get("aws_access_key_id"),
                 aws_secret_access_key=data.get("aws_secret_access_key"),
                 region_name=aws_region
             )
-            if model.startswith("arn:aws:bedrock:"):
-                profile_part = model.split('/')[-1]
-                APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = profile_part.split('.')[1]
+            # A simple list_foundation_models call will validate credentials.
+            await llm_handler.list_models(provider, {
+                "aws_access_key_id": data.get("aws_access_key_id"),
+                "aws_secret_access_key": data.get("aws_secret_access_key"),
+                "aws_region": aws_region
+            })
         else:
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
+        app_logger.info("LLM credentials validated successfully.")
 
+        # --- Step 2: Validate MCP Connection ---
         mcp_server_url = f"http://{data.get('host')}:{data.get('port')}{data.get('path')}"
-        STATE['server_configs'] = {'teradata_mcp_server': {"url": mcp_server_url, "transport": "streamable_http"}}
-        STATE['mcp_client'] = MultiServerMCPClient(STATE['server_configs'])
+        temp_server_configs = {'teradata_mcp_server': {"url": mcp_server_url, "transport": "streamable_http"}}
+        temp_mcp_client = MultiServerMCPClient(temp_server_configs)
+        async with temp_mcp_client.session("teradata_mcp_server") as temp_session:
+            # A simple list_tools call will validate the connection.
+            await temp_session.list_tools()
+        app_logger.info("MCP server connection validated successfully.")
+
+        # --- Step 3: Commit Configuration to Global State (Atomic Update) ---
+        # If all validations pass, update the actual application state.
+        app_logger.info("All validations passed. Committing configuration to application state.")
         
+        APP_CONFIG.CURRENT_PROVIDER = provider
+        APP_CONFIG.CURRENT_MODEL = model
+        APP_CONFIG.CURRENT_AWS_REGION = data.get("aws_region") if provider == "Amazon" else None
+        APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = None
+        
+        STATE['llm'] = temp_llm_instance
+        STATE['mcp_client'] = temp_mcp_client
+        STATE['server_configs'] = temp_server_configs
+
+        if model.startswith("arn:aws:bedrock:"):
+            profile_part = model.split('/')[-1]
+            APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = profile_part.split('.')[1]
+        
+        # --- Step 4: Load MCP Resources ---
         await mcp_adapter.load_and_categorize_teradata_resources(STATE)
         APP_CONFIG.TERADATA_MCP_CONNECTED = True
+        
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
-    except (APIError, google_exceptions.PermissionDenied, ClientError, ExceptionGroup, ValueError) as e:
+
+    except (APIError, google_exceptions.PermissionDenied, ClientError, Exception) as e:
+        # If any step fails, reset the state and return an error.
+        app_logger.error(f"Configuration failed during validation: {e}", exc_info=True)
         STATE['llm'] = None
         STATE['mcp_client'] = None
         APP_CONFIG.TERADATA_MCP_CONNECTED = False
+        
         root_exception = unwrap_exception(e)
         error_message = getattr(root_exception, 'message', str(root_exception))
-        app_logger.error(f"Configuration failed: {error_message}", exc_info=True)
+        
+        # Provide a more user-friendly message for common auth errors
+        if isinstance(root_exception, (google_exceptions.PermissionDenied, ClientError)):
+            error_message = "Authentication failed. Please check your API keys or credentials."
+        elif isinstance(root_exception, APIError) and "authentication_error" in str(e):
+             error_message = "Authentication failed. Please check your Anthropic API key."
+
         return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
+# --- END MODIFIED LOGIC ---
 
 @api_bp.route("/configure_chart", methods=["POST"])
 async def configure_chart_service():
