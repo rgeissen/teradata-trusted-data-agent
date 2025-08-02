@@ -5,11 +5,11 @@ import logging
 import httpx
 
 import google.generativeai as genai
-from anthropic import AsyncAnthropic
+from anthropic import APIError, AsyncAnthropic
 import boto3
 
 from trusted_data_agent.core.config import APP_CONFIG
-from trusted_data_agent.core.session_manager import get_session
+from trusted_data_agent.core.session_manager import get_session, update_token_count
 from trusted_data_agent.core.config import (
     CERTIFIED_GOOGLE_MODELS, CERTIFIED_ANTHROPIC_MODELS,
     CERTIFIED_AMAZON_MODELS, CERTIFIED_AMAZON_PROFILES,
@@ -19,7 +19,6 @@ from trusted_data_agent.core.config import (
 llm_logger = logging.getLogger("llm_conversation")
 app_logger = logging.getLogger("quart.app")
 
-# --- NEW: Ollama Client ---
 class OllamaClient:
     """A simple async client for interacting with the Ollama API."""
     def __init__(self, host: str):
@@ -41,7 +40,7 @@ class OllamaClient:
                 "model": model,
                 "messages": messages,
                 "system": system_prompt,
-                "stream": False # Ensure we get the full response at once
+                "stream": False
             }
             response = await self.client.post("/api/chat", json=payload)
             response.raise_for_status()
@@ -50,21 +49,15 @@ class OllamaClient:
             app_logger.error(f"Ollama API request error: {e}")
             raise RuntimeError("Error during chat completion with Ollama.") from e
 
-async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None) -> dict:
-    """
-    Calls the configured LLM provider and returns the response text along with token usage.
-    
-    Returns:
-        A dictionary containing 'text' and 'usage' keys.
-        e.g., {'text': '...', 'usage': {'input_tokens': 100, 'output_tokens': 50}}
-    """
+async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None) -> tuple[str, int, int]:
     if not llm_instance:
         raise RuntimeError("LLM is not initialized.")
     
     full_log_message = ""
     response_text = ""
-    input_tokens = 0
-    output_tokens = 0
+    # --- MODIFIED: Initialize token counts ---
+    input_tokens, output_tokens = 0, 0
+    # --- END MODIFICATION ---
 
     try:
         session_data = get_session(session_id) if session_id else None
@@ -89,10 +82,12 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 raise RuntimeError("Google LLM returned an empty or invalid response.")
             response_text = response.text.strip()
             
-            # Extract token usage for Google
             if hasattr(response, 'usage_metadata'):
-                input_tokens = response.usage_metadata.prompt_token_count
-                output_tokens = response.usage_metadata.candidates_token_count
+                usage = response.usage_metadata
+                input_tokens = usage.prompt_token_count
+                output_tokens = usage.candidates_token_count
+                if session_id:
+                    update_token_count(session_id, input_tokens, output_tokens)
 
         elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
             system_prompt = system_prompt_override or (session_data['system_prompt'] if session_data else "")
@@ -120,10 +115,12 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
             response_text = response.content[0].text.strip()
             
-            # Extract token usage for Anthropic
             if hasattr(response, 'usage'):
-                input_tokens = response.usage.input_tokens
-                output_tokens = response.usage.output_tokens
+                usage = response.usage
+                input_tokens = usage.input_tokens
+                output_tokens = usage.output_tokens
+                if session_id:
+                    update_token_count(session_id, input_tokens, output_tokens)
         
         elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
             is_session_call = session_data is not None
@@ -141,6 +138,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             full_log_message += f"[user]: {prompt}\n"
 
             model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
+            
             if "amazon.nova" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
                 region = APP_CONFIG.CURRENT_AWS_REGION
                 prefix = ""
@@ -168,33 +166,14 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 body = json.dumps({"inputText": text_prompt, "textGenerationConfig": {"maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9}})
             
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model_with_response_stream(body=body, modelId=model_id_to_invoke))
-            
-            response_body = {}
-            chunk_texts = []
-            
-            for event in response.get("body"):
-                chunk = json.loads(event["chunk"]["bytes"])
-                if "anthropic" in model_id_to_invoke:
-                    if chunk['type'] == 'content_block_delta':
-                        chunk_texts.append(chunk['delta']['text'])
-                    elif chunk['type'] == 'message_stop':
-                        response_body = chunk
-                elif "amazon.nova" in model_id_to_invoke:
-                    if chunk['type'] == 'content_block_delta':
-                        chunk_texts.append(chunk['delta']['text'])
-                    elif chunk['type'] == 'message_stop':
-                        response_body = chunk
-                else: # Titan
-                    chunk_texts.append(chunk['outputText'])
-                    response_body = chunk
 
-            response_text = "".join(chunk_texts).strip()
+            app_logger.warning(f"Using non-streaming 'invoke_model' for model: {model_id_to_invoke}. Token usage not available for Amazon Bedrock.")
+            response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
+            response_body = json.loads(response.get('body').read())
 
-            # Extract token usage for Amazon Bedrock
-            metrics = response_body.get('amazon-bedrock-invocationMetrics', {})
-            input_tokens = metrics.get('inputTokenCount', 0)
-            output_tokens = metrics.get('outputTokenCount', 0)
+            if "anthropic" in model_id_to_invoke: response_text = response_body.get('content')[0].get('text')
+            elif "amazon.nova" in model_id_to_invoke: response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
+            else: response_text = response_body.get('results')[0].get('outputText')
 
         elif APP_CONFIG.CURRENT_PROVIDER == "Ollama":
             system_prompt = system_prompt_override or (session_data['system_prompt'] if session_data else "")
@@ -216,23 +195,20 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 raise RuntimeError("Ollama LLM returned an empty or invalid response.")
             response_text = response["message"]["content"].strip()
             
-            # Extract token usage for Ollama
-            input_tokens = response.get('prompt_eval_count', 0)
-            output_tokens = response.get('eval_count', 0)
+            if 'prompt_eval_count' in response and 'eval_count' in response:
+                input_tokens = response.get('prompt_eval_count', 0)
+                output_tokens = response.get('eval_count', 0)
+                if session_id:
+                    update_token_count(session_id, input_tokens, output_tokens)
 
         else:
             raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
 
         llm_logger.info(full_log_message)
         llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
-        
-        return {
-            "text": response_text,
-            "usage": {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens
-            }
-        }
+        # --- MODIFIED: Return token counts along with text ---
+        return response_text, input_tokens, output_tokens
+        # --- END MODIFICATION ---
 
     except Exception as e:
         app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
@@ -240,10 +216,10 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
         llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
         if raise_on_error:
             raise e
-        return {
-            "text": f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the language model: {str(e)}",
-            "usage": {"input_tokens": 0, "output_tokens": 0}
-        }
+        # --- MODIFIED: Return zero tokens on error ---
+        error_message = f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the language model: {str(e)}"
+        return error_message, 0, 0
+        # --- END MODIFICATION ---
 
 async def list_models(provider: str, credentials: dict) -> list[dict]:
     if provider == "Google":
@@ -272,12 +248,10 @@ async def list_models(provider: str, credentials: dict) -> list[dict]:
             models = [m['modelId'] for m in response['modelSummaries']]
             return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_MODELS} for name in models]
     
-    # --- NEW: Ollama Model Listing ---
     elif provider == "Ollama":
         client = OllamaClient(host=credentials.get("host"))
         models_data = await client.list_models()
         model_names = [m.get("name") for m in models_data]
         return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_OLLAMA_MODELS} for name in model_names]
-    # --- END NEW LOGIC ---
 
     return []

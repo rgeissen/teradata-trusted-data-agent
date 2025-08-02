@@ -37,6 +37,7 @@ async def index():
     """Serves the main HTML page."""
     return await render_template("index.html")
 
+# --- NEW: Simple Chat Endpoint ---
 @api_bp.route("/simple_chat", methods=["POST"])
 async def simple_chat():
     """
@@ -56,14 +57,13 @@ async def simple_chat():
     try:
         system_prompt = "You are a helpful assistant."
         
-        llm_response = await llm_handler.call_llm_api(
+        response_text, _, _ = await llm_handler.call_llm_api(
             llm_instance=STATE.get('llm'),
             prompt=message,
             chat_history=history,
             system_prompt_override=system_prompt
         )
         
-        response_text = llm_response.get('text', '')
         final_response = response_text.replace("FINAL_ANSWER:", "").strip()
 
         return jsonify({"response": final_response})
@@ -71,6 +71,7 @@ async def simple_chat():
     except Exception as e:
         app_logger.error(f"Error in simple_chat: {e}", exc_info=True)
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+# --- END NEW ---
 
 @api_bp.route("/app-config")
 async def get_app_config():
@@ -133,19 +134,16 @@ async def get_sessions():
 
 @api_bp.route("/session/<session_id>", methods=["GET"])
 async def get_session_history(session_id):
-    """Retrieves the chat history for a specific session."""
-    history = session_manager.get_session_history(session_id)
-    if history is not None:
-        return jsonify(history)
+    """Retrieves the chat history and token counts for a specific session."""
+    session_data = session_manager.get_session(session_id)
+    if session_data:
+        response_data = {
+            "history": session_data.get("generic_history", []),
+            "input_tokens": session_data.get("input_tokens", 0),
+            "output_tokens": session_data.get("output_tokens", 0)
+        }
+        return jsonify(response_data)
     return jsonify({"error": "Session not found"}), 404
-
-# --- NEW: Endpoint to get token usage for a session ---
-@api_bp.route("/session/<session_id>/tokens", methods=["GET"])
-async def get_session_tokens(session_id):
-    """Retrieves the token usage for a specific session."""
-    tokens = session_manager.get_token_usage(session_id)
-    return jsonify(tokens)
-# --- END NEW ---
 
 def get_full_system_prompt(base_prompt_text, charting_intensity_val):
     """Constructs the final system prompt by injecting context."""
@@ -246,7 +244,7 @@ async def configure_services():
         if provider == "Google":
             genai.configure(api_key=data.get("apiKey"))
             temp_llm_instance = genai.GenerativeModel(model)
-            await llm_handler.list_models(provider, {"apiKey": data.get("apiKey")})
+            await temp_llm_instance.generate_content_async("test", generation_config={"max_output_tokens": 1})
         elif provider == "Anthropic":
             temp_llm_instance = AsyncAnthropic(api_key=data.get("apiKey"))
             await temp_llm_instance.models.list()
@@ -258,11 +256,7 @@ async def configure_services():
                 aws_secret_access_key=data.get("aws_secret_access_key"),
                 region_name=aws_region
             )
-            await llm_handler.list_models(provider, {
-                "aws_access_key_id": data.get("aws_access_key_id"),
-                "aws_secret_access_key": data.get("aws_secret_access_key"),
-                "aws_region": aws_region
-            })
+            app_logger.info("Boto3 client for Bedrock created. Skipping pre-flight model invocation.")
         elif provider == "Ollama":
             host = data.get("ollama_host")
             if not host:
@@ -300,7 +294,7 @@ async def configure_services():
         
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
 
-    except (APIError, google_exceptions.PermissionDenied, ClientError, Exception) as e:
+    except (APIError, google_exceptions.PermissionDenied, ClientError, RuntimeError, Exception) as e:
         app_logger.error(f"Configuration failed during validation: {e}", exc_info=True)
         STATE['llm'] = None
         STATE['mcp_client'] = None
@@ -310,7 +304,10 @@ async def configure_services():
         error_message = getattr(root_exception, 'message', str(root_exception))
         
         if isinstance(root_exception, (google_exceptions.PermissionDenied, ClientError)):
-            error_message = "Authentication failed. Please check your API keys or credentials."
+             if 'AccessDeniedException' in str(e):
+                 error_message = "Access denied. Please check your AWS IAM permissions for the selected model."
+             else:
+                error_message = "Authentication failed. Please check your API keys or credentials."
         elif isinstance(root_exception, APIError) and "authentication_error" in str(e):
              error_message = "Authentication failed. Please check your Anthropic API key."
 
@@ -362,16 +359,24 @@ async def ask_stream():
 
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
-            # --- MODIFIED: Handle new return type and update tokens ---
-            llm_response = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
-            llm_reasoning_and_command = llm_response.get('text', '')
-            usage = llm_response.get('usage', {})
-
-            session_manager.update_token_usage(session_id, usage.get('input_tokens', 0), usage.get('output_tokens', 0))
-            total_usage = session_manager.get_token_usage(session_id)
-            yield _format_sse({"token_usage": total_usage}, "token_update")
+            # --- MODIFIED: Capture token counts from the return tuple ---
+            llm_reasoning_and_command, input_tokens, output_tokens = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
+            
+            # --- MODIFIED: Send per-call and total token updates ---
+            yield _format_sse({
+                "input": input_tokens,
+                "output": output_tokens
+            }, "llm_call_metrics")
+            
+            updated_session = session_manager.get_session(session_id)
+            if updated_session:
+                token_data = {
+                    "input_tokens": updated_session.get("input_tokens", 0),
+                    "output_tokens": updated_session.get("output_tokens", 0)
+                }
+                yield _format_sse(token_data, "token_update")
             # --- END MODIFICATION ---
-
+            
             if STATE['llm'] and APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama"]:
                 session_data['chat_object'].append({'role': 'user', 'content': user_input})
                 session_data['chat_object'].append({'role': 'assistant', 'content': llm_reasoning_and_command})

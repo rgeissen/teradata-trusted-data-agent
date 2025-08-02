@@ -316,13 +316,11 @@
 </head>
 <body class="flex h-screen flex-col">
 
-    <!-- MODIFIED: Restructured Nav Bar -->
     <nav class="w-full bg-black/30 backdrop-blur-md border-b border-white/10 px-4 py-2 flex items-center justify-between flex-shrink-0 z-40">
         <div class="flex items-center gap-x-4">
             <h1 class="header-title text-xl font-bold text-white">Trusted Data Agent</h1>
         </div>
         <div class="flex items-center gap-x-6">
-            <!-- Connection Status Group -->
             <div class="flex items-center gap-x-4 pr-4 border-r border-white/10">
                 <div class="flex items-center gap-x-2" title="Database MCP Server Status">
                     <div id="teradata-status-dot" class="connection-dot disconnected"></div>
@@ -334,7 +332,6 @@
                 </div>
             </div>
             
-            <!-- Application Menu Items -->
             <div class="flex items-center gap-x-1">
                 <div class="menu-item">
                     <button id="chat-modal-button" class="px-3 py-2 text-sm font-semibold text-gray-300 hover:bg-white/10 rounded-md transition-colors disabled:opacity-50" disabled>Chat</button>
@@ -368,7 +365,6 @@
             </div>
         </div>
     </nav>
-    <!-- END MODIFIED NAV -->
 
     <div class="flex flex-1 min-h-0">
         <aside id="session-history-panel" class="w-1/4 max-w-xs h-full flex flex-col glass-panel rounded-r-2xl shadow-2xl border-r border-white/10 collapsed">
@@ -464,16 +460,7 @@
             <header class="p-4 border-b border-white/10 flex flex-col justify-center items-center">
                 <h2 id="status-title" class="header-title text-lg font-bold text-white">Live Status</h2>
                 <div id="status-prompt-name" class="text-xs text-gray-400 mt-1 flex items-center gap-x-2">No Model/Prompt Loaded</div>
-                <!-- NEW: Token Usage Display -->
-                <div id="status-token-usage" class="w-full text-xs text-gray-400 mt-3 pt-3 border-t border-white/10 flex justify-between items-center">
-                    <span>Tokens Used:</span>
-                    <div class="flex gap-x-3 text-right">
-                        <span>Input: <strong id="total-input-tokens" class="text-white font-mono">0</strong></span>
-                        <span>Output: <strong id="total-output-tokens" class="text-white font-mono">0</strong></span>
-                        <span>Total: <strong id="total-tokens" class="text-teradata-orange font-mono">0</strong></span>
-                    </div>
-                </div>
-                <!-- END NEW -->
+                <div id="token-usage-display" class="text-xs text-gray-400 mt-2 h-4"></div>
             </header>
             <div id="status-window-content" class="flex-1 p-4 overflow-y-auto space-y-4">
                 <p class="text-gray-400">Waiting for a new request...</p>
@@ -481,7 +468,6 @@
         </aside>
     </div>
 
-    <!-- NEW: Chat Modal for direct LLM interaction -->
     <div id="chat-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="chat-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-2xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
             <div class="flex justify-between items-center mb-4">
@@ -493,7 +479,6 @@
                 </button>
             </div>
             <div id="chat-modal-log" class="flex-1 w-full p-3 bg-gray-800/80 border border-gray-600 rounded-md overflow-y-auto space-y-4">
-                <!-- Chat messages will be appended here -->
             </div>
             <form id="chat-modal-form" class="mt-4 flex items-center gap-3">
                 <input type="text" id="chat-modal-input" placeholder="Send a message..."
@@ -506,7 +491,6 @@
             </form>
         </div>
     </div>
-    <!-- END NEW CHAT MODAL -->
 
     <div id="info-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="info-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
@@ -856,7 +840,6 @@
         const systemPromptPopupText = document.getElementById('system-prompt-popup-text');
         const systemPromptPopupClose = document.getElementById('system-prompt-popup-close');
 
-        // --- NEW: Chat Modal elements ---
         const chatModalButton = document.getElementById('chat-modal-button');
         const chatModalOverlay = document.getElementById('chat-modal-overlay');
         const chatModalContent = document.getElementById('chat-modal-content');
@@ -865,13 +848,6 @@
         const chatModalInput = document.getElementById('chat-modal-input');
         const chatModalLog = document.getElementById('chat-modal-log');
         let simpleChatHistory = [];
-        // --- END NEW ---
-
-        // --- NEW: Token Display Elements ---
-        const totalInputTokensEl = document.getElementById('total-input-tokens');
-        const totalOutputTokensEl = document.getElementById('total-output-tokens');
-        const totalTokensEl = document.getElementById('total-tokens');
-        // --- END NEW ---
 
         let currentProvider = 'Google';
         let currentModel = '';
@@ -886,7 +862,6 @@
         let pristineConfig = {};
         let pristineChartConfig = {};
         
-        // --- System Prompt Management ---
         function getSystemPrompts() {
             try {
                 const prompts = localStorage.getItem('userSystemPrompts');
@@ -899,14 +874,11 @@
         
         function getNormalizedModelId(modelId) {
             if (!modelId) return '';
-            // If it's an ARN, extract the underlying model name
             if (modelId.startsWith('arn:aws:bedrock:')) {
                 const parts = modelId.split('/');
                 const modelPart = parts[parts.length - 1];
-                // Remove regional prefixes like 'eu.' or 'us.' to get the base model
                 return modelPart.replace(/^(eu|us|apac)\./, '');
             }
-            // Otherwise, it's a foundation model ID, return as is
             return modelId;
         }
 
@@ -1016,18 +988,8 @@
             loadingSpinner.classList.toggle('hidden', !isLoading);
         }
 
-        // --- MODIFIED: updateTokenDisplay function ---
-        function updateTokenDisplay(usage) {
-            const { input_tokens = 0, output_tokens = 0 } = usage;
-            const total = input_tokens + output_tokens;
-            totalInputTokensEl.textContent = input_tokens.toLocaleString();
-            totalOutputTokensEl.textContent = output_tokens.toLocaleString();
-            totalTokensEl.textContent = total.toLocaleString();
-        }
-
         function updateStatusWindow(eventData, isFinal = false) {
-            const { step, details, type, usage } = eventData;
-
+            const { step, details, type } = eventData;
             const shouldScroll = statusWindowContent.scrollHeight - statusWindowContent.scrollTop <= statusWindowContent.clientHeight + 10;
 
             const lastStep = document.getElementById(`status-step-${currentStatusId}`);
@@ -1041,26 +1003,16 @@
             stepEl.id = `status-step-${currentStatusId}`;
             stepEl.className = 'status-step p-3 rounded-md';
 
-            const headerDiv = document.createElement('div');
-            headerDiv.className = 'flex justify-between items-center mb-2';
-            
             const stepTitle = document.createElement('h4');
-            stepTitle.className = 'font-bold text-sm text-white';
+            stepTitle.className = 'font-bold text-sm text-white mb-2';
             stepTitle.textContent = step;
-            headerDiv.appendChild(stepTitle);
+            stepEl.appendChild(stepTitle);
 
-            // --- NEW: Display statement-level token usage ---
-            if (usage && (usage.input_tokens > 0 || usage.output_tokens > 0)) {
-                const tokenDisplay = document.createElement('div');
-                tokenDisplay.className = 'text-xs text-gray-400 font-mono';
-                tokenDisplay.innerHTML = `
-                    <span title="Input Tokens">${usage.input_tokens}</span> / 
-                    <span title="Output Tokens">${usage.output_tokens}</span>
-                `;
-                headerDiv.appendChild(tokenDisplay);
-            }
-            stepEl.appendChild(headerDiv);
-            // --- END NEW ---
+            // --- MODIFIED: Add container for per-call token metrics ---
+            const metricsEl = document.createElement('div');
+            metricsEl.className = 'per-call-metrics text-xs text-gray-400 mb-2 hidden';
+            stepEl.appendChild(metricsEl);
+            // --- END MODIFICATION ---
 
             if (details) {
                 const pre = document.createElement('pre');
@@ -1090,6 +1042,22 @@
 
             if (shouldScroll) {
                 statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
+            }
+        }
+
+        function updateTokenDisplay(inputTokens, outputTokens) {
+            const displayEl = document.getElementById('token-usage-display');
+            if (!displayEl) return;
+
+            if (currentProvider === 'Amazon') {
+                displayEl.innerHTML = `<span>Token usage not available for Amazon Bedrock</span>`;
+            } else {
+                displayEl.innerHTML = `
+                    <div class="flex items-center justify-center gap-x-4">
+                        <span>Input: <strong class="text-white">${inputTokens.toLocaleString()}</strong></span>
+                        <span>Output: <strong class="text-white">${outputTokens.toLocaleString()}</strong></span>
+                    </div>
+                `;
             }
         }
 
@@ -1155,13 +1123,25 @@
 
                         if (dataLine) {
                             const eventData = JSON.parse(dataLine);
-
-                            // --- MODIFIED: Handle new token_update event ---
+                            
                             if (eventName === 'token_update') {
-                                updateTokenDisplay(eventData.token_usage);
-                            } else if (eventName === 'request_user_input') {
+                                updateTokenDisplay(eventData.input_tokens, eventData.output_tokens);
+                            } else 
+                            // --- MODIFIED: Handle per-call metrics event ---
+                            if (eventName === 'llm_call_metrics') {
+                                const lastStep = document.getElementById(`status-step-${currentStatusId}`);
+                                if (lastStep) {
+                                    const metricsEl = lastStep.querySelector('.per-call-metrics');
+                                    if (metricsEl && currentProvider !== 'Amazon') {
+                                        metricsEl.innerHTML = `(LLM Call: ${eventData.input.toLocaleString()} in / ${eventData.output.toLocaleString()} out)`;
+                                        metricsEl.classList.remove('hidden');
+                                    }
+                                }
+                            } else 
+                            // --- END MODIFICATION ---
+                            if (eventName === 'request_user_input') {
                                 updateStatusWindow({ step: "Action Required", details: "Waiting for user to correct parameters.", type: 'workaround' });
-                                toggleLoading(false); // Unlock the UI
+                                toggleLoading(false);
                                 openCorrectionModal(eventData.details);
                             } else if (eventName === 'session_update') {
                                 const { id, name } = eventData.session_name_update;
@@ -1334,8 +1314,7 @@
             }
             chatLog.innerHTML = '';
             statusWindowContent.innerHTML = '<p class="text-gray-400">Waiting for a new request...</p>';
-            // --- MODIFIED: Reset token display on new session ---
-            updateTokenDisplay({ input_tokens: 0, output_tokens: 0 });
+            updateTokenDisplay(0, 0);
             addMessage('assistant', "Starting a new conversation... Please wait.");
             toggleLoading(true);
             try {
@@ -1366,30 +1345,25 @@
 
             toggleLoading(true);
             try {
-                const [historyRes, tokensRes] = await Promise.all([
-                    fetch(`/session/${sessionId}`),
-                    fetch(`/session/${sessionId}/tokens`)
-                ]);
-                
-                const history = await historyRes.json();
-                const tokens = await tokensRes.json();
+                const res = await fetch(`/session/${sessionId}`);
+                const data = await res.json();
 
-                if (historyRes.ok && tokensRes.ok) {
+                if (res.ok) {
                     currentSessionId = sessionId;
                     chatLog.innerHTML = '';
-                    history.forEach(msg => addMessage(msg.role, msg.content));
-                    updateTokenDisplay(tokens);
+                    data.history.forEach(msg => addMessage(msg.role, msg.content));
+                    updateTokenDisplay(data.input_tokens, data.output_tokens);
                     
                     document.querySelectorAll('.session-item').forEach(item => {
                         item.classList.toggle('active', item.dataset.sessionId === sessionId);
                     });
                     
-                    if (history.length === 0) {
+                    if (data.history.length === 0) {
                          addMessage('assistant', "I'm ready to help. How can I assist you with your Teradata system today?");
                     }
                     updateStatusPromptName();
                 } else {
-                    addMessage('assistant', `Error loading session: ${history.error || tokens.error}`);
+                    addMessage('assistant', `Error loading session: ${data.error}`);
                 }
             } catch (error) {
                 addMessage('assistant', `Failed to load session: ${error.message}`);
@@ -1427,7 +1401,6 @@
                     sessions.forEach(s => addSessionToList(s.id, s.name));
                     loadSession(sessions[0].id);
                 } else {
-                    // Don't start a new session automatically, wait for configuration.
                 }
             } catch (e) {
                 console.error("Could not load sessions", e);
@@ -1816,7 +1789,6 @@
                     }
                     updateStatusPromptName();
 
-                    // --- NEW: Enable Chat button on successful config ---
                     chatModalButton.disabled = false;
                     promptEditorButton.disabled = false;
 
@@ -1843,7 +1815,7 @@
                 configStatus.textContent = `Error: ${error.message}`;
                 configStatus.className = 'text-sm text-red-400 text-center';
                 promptEditorButton.disabled = true;
-                chatModalButton.disabled = true; // Disable on error
+                chatModalButton.disabled = true;
                 teradataStatusDot.classList.add('disconnected');
                 teradataStatusDot.classList.remove('connected');
             } finally {
@@ -2122,13 +2094,13 @@
                     'Reset System Prompt?',
                     'Changing the charting intensity requires resetting the system prompt to a new default to include updated instructions. Your custom changes will be lost. Do you want to continue?',
                     () => {
-                        resetSystemPrompt(true); // force reset without status message
+                        resetSystemPrompt(true);
                         configStatus.textContent = 'Charting intensity updated and system prompt was reset to default.';
                         configStatus.className = 'text-sm text-yellow-400 text-center';
                     }
                 );
             } else {
-                await resetSystemPrompt(true); // Just reset without bothering the user
+                await resetSystemPrompt(true);
                 configStatus.textContent = 'Charting intensity updated.';
                 configStatus.className = 'text-sm text-green-400 text-center';
             }
@@ -2141,7 +2113,6 @@
         promptEditorSave.addEventListener('click', saveSystemPromptChanges);
         promptEditorReset.addEventListener('click', () => resetSystemPrompt(false));
 
-        // --- MODIFIED: Chat Modal Logic ---
         function openChatModal() {
             chatModalOverlay.classList.remove('hidden', 'opacity-0');
             chatModalContent.classList.remove('scale-95', 'opacity-0');
@@ -2204,7 +2175,6 @@
                 chatModalInput.focus();
             }
         });
-        // --- END MODIFIED ---
         
         document.addEventListener('DOMContentLoaded', async () => {
             try {
@@ -2245,12 +2215,10 @@
                 document.getElementById('chart-mcp-path').value = '/sse';
             }
             
-            // Restore last selected provider and trigger key loading
             const lastProvider = localStorage.getItem('lastSelectedProvider');
             if (lastProvider) {
                 llmProviderSelect.value = lastProvider;
             }
-            // Programmatically trigger the change event to load the correct UI and keys
             llmProviderSelect.dispatchEvent(new Event('change'));
 
 

@@ -96,19 +96,20 @@ class PlanExecutor:
                 break
             try:
                 if self.state == AgentState.DECIDING:
-                    # The initial thought process is passed from the route, without token usage yet
                     yield _format_sse({"step": "Assistant has decided on an action", "details": self.next_action_str}, "llm_thought")
                     async for event in self._handle_deciding():
                         yield event
                 elif self.state == AgentState.EXECUTING_TOOL:
                     tool_name = self.current_command.get("tool_name")
                     tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
+                    # --- MODIFICATION: Route to column iteration logic if scope matches ---
                     if tool_scopes.get(tool_name) == 'column':
                         async for event in self._execute_column_iteration():
                             yield event
                     else:
                         async for event in self._execute_standard_tool():
                             yield event
+                    # --- END MODIFICATION ---
                 elif self.state == AgentState.SUMMARIZING:
                     async for event in self._handle_summarizing():
                         yield event
@@ -117,7 +118,6 @@ class PlanExecutor:
                 self.state = AgentState.ERROR
                 yield _format_sse({"error": "An error occurred during execution.", "details": str(e)}, "error")
         
-        # If the loop finishes without reaching a DONE or ERROR state, summarize.
         if self.state not in [AgentState.DONE, AgentState.ERROR]:
             async for event in self._handle_summarizing():
                 yield event
@@ -133,9 +133,7 @@ class PlanExecutor:
 
         json_match = re.search(r"```json\s*\n(.*?)\n\s*```", self.next_action_str, re.DOTALL)
         if not json_match:
-            # If no JSON block is found, assume it's part of an ongoing plan or a direct answer.
             if self.iteration_context:
-                # Part of a multi-step iteration
                 ctx = self.iteration_context
                 current_item_name = ctx["items"][ctx["item_index"]]
                 ctx["results_per_item"][current_item_name].append(self.next_action_str)
@@ -151,7 +149,6 @@ class PlanExecutor:
         command_str = json_match.group(1).strip()
         
         try:
-            # Check for and evaluate inline math for charting tools
             temp_command = json.loads(command_str)
             tool_name = temp_command.get("tool_name")
             mcp_charts = self.dependencies['STATE'].get('mcp_charts', {})
@@ -168,7 +165,6 @@ class PlanExecutor:
             app_logger.error(f"JSON parsing failed or 'tool_name' key missing. Error: {e}. Original string was: {command_str}")
             raise e
             
-        # Correct for LLM hallucinating a tool when it should be a prompt
         if "tool_name" in command:
             t_name = command["tool_name"]
             mcp_tools = self.dependencies['STATE'].get('mcp_tools', {})
@@ -185,12 +181,10 @@ class PlanExecutor:
         self.current_command = command
         
         if "prompt_name" in command:
-            # Handle prompt execution
             prompt_name = command.get("prompt_name")
             self.active_prompt_name = prompt_name
             arguments = command.get("arguments", command.get("parameters", {}))
             
-            # Standardize database name argument
             if 'db_name' in arguments and 'database_name' not in arguments:
                 arguments['database_name'] = arguments['db_name']
 
@@ -199,7 +193,6 @@ class PlanExecutor:
                 raise RuntimeError("MCP client is not connected.")
 
             try:
-                # Retrieve the prompt's plan from the MCP server
                 get_prompt_result = None
                 async with mcp_client.session("teradata_mcp_server") as temp_session:
                     get_prompt_result = await temp_session.get_prompt(name=prompt_name)
@@ -212,11 +205,9 @@ class PlanExecutor:
                 try:
                     self.active_prompt_plan = prompt_text.format(**arguments)
                 except KeyError as e:
-                    # Fallback for when the LLM fails to provide arguments for a prompt template.
                     missing_key = e.args[0]
                     app_logger.warning(f"Prompt formatting failed for key '{missing_key}'. Attempting to extract from user input.")
                     
-                    # Heuristic to find a database name from the user's original query.
                     match = re.search(r'\b([A-Z0-9_]+_db)\b', self.original_user_input, re.IGNORECASE)
                     if match:
                         yield _format_sse({
@@ -225,14 +216,11 @@ class PlanExecutor:
                             "type": "workaround"
                         })
                         extracted_db_name = match.group(1)
-                        # Add both possible keys to the arguments to ensure compatibility.
                         arguments['db_name'] = extracted_db_name
                         arguments['database_name'] = extracted_db_name
                         app_logger.info(f"Extracted '{extracted_db_name}' from user input for missing key. Retrying format.")
-                        # Retry the format operation with the extracted arguments.
                         self.active_prompt_plan = prompt_text.format(**arguments)
                     else:
-                        # If no suitable argument can be found, the error is genuine.
                         raise e
 
                 yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
@@ -246,7 +234,6 @@ class PlanExecutor:
         elif "tool_name" in command:
             self.state = AgentState.EXECUTING_TOOL
         else:
-            # If no tool or prompt is identified, move to summarization
             self.state = AgentState.SUMMARIZING
     
     async def _execute_standard_tool(self):
@@ -257,7 +244,6 @@ class PlanExecutor:
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
         tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         
-        # Display any system notifications (e.g., from parameter shims)
         if 'notification' in self.current_command:
             yield _format_sse({
                 "step": "System Notification", 
@@ -272,22 +258,19 @@ class PlanExecutor:
             tool_result_str = json.dumps({ "tool_name": self.current_command.get("tool_name"), "tool_output": { "status": "error", "error_message": error_details } })
         else:
             tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
-            # If a chart was generated, remove the source data to avoid duplication
             if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
                 if self.collected_data:
                     app_logger.info("Chart generated. Removing previous data source from collected data to avoid duplicate display.")
                     self.collected_data.pop()
             self.collected_data.append(tool_result)
 
-        # Handle parameter mismatch errors by requesting user input
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
-            yield _format_sse({"details": col_result}, "request_user_input")
+            yield _format_sse({"details": tool_result}, "request_user_input")
             self.state = AgentState.ERROR
             return
 
         yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
 
-        # Check if the executed tool is the start of an iterative plan
         if self.active_prompt_plan and not self.iteration_context:
             plan_text = self.active_prompt_plan.lower()
             is_iterative_plan = any(keyword in plan_text for keyword in ["cycle through", "for each", "iterate"])
@@ -302,6 +285,7 @@ class PlanExecutor:
         async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
             yield event
 
+    # --- NEW: Method to get and cache tool constraints ---
     async def _get_tool_constraints(self, tool_name: str):
         """
         Infers and caches the operational constraints of a tool (e.g., data type)
@@ -315,7 +299,7 @@ class PlanExecutor:
         mcp_tools = self.dependencies['STATE'].get('mcp_tools', {})
         tool_definition = mcp_tools.get(tool_name)
         
-        constraints = {}  # Default to no constraints
+        constraints = {}
         
         if tool_definition:
             prompt = (
@@ -333,13 +317,12 @@ class PlanExecutor:
                 "type": "workaround"
             })
 
-            llm_response = await llm_handler.call_llm_api(
+            response_text, _, _ = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], 
                 prompt, 
                 raise_on_error=True,
                 system_prompt_override="You are a JSON-only responding assistant."
             )
-            response_text = llm_response.get('text')
             
             try:
                 match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -354,7 +337,9 @@ class PlanExecutor:
         
         self.tool_constraints_cache[tool_name] = constraints
         yield constraints
+    # --- END NEW ---
 
+    # --- NEW: Adaptive logic for column-scoped tools ---
     async def _execute_column_iteration(self):
         """
         Handles the execution of tools that operate on a per-column basis.
@@ -372,7 +357,6 @@ class PlanExecutor:
             db_name, table_name = table_name.split('.', 1)
             app_logger.info(f"Parsed db_name '{db_name}' from fully qualified table_name.")
 
-        # If a specific column is already provided, just execute once.
         specific_column = base_args.get("col_name") or base_args.get("column_name")
         if specific_column:
             yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
@@ -399,7 +383,6 @@ class PlanExecutor:
                 yield event
             return
 
-        # Fetch all column descriptions first to get their data types.
         yield _format_sse({
             "step": f"Adaptive column tool detected: {tool_name}", 
             "details": "Fetching column metadata to determine compatibility.",
@@ -414,12 +397,11 @@ class PlanExecutor:
         all_columns_metadata = cols_result.get('results', [])
         all_column_results = []
         
-        # Infer constraints for the tool being used in the iteration.
         tool_constraints = None
         async for event in self._get_tool_constraints(tool_name):
-            if isinstance(event, dict): # It's the final constraints object
+            if isinstance(event, dict):
                 tool_constraints = event
-            else: # It's an SSE event string
+            else:
                 yield event
         
         required_type = tool_constraints.get("dataType") if tool_constraints else None
@@ -427,17 +409,12 @@ class PlanExecutor:
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
             
-            # --- ROBUST FIX: Deterministic Data Type Parsing ---
-            # Try a list of possible keys for the data type and handle case-insensitivity.
-            possible_keys = ["DataType", "ColumnType", "Type", "Datatype"]
+            possible_keys = ["Datatype", "ColumnType", "Type", "DataType"]
             col_type = ""
-            # Create a case-insensitive copy of the column_info keys
-            column_info_lower = {k.lower(): v for k, v in column_info.items()}
             for key in possible_keys:
-                if key.lower() in column_info_lower:
-                    col_type = (column_info_lower[key.lower()] or "").upper()
+                if key in column_info:
+                    col_type = (column_info[key] or "").upper()
                     break
-            # --- END ROBUST FIX ---
 
             if required_type:
                 is_numeric_column = any(t in col_type for t in ["INT", "NUM", "DEC", "FLOAT", "BYTEINT", "SMALLINT", "BIGINT"])
@@ -466,7 +443,6 @@ class PlanExecutor:
                     all_column_results.append(skip_result)
                     continue
 
-            # If compatible (or no constraints specified), proceed with execution.
             iter_args = base_args.copy()
             iter_args['col_name'] = col_name
             
@@ -508,12 +484,12 @@ class PlanExecutor:
         yield _format_sse({"step": "Thinking about the next action...", "details": "Adaptive column iteration complete. Resuming main plan."})
         async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
             yield event
+    # --- END NEW ---
 
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
         """
         Determines the appropriate prompt to send to the LLM to get the next
         action, based on the current state and the result of the last action.
-        This is a generator that yields SSE events.
         """
         prompt_for_next_step = "" 
         
@@ -528,20 +504,31 @@ class PlanExecutor:
                 "2. **If you find a database name,** your next action is to **retry the failed tool call**, but this time include the `db_name` argument with the value you found in the history.\n"
                 "3. **If you cannot find a database name in the history,** then and only then should you ask the user for clarification by responding with `FINAL_ANSWER:`."
              )
+        elif self.active_prompt_plan and not tool_result_str:
+            app_logger.info("Applying forceful, plan-initiating reasoning for next step.")
+            prompt_for_next_step = (
+                "You have just been given a detailed, multi-phase plan. Your current task is to begin execution.\n\n"
+                f"--- FULL PLAN ---\n{self.active_prompt_plan}\n\n"
+                "--- YOUR IMMEDIATE TASK ---\n"
+                "**Execute Phase 1, Step 1 of the plan.** Read the plan carefully and identify the very first tool you need to call. "
+                "Your response MUST be a single JSON block for that tool call. Do not summarize or ask questions."
+            )
         elif self.active_prompt_plan:
             app_logger.info("Applying forceful, plan-aware reasoning for next step.")
             last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
             prompt_for_next_step = (
-                "You are executing a multi-step plan. Your goal is to follow it precisely.\n\n"
+                "You are in the middle of executing a multi-step plan. Your primary goal is to follow this plan to completion.\n\n"
                 f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
                 "--- CURRENT STATE ---\n"
                 f"- You have just completed a step by executing the tool `{last_tool_name}`.\n"
                 "- The result of this tool call is now in the conversation history.\n\n"
-                "--- YOUR TASK ---\n"
-                "1. **Analyze the ORIGINAL PLAN.** You have just completed a step in this plan.\n"
-                "2. **Execute the NEXT STEP.** Your task is to look at the plan's text and execute the *very next* instruction in the sequence. **Do not restart the plan.**\n"
-                "   - If the next step is to call another tool, provide the JSON for that tool call.\n"
-                "   - If the next step is to generate text (like a description or summary), you **MUST** start your response with `FINAL_ANSWER:`.\n"
+                "--- YOUR TASK: EXECUTE THE NEXT STEP ---\n"
+                "1. **Analyze the ORIGINAL PLAN.** Determine the *very next* instruction in the sequence.\n"
+                "2. **Execute that instruction.**\n"
+                "   - If the next step is to call another tool, your response **MUST** be a single JSON block for that tool call.\n"
+                "   - If the next step is the final text-generation phase of the plan (e.g., writing the final description), your response **MUST** start with `FINAL_ANSWER:`.\n\n"
+                "**CRITICAL RULE on `FINAL_ANSWER`:** The `FINAL_ANSWER` keyword is reserved **exclusively** for the final, complete, user-facing response at the very end of the entire plan. "
+                "Do **NOT** use `FINAL_ANSWER` for intermediate thoughts, status updates, or summaries of completed phases. If you are not delivering the final product to the user, your response must be a tool call."
             )
         elif self.iteration_context:
             ctx = self.iteration_context
@@ -614,27 +601,19 @@ class PlanExecutor:
         else:
             final_prompt_to_llm = prompt_for_next_step
 
-        llm_response = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
+        self.next_action_str, input_tokens, output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
+        yield _format_sse({"input": input_tokens, "output": output_tokens}, "llm_call_metrics")
         
-        # Update session token count
-        usage = llm_response.get('usage', {})
-        session_manager.update_token_usage(self.session_id, usage.get('input_tokens', 0), usage.get('output_tokens', 0))
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            token_data = {
+                "input_tokens": updated_session.get("input_tokens", 0),
+                "output_tokens": updated_session.get("output_tokens", 0)
+            }
+            yield _format_sse(token_data, "token_update")
         
-        # Yield the updated total token count to the frontend
-        total_usage = session_manager.get_token_usage(self.session_id)
-        yield _format_sse({"token_usage": total_usage}, "token_update")
-
-        self.next_action_str = llm_response.get('text')
         if not self.next_action_str:
             raise ValueError("LLM failed to provide a response.")
-            
-        # Yield the thought process with statement-level token usage
-        yield _format_sse({
-            "step": "Assistant has decided on an action", 
-            "details": self.next_action_str,
-            "usage": usage  # Include statement-level token usage
-        }, "llm_thought")
-
         self.state = AgentState.DECIDING
 
     async def _handle_summarizing(self):
@@ -643,15 +622,13 @@ class PlanExecutor:
         It synthesizes all collected data and the LLM's final thoughts into a
         formatted HTML response.
         """
-        llm_response_text = self.next_action_str
+        llm_response = self.next_action_str
         summary_text = ""
 
-        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response_text, re.DOTALL | re.IGNORECASE)
+        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response, re.DOTALL | re.IGNORECASE)
 
         if final_answer_match:
             summary_text = final_answer_match.group(1).strip()
-            thought_process = llm_response_text.split(final_answer_match.group(0))[0]
-            yield _format_sse({"step": "Agent finished execution", "details": thought_process}, "llm_thought")
         else:
             yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
             final_prompt = (
@@ -664,21 +641,22 @@ class PlanExecutor:
                 "3. If you see results with a 'skipped' status, you MUST mention this in your summary and explain that the tool was not applicable to that specific column or data type.\n"
                 "4. Do not describe your internal thought process."
             )
-            final_llm_response = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+            final_llm_response, input_tokens, output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+            yield _format_sse({"input": input_tokens, "output": output_tokens}, "llm_call_metrics")
             
-            # Update and yield token usage for the final summarization call
-            usage = final_llm_response.get('usage', {})
-            session_manager.update_token_usage(self.session_id, usage.get('input_tokens', 0), usage.get('output_tokens', 0))
-            total_usage = session_manager.get_token_usage(self.session_id)
-            yield _format_sse({"token_usage": total_usage}, "token_update")
-            
-            final_llm_text = final_llm_response.get('text', '')
-            final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_text, re.DOTALL | re.IGNORECASE)
-            
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                token_data = {
+                    "input_tokens": updated_session.get("input_tokens", 0),
+                    "output_tokens": updated_session.get("output_tokens", 0)
+                }
+                yield _format_sse(token_data, "token_update")
+
+            final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
             if final_answer_match_inner:
                 summary_text = final_answer_match_inner.group(1).strip()
             else:
-                summary_text = final_llm_text or "The agent finished its plan but did not provide a final summary."
+                summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
         formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
         final_html = formatter.render()
