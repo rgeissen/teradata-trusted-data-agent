@@ -1,4 +1,4 @@
-# src/trusted_data_agent/agent/executor.py
+# trusted_data_agent/agent/executor.py
 import re
 import json
 import logging
@@ -85,6 +85,7 @@ class PlanExecutor:
         self.iteration_context = None
         self.dependencies = dependencies
         self.tool_constraints_cache = {} # Cache for inferred tool constraints
+        self.globally_failed_tools = set() # Cache for tools that are fundamentally broken
 
     async def run(self):
         """
@@ -100,16 +101,29 @@ class PlanExecutor:
                     async for event in self._handle_deciding():
                         yield event
                 elif self.state == AgentState.EXECUTING_TOOL:
+                    async for event in self._intercept_and_correct_command():
+                        yield event
                     tool_name = self.current_command.get("tool_name")
+                    
+                    if tool_name in self.globally_failed_tools:
+                        yield _format_sse({
+                            "step": f"Skipping Globally Failed Tool: {tool_name}",
+                            "details": f"The tool '{tool_name}' has been identified as non-functional for this session and will be skipped.",
+                            "type": "workaround"
+                        })
+                        tool_result_str = json.dumps({ "tool_name": tool_name, "tool_output": { "status": "error", "error_message": "Skipped because tool is globally non-functional." } })
+                        async for event_in_skip in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                            yield event_in_skip
+                        continue
+
                     tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
-                    # --- MODIFICATION: Route to column iteration logic if scope matches ---
                     if tool_scopes.get(tool_name) == 'column':
                         async for event in self._execute_column_iteration():
                             yield event
                     else:
                         async for event in self._execute_standard_tool():
                             yield event
-                    # --- END MODIFICATION ---
+
                 elif self.state == AgentState.SUMMARIZING:
                     async for event in self._handle_summarizing():
                         yield event
@@ -121,6 +135,36 @@ class PlanExecutor:
         if self.state not in [AgentState.DONE, AgentState.ERROR]:
             async for event in self._handle_summarizing():
                 yield event
+
+    async def _intercept_and_correct_command(self):
+        """
+        Intercepts specific tool calls before execution and replaces them with
+        a corrected, reliable alternative. This acts as a client-side patch
+        for known faulty tools on the MCP server.
+        """
+        if not self.current_command: return
+
+        tool_name = self.current_command.get("tool_name")
+
+        if tool_name == "base_tableList":
+            app_logger.warning("INTERCEPTED: Faulty tool 'base_tableList'. Replacing with 'base_readQuery'.")
+            
+            db_name = self.current_command.get("arguments", {}).get("db_name")
+            if not db_name:
+                raise ValueError("Cannot execute 'base_tableList' replacement: 'db_name' parameter is missing.")
+
+            corrected_sql = f"SELECT TableName FROM DBC.TablesV WHERE DatabaseName = '{db_name}'"
+            
+            self.current_command = {
+                "tool_name": "base_readQuery",
+                "arguments": {"sql": corrected_sql}
+            }
+            
+            yield _format_sse({
+                "step": "System Correction",
+                "details": f"Intercepted faulty 'base_tableList' tool. Replacing with a direct SQL query to ensure correct table filtering for database '{db_name}'.",
+                "type": "workaround"
+            })
 
     async def _handle_deciding(self):
         """
@@ -149,20 +193,9 @@ class PlanExecutor:
         command_str = json_match.group(1).strip()
         
         try:
-            temp_command = json.loads(command_str)
-            tool_name = temp_command.get("tool_name")
-            mcp_charts = self.dependencies['STATE'].get('mcp_charts', {})
-
-            if tool_name in mcp_charts:
-                corrected_command_str = _evaluate_inline_math(command_str)
-                command = json.loads(corrected_command_str)
-                if command_str != corrected_command_str:
-                    app_logger.info(f"Corrected inline math in chart JSON. Corrected string: {corrected_command_str}")
-            else:
-                command = temp_command
-        
+            command = json.loads(command_str)
         except (json.JSONDecodeError, KeyError) as e:
-            app_logger.error(f"JSON parsing failed or 'tool_name' key missing. Error: {e}. Original string was: {command_str}")
+            app_logger.error(f"JSON parsing failed. Error: {e}. Original string was: {command_str}")
             raise e
             
         if "tool_name" in command:
@@ -182,59 +215,113 @@ class PlanExecutor:
         
         if "prompt_name" in command:
             prompt_name = command.get("prompt_name")
+            
+            mcp_client = self.dependencies['STATE'].get('mcp_client')
+            if not mcp_client: raise RuntimeError("MCP client is not connected.")
+            
+            get_prompt_result = None
+            async with mcp_client.session("teradata_mcp_server") as temp_session:
+                get_prompt_result = await temp_session.get_prompt(name=prompt_name)
+            
+            if get_prompt_result is None: raise ValueError("Prompt retrieval from MCP server returned None.")
+            prompt_text = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') else str(get_prompt_result)
+
+            is_workflow = "phase 1" in prompt_text.lower() and "cycle through" in prompt_text.lower()
+            if is_workflow:
+                app_logger.info(f"Workflow prompt '{prompt_name}' detected. Switching to algorithmic execution.")
+                yield _format_sse({ "step": f"Workflow Detected: {prompt_name}", "details": "Switching to deterministic, algorithmic execution mode for this complex plan." })
+                async for event in self._parse_and_execute_workflow(prompt_text, command.get("arguments", {})):
+                    yield event
+                self.state = AgentState.SUMMARIZING
+                return
+
+            if self.active_prompt_plan:
+                app_logger.warning(f"LLM attempted a nested prompt call. Forcing summarization.")
+                self.state = AgentState.SUMMARIZING
+                return
+
             self.active_prompt_name = prompt_name
             arguments = command.get("arguments", command.get("parameters", {}))
-            
-            if 'db_name' in arguments and 'database_name' not in arguments:
-                arguments['database_name'] = arguments['db_name']
-
-            mcp_client = self.dependencies['STATE'].get('mcp_client')
-            if not mcp_client:
-                raise RuntimeError("MCP client is not connected.")
-
-            try:
-                get_prompt_result = None
-                async with mcp_client.session("teradata_mcp_server") as temp_session:
-                    get_prompt_result = await temp_session.get_prompt(name=prompt_name)
-                
-                if get_prompt_result is None:
-                    raise ValueError("Prompt retrieval from MCP server returned None.")
-
-                prompt_text = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') and hasattr(get_prompt_result.content, 'text') else str(get_prompt_result)
-                
-                try:
-                    self.active_prompt_plan = prompt_text.format(**arguments)
-                except KeyError as e:
-                    missing_key = e.args[0]
-                    app_logger.warning(f"Prompt formatting failed for key '{missing_key}'. Attempting to extract from user input.")
-                    
-                    match = re.search(r'\b([A-Z0-9_]+_db)\b', self.original_user_input, re.IGNORECASE)
-                    if match:
-                        yield _format_sse({
-                            "step": "System Correction",
-                            "details": f"LLM failed to provide database name for prompt. Attempting to recover it from user's original query.",
-                            "type": "workaround"
-                        })
-                        extracted_db_name = match.group(1)
-                        arguments['db_name'] = extracted_db_name
-                        arguments['database_name'] = extracted_db_name
-                        app_logger.info(f"Extracted '{extracted_db_name}' from user input for missing key. Retrying format.")
-                        self.active_prompt_plan = prompt_text.format(**arguments)
-                    else:
-                        raise e
-
-                yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
-
-                async for event in self._get_next_action_from_llm():
-                    yield event
-            except Exception as e:
-                app_logger.error(f"Failed to get or process prompt '{prompt_name}': {e}", exc_info=True)
-                raise RuntimeError(f"Could not retrieve the plan for prompt '{prompt_name}'.") from e
+            self.active_prompt_plan = prompt_text.format(**arguments)
+            yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
+            async for event in self._get_next_action_from_llm():
+                yield event
 
         elif "tool_name" in command:
             self.state = AgentState.EXECUTING_TOOL
         else:
             self.state = AgentState.SUMMARIZING
+
+    async def _parse_and_execute_workflow(self, prompt_text: str, args: dict):
+        """
+        Parses a workflow prompt into a deterministic plan and executes it algorithmically.
+        """
+        db_name = args.get("db_name") or args.get("database_name")
+        if not db_name:
+            raise ValueError("Workflow requires a database name.")
+
+        # Phase 1: Get tables
+        yield _format_sse({"step": "Workflow - Phase 1: Get Database Tables"})
+        self.current_command = {"tool_name": "base_tableList", "arguments": {"db_name": db_name}}
+        async for event in self._intercept_and_correct_command(): yield event
+        
+        table_list_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+        self.collected_data.append(table_list_result)
+        yield _format_sse({"step": "Tool Execution Result", "details": table_list_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
+        
+        tables = [item['TableName'] for item in table_list_result.get('results', [])]
+        if not tables:
+            yield _format_sse({"step": "Workflow Halted", "details": "No tables found in the database."})
+            return
+
+        # Phase 2: Iterate through tables
+        yield _format_sse({"step": f"Workflow - Phase 2: Collect Table Information for {len(tables)} tables"})
+        for table_name in tables:
+            yield _format_sse({"step": f"Processing Table: {table_name}"})
+            
+            # Step 2.1: Get DDL and generate business description
+            self.current_command = {"tool_name": "base_tableDDL", "arguments": {"db_name": db_name, "table_name": table_name}}
+            ddl_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+            self.collected_data.append(ddl_result)
+            yield _format_sse({"step": "Tool Execution Result", "details": ddl_result, "tool_name": "base_tableDDL"}, "tool_result")
+            
+            ddl_text = ddl_result.get("results", [{}])[0].get("Request Text", "")
+            if ddl_text:
+                # --- MODIFIED: Enhanced prompt to ensure text generation ---
+                desc_prompt = (
+                    "You are a data analyst. Your task is to provide a natural language business description based on a table's DDL.\n\n"
+                    "**CRITICAL INSTRUCTIONS:**\n"
+                    "1. Your entire response MUST be plain text.\n"
+                    "2. DO NOT generate JSON, tool calls, or any code.\n"
+                    "3. Describe the likely business purpose of the table and each column.\n\n"
+                    "**EXAMPLE OUTPUT:**\n"
+                    "This table likely stores customer information. The `CUST_ID` column is a unique identifier for each customer, and `LTV` probably represents the customer's lifetime value score.\n\n"
+                    f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
+                )
+                # --- END MODIFICATION ---
+                description, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
+                desc_result = {"type": "business_description", "table_name": table_name, "description": description, "metadata": {"tool_name": "llm_description_generation"}}
+                self.collected_data.append(desc_result)
+                yield _format_sse({"step": "Generated Business Description", "details": desc_result}, "tool_result")
+
+            # Step 2.2: Column Summary
+            self.current_command = {"tool_name": "qlty_columnSummary", "arguments": {"database_name": db_name, "table_name": table_name}}
+            summary_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+            self.collected_data.append(summary_result)
+            yield _format_sse({"step": "Tool Execution Result", "details": summary_result, "tool_name": "qlty_columnSummary"}, "tool_result")
+
+            # Step 2.3: Univariate Statistics (for all numeric columns)
+            self.current_command = {"tool_name": "qlty_univariateStatistics", "arguments": {"database_name": db_name, "table_name": table_name}}
+            async for event in self._execute_column_iteration():
+                yield event
+
+            # Step 2.4: Rows with Missing Values
+            self.current_command = {"tool_name": "qlty_rowsWithMissingValues", "arguments": {"database_name": db_name, "table_name": table_name}}
+            if self.current_command["tool_name"] in self.globally_failed_tools:
+                 yield _format_sse({"step": f"Skipping Globally Failed Tool: {self.current_command['tool_name']}"})
+            else:
+                async for event in self._execute_column_iteration():
+                    yield event
     
     async def _execute_standard_tool(self):
         """
@@ -254,7 +341,13 @@ class PlanExecutor:
 
         tool_result_str = ""
         if isinstance(tool_result, dict) and "error" in tool_result:
-            error_details = tool_result.get("data", tool_result.get("error"))
+            error_details = tool_result.get("data", tool_result.get("error", ""))
+            
+            if "Function" in str(error_details) and "does not exist" in str(error_details):
+                tool_name = self.current_command.get("tool_name")
+                self.globally_failed_tools.add(tool_name)
+                app_logger.warning(f"Tool '{tool_name}' marked as globally failed for this session.")
+            
             tool_result_str = json.dumps({ "tool_name": self.current_command.get("tool_name"), "tool_output": { "status": "error", "error_message": error_details } })
         else:
             tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
@@ -275,7 +368,7 @@ class PlanExecutor:
             plan_text = self.active_prompt_plan.lower()
             is_iterative_plan = any(keyword in plan_text for keyword in ["cycle through", "for each", "iterate"])
             
-            if is_iterative_plan and self.current_command.get("tool_name") == "base_tableList" and isinstance(tool_result, dict) and tool_result.get("status") == "success":
+            if is_iterative_plan and self.current_command.get("tool_name") == "base_readQuery" and isinstance(tool_result, dict) and tool_result.get("status") == "success":
                 items_to_iterate = [res.get("TableName") for res in tool_result.get("results", []) if res.get("TableName")]
                 if items_to_iterate:
                     self.iteration_context = { "items": items_to_iterate, "item_index": 0, "action_count_for_item": 0, "results_per_item": {item: [] for item in items_to_iterate} }
@@ -285,7 +378,6 @@ class PlanExecutor:
         async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
             yield event
 
-    # --- NEW: Method to get and cache tool constraints ---
     async def _get_tool_constraints(self, tool_name: str):
         """
         Infers and caches the operational constraints of a tool (e.g., data type)
@@ -337,21 +429,19 @@ class PlanExecutor:
         
         self.tool_constraints_cache[tool_name] = constraints
         yield constraints
-    # --- END NEW ---
 
-    # --- NEW: Adaptive logic for column-scoped tools ---
     async def _execute_column_iteration(self):
         """
         Handles the execution of tools that operate on a per-column basis.
-        This version is adaptive: it fetches column metadata first and only
-        runs tools on columns with a compatible data type based on LLM-inferred constraints.
+        This version is adaptive: it fetches column metadata first (or uses cached data)
+        and only runs tools on columns with a compatible data type based on LLM-inferred constraints.
         """
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
         base_args = base_command.get("arguments", base_command.get("parameters", {}))
         
-        db_name = base_args.get("db_name")
-        table_name = base_args.get("table_name")
+        db_name = base_args.get("database_name") or base_args.get("db_name")
+        table_name = base_args.get("table_name") or base_args.get("obj_name")
 
         if table_name and '.' in table_name and not db_name:
             db_name, table_name = table_name.split('.', 1)
@@ -383,18 +473,28 @@ class PlanExecutor:
                 yield event
             return
 
-        yield _format_sse({
-            "step": f"Adaptive column tool detected: {tool_name}", 
-            "details": "Fetching column metadata to determine compatibility.",
-            "type": "workaround"
-        })
-        cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
-        cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
-
-        if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
-            raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
+        all_columns_metadata = []
+        if self.collected_data:
+            last_result = self.collected_data[-1]
+            if isinstance(last_result, dict):
+                lr_meta = last_result.get("metadata", {})
+                if lr_meta.get("tool_name") in ["qlty_columnSummary", "base_columnDescription"] and lr_meta.get("table_name", "").endswith(table_name):
+                    app_logger.info(f"Reusing column metadata from previous '{lr_meta.get('tool_name')}' tool call.")
+                    all_columns_metadata = last_result.get("results", [])
         
-        all_columns_metadata = cols_result.get('results', [])
+        if not all_columns_metadata:
+            yield _format_sse({
+                "step": f"Adaptive column tool detected: {tool_name}", 
+                "details": "Fetching column metadata to determine compatibility.",
+                "type": "workaround"
+            })
+            cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
+            cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
+
+            if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
+                raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
+            all_columns_metadata = cols_result.get('results', [])
+
         all_column_results = []
         
         tool_constraints = None
@@ -409,11 +509,11 @@ class PlanExecutor:
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
             
-            possible_keys = ["Datatype", "ColumnType", "Type", "DataType"]
+            possible_keys = ["datatype", "columntype", "type"]
             col_type = ""
-            for key in possible_keys:
-                if key in column_info:
-                    col_type = (column_info[key] or "").upper()
+            for key, value in column_info.items():
+                if key.lower() in possible_keys:
+                    col_type = (value or "").upper()
                     break
 
             if required_type:
@@ -455,6 +555,15 @@ class PlanExecutor:
             yield _format_sse({"step": "Tool Execution Intent", "details": iter_command}, "tool_result")
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
             
+            if isinstance(col_result, dict) and "error" in col_result:
+                error_details = col_result.get("data", col_result.get("error", ""))
+                if "Function" in str(error_details) and "does not exist" in str(error_details):
+                    self.globally_failed_tools.add(tool_name)
+                    app_logger.warning(f"Tool '{tool_name}' marked as globally failed for this session during iteration.")
+                    all_column_results.append({ "status": "error", "reason": f"Tool '{tool_name}' is non-functional.", "metadata": {"tool_name": tool_name}})
+                    yield _format_sse({ "step": f"Halting iteration for globally failed tool: {tool_name}", "details": error_details, "type": "error" })
+                    break 
+
             if 'notification' in iter_command:
                 yield _format_sse({
                     "step": "System Notification", 
@@ -484,7 +593,6 @@ class PlanExecutor:
         yield _format_sse({"step": "Thinking about the next action...", "details": "Adaptive column iteration complete. Resuming main plan."})
         async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
             yield event
-    # --- END NEW ---
 
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
         """
@@ -512,6 +620,18 @@ class PlanExecutor:
                 "--- YOUR IMMEDIATE TASK ---\n"
                 "**Execute Phase 1, Step 1 of the plan.** Read the plan carefully and identify the very first tool you need to call. "
                 "Your response MUST be a single JSON block for that tool call. Do not summarize or ask questions."
+            )
+        elif self.iteration_context and self.iteration_context["item_index"] == 0 and self.iteration_context["action_count_for_item"] == 0:
+            app_logger.info("Applying forceful, iteration-initiating reasoning for next step.")
+            ctx = self.iteration_context
+            first_item = ctx["items"][0]
+            prompt_for_next_step = (
+                "You have successfully completed Phase 1 and have the list of items to process. Your task is to now begin Phase 2.\n\n"
+                f"--- FULL PLAN ---\n{self.active_prompt_plan}\n\n"
+                "--- YOUR IMMEDIATE TASK ---\n"
+                f"**Begin Phase 2 with the very first item: `{first_item}`.** "
+                "According to the plan, what is the first tool you need to call for this item? "
+                "Your response MUST be a single JSON block for that tool call."
             )
         elif self.active_prompt_plan:
             app_logger.info("Applying forceful, plan-aware reasoning for next step.")
@@ -556,7 +676,7 @@ class PlanExecutor:
                     except ValueError:
                         pass 
 
-                if ctx["action_count_for_item"] >= 4:
+                if ctx["action_count_for_item"] >= 4: # Safety break per item
                     ctx["item_index"] += 1
                     ctx["action_count_for_item"] = 0
                     if ctx["item_index"] >= len(ctx["items"]):
@@ -658,8 +778,58 @@ class PlanExecutor:
             else:
                 summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
-        formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
-        final_html = formatter.render()
+        if self.active_prompt_name == "qlty_databaseQuality":
+            final_html = self._format_quality_workflow_summary(summary_text)
+        else:
+            formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
+            final_html = formatter.render()
+        
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield _format_sse({"final_answer": final_html}, "final_answer")
         self.state = AgentState.DONE
+
+    def _format_quality_workflow_summary(self, llm_summary: str) -> str:
+        """
+        A specialized formatter to render the results of the qlty_databaseQuality workflow.
+        """
+        data_by_table = {}
+        for item in self.collected_data:
+            if not isinstance(item, dict): continue
+            
+            metadata = item.get("metadata", {})
+            table_name = metadata.get("table_name", metadata.get("table"))
+            if table_name and '.' in table_name:
+                table_name = table_name.split('.')[1]
+
+            if not table_name and item.get("type") == "business_description":
+                table_name = item.get("table_name")
+
+            if not table_name: continue
+
+            if table_name not in data_by_table:
+                data_by_table[table_name] = []
+            data_by_table[table_name].append(item)
+
+        html = f"<div class='response-card summary-card'><p>{llm_summary}</p></div>"
+        
+        formatter = OutputFormatter("", [])
+        
+        for table_name, data in data_by_table.items():
+            html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{table_name}</code></summary><div class='px-4'>"
+            
+            for item in data:
+                tool_name = item.get("metadata", {}).get("tool_name")
+                if item.get("type") == "business_description":
+                    html += f"<div class='response-card'><h4 class='text-lg font-semibold text-white mb-2'>Business Description</h4><p class='text-gray-300'>{item.get('description')}</p></div>"
+                elif tool_name == 'base_tableDDL':
+                    html += formatter._render_ddl(item, 0)
+                elif tool_name == 'qlty_columnSummary':
+                    html += formatter._render_table(item, 0, f"Column Summary for {table_name}")
+                elif tool_name == 'qlty_univariateStatistics':
+                    flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
+                    if flat_results:
+                         html += formatter._render_table({"results": flat_results[0]['results'], "metadata": flat_results[0]['metadata']}, 0, f"Univariate Statistics for {table_name}")
+
+            html += "</div></details>"
+
+        return html
