@@ -3,9 +3,12 @@ import asyncio
 import json
 import logging
 import httpx
+import re
+import random
+import time
 
 import google.generativeai as genai
-from anthropic import APIError, AsyncAnthropic
+from anthropic import APIError, AsyncAnthropic, InternalServerError, RateLimitError
 import boto3
 
 from trusted_data_agent.core.config import APP_CONFIG
@@ -23,7 +26,7 @@ class OllamaClient:
     """A simple async client for interacting with the Ollama API."""
     def __init__(self, host: str):
         self.host = host
-        self.client = httpx.AsyncClient(base_url=self.host, timeout=60.0)
+        self.client = httpx.AsyncClient(base_url=self.host, timeout=120.0)
 
     async def list_models(self):
         try:
@@ -49,177 +52,212 @@ class OllamaClient:
             app_logger.error(f"Ollama API request error: {e}")
             raise RuntimeError("Error during chat completion with Ollama.") from e
 
+def _sanitize_llm_output(text: str) -> str:
+    """
+    Strips invalid characters from LLM output, specifically non-printable
+    and zero-width characters that can cause parsing errors.
+    """
+    sanitized_text = text.replace('\ufeff', '')
+    sanitized_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', sanitized_text)
+    return sanitized_text.strip()
+
 async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None) -> tuple[str, int, int]:
     if not llm_instance:
         raise RuntimeError("LLM is not initialized.")
     
     full_log_message = ""
     response_text = ""
-    # --- MODIFIED: Initialize token counts ---
     input_tokens, output_tokens = 0, 0
-    # --- END MODIFICATION ---
+    
+    max_retries = 3
+    base_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            session_data = get_session(session_id) if session_id else None
 
-    try:
-        session_data = get_session(session_id) if session_id else None
-
-        if APP_CONFIG.CURRENT_PROVIDER == "Google":
-            is_session_call = session_data is not None
-            
-            if is_session_call:
-                chat_session = session_data['chat_object']
-                history_for_log = chat_session.history
-                if history_for_log:
-                    formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_log]
-                    full_log_message += f"--- FULL CONTEXT (Session: {session_id}) ---\n--- History ---\n" + "\n".join(formatted_lines) + "\n\n"
+            if APP_CONFIG.CURRENT_PROVIDER == "Google":
+                is_session_call = session_data is not None
                 
-                full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
-                response = await chat_session.send_message_async(prompt)
-            else:
-                full_log_message += f"--- ONE-OFF CALL ---\n--- Prompt ---\n{prompt}\n"
-                response = await llm_instance.generate_content_async(prompt)
+                if is_session_call:
+                    chat_session = session_data['chat_object']
+                    history_for_log = chat_session.history
+                    if history_for_log:
+                        formatted_lines = [f"[{msg.role}]: {msg.parts[0].text}" for msg in history_for_log]
+                        full_log_message += f"--- FULL CONTEXT (Session: {session_id}) ---\n--- History ---\n" + "\n".join(formatted_lines) + "\n\n"
+                    
+                    full_log_message += f"--- Current User Prompt ---\n{prompt}\n"
+                    response = await chat_session.send_message_async(prompt)
+                else:
+                    full_log_message += f"--- ONE-OFF CALL ---\n--- Prompt ---\n{prompt}\n"
+                    response = await llm_instance.generate_content_async(prompt)
 
-            if not response or not hasattr(response, 'text'):
-                raise RuntimeError("Google LLM returned an empty or invalid response.")
-            response_text = response.text.strip()
-            
-            if hasattr(response, 'usage_metadata'):
-                usage = response.usage_metadata
-                input_tokens = usage.prompt_token_count
-                output_tokens = usage.candidates_token_count
-                if session_id:
-                    update_token_count(session_id, input_tokens, output_tokens)
-
-        elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
-            system_prompt = system_prompt_override or (session_data['system_prompt'] if session_data else "")
-            if not system_prompt:
-                 raise ValueError("A session_id or system_prompt_override is required for Anthropic provider.")
-
-            history_source = chat_history
-            if history_source is None:
-                history_source = session_data.get('chat_object', []) if session_data else []
-
-            messages = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history_source if msg.get('role') in ['user', 'model', 'assistant']]
-            messages.append({'role': 'user', 'content': prompt})
-
-            full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
-            full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
-            for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
-            
-            response = await llm_instance.messages.create(
-                model=APP_CONFIG.CURRENT_MODEL,
-                system=system_prompt,
-                messages=messages,
-                max_tokens=4096
-            )
-            if not response or not response.content:
-                raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
-            response_text = response.content[0].text.strip()
-            
-            if hasattr(response, 'usage'):
-                usage = response.usage
-                input_tokens = usage.input_tokens
-                output_tokens = usage.output_tokens
-                if session_id:
-                    update_token_count(session_id, input_tokens, output_tokens)
-        
-        elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
-            is_session_call = session_data is not None
-
-            if is_session_call:
-                system_prompt = session_data['system_prompt']
-                history = session_data['chat_object']
-            else:
-                system_prompt = system_prompt_override or "You are a helpful assistant."
-                history = chat_history or []
-
-            full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
-            full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
-            for msg in history: full_log_message += f"[{msg.get('role')}]: {msg.get('content')}\n"
-            full_log_message += f"[user]: {prompt}\n"
-
-            model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
-            
-            if "amazon.nova" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
-                region = APP_CONFIG.CURRENT_AWS_REGION
-                prefix = ""
-                if region.startswith("us-"): prefix = "us."
-                elif region.startswith("eu-"): prefix = "eu."
-                elif region.startswith("ap-"): prefix = "apac."
+                if not response or not hasattr(response, 'text'):
+                    raise RuntimeError("Google LLM returned an empty or invalid response.")
+                response_text = response.text.strip()
                 
-                if prefix:
-                    adjusted_id = f"{prefix}{model_id_to_invoke}"
-                    app_logger.info(f"Adjusting Nova model ID from '{model_id_to_invoke}' to '{adjusted_id}' for region '{region}'.")
-                    model_id_to_invoke = adjusted_id
+                if hasattr(response, 'usage_metadata'):
+                    usage = response.usage_metadata
+                    input_tokens = usage.prompt_token_count
+                    output_tokens = usage.candidates_token_count
+                    if session_id:
+                        update_token_count(session_id, input_tokens, output_tokens)
+                
+                llm_logger.info(full_log_message)
+                llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
+                return response_text, input_tokens, output_tokens
 
-            if "anthropic" in model_id_to_invoke:
-                messages = [{'role': msg['role'], 'content': msg['content']} for msg in history]
+            elif APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
+                system_prompt = system_prompt_override or (session_data['system_prompt'] if session_id else "")
+                if not system_prompt:
+                     raise ValueError("A session_id or system_prompt_override is required for Anthropic provider.")
+
+                history_source = chat_history
+                if history_source is None:
+                    history_source = session_data.get('chat_object', []) if session_id else []
+
+                messages = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history_source if msg.get('role') in ['user', 'model', 'assistant']]
                 messages.append({'role': 'user', 'content': prompt})
-                body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "system": system_prompt, "messages": messages})
-            elif "amazon.nova" in model_id_to_invoke:
-                messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history]
-                messages.append({"role": "user", "content": [{"text": prompt}]})
-                body_dict = {"messages": messages, "inferenceConfig": {"maxTokens": 4096, "temperature": 0.7, "topP": 0.9}}
-                if system_prompt: body_dict["system"] = [{"text": system_prompt}]
-                body = json.dumps(body_dict)
+
+                full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
+                full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
+                for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
+                
+                response = await llm_instance.messages.create(
+                    model=APP_CONFIG.CURRENT_MODEL,
+                    system=system_prompt,
+                    messages=messages,
+                    max_tokens=4096,
+                    timeout=120.0
+                )
+
+                if not response or not response.content:
+                    raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
+                
+                response_text = _sanitize_llm_output(response.content[0].text)
+                
+                if hasattr(response, 'usage'):
+                    usage = response.usage
+                    input_tokens = usage.input_tokens
+                    output_tokens = usage.output_tokens
+                    if session_id:
+                        update_token_count(session_id, input_tokens, output_tokens)
+
+                llm_logger.info(full_log_message)
+                llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
+                return response_text, input_tokens, output_tokens
+            
+            elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
+                is_session_call = session_data is not None
+
+                if is_session_call:
+                    system_prompt = session_data['system_prompt']
+                    history = session_data['chat_object']
+                else:
+                    system_prompt = system_prompt_override or "You are a helpful assistant."
+                    history = chat_history or []
+
+                full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
+                full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
+                for msg in history: full_log_message += f"[{msg.get('role')}]: {msg.get('content')}\n"
+                full_log_message += f"[user]: {prompt}\n"
+
+                model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
+                
+                if "amazon.nova" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
+                    region = APP_CONFIG.CURRENT_AWS_REGION
+                    prefix = ""
+                    if region.startswith("us-"): prefix = "us."
+                    elif region.startswith("eu-"): prefix = "eu."
+                    elif region.startswith("ap-"): prefix = "apac."
+                    
+                    if prefix:
+                        adjusted_id = f"{prefix}{model_id_to_invoke}"
+                        app_logger.info(f"Adjusting Nova model ID from '{model_id_to_invoke}' to '{adjusted_id}' for region '{region}'.")
+                        model_id_to_invoke = adjusted_id
+
+                if "anthropic" in model_id_to_invoke:
+                    messages = [{'role': msg['role'], 'content': msg['content']} for msg in history]
+                    messages.append({'role': 'user', 'content': prompt})
+                    body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "system": system_prompt, "messages": messages})
+                elif "amazon.nova" in model_id_to_invoke:
+                    messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history]
+                    messages.append({"role": "user", "content": [{"text": prompt}]})
+                    body_dict = {"messages": messages, "inferenceConfig": {"maxTokens": 4096, "temperature": 0.7, "topP": 0.9}}
+                    if system_prompt: body_dict["system"] = [{"text": system_prompt}]
+                    body = json.dumps(body_dict)
+                else:
+                    text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history]) + f"user: {prompt}\n\nassistant:"
+                    body = json.dumps({"inputText": text_prompt, "textGenerationConfig": {"maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9}})
+                
+                loop = asyncio.get_running_loop()
+
+                app_logger.warning(f"Using non-streaming 'invoke_model' for model: {model_id_to_invoke}. Token usage not available for Amazon Bedrock.")
+                response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
+                response_body = json.loads(response.get('body').read())
+
+                if "anthropic" in model_id_to_invoke: response_text = response_body.get('content')[0].get('text')
+                elif "amazon.nova" in model_id_to_invoke: response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
+                else: response_text = response_body.get('results')[0].get('outputText')
+                
+                llm_logger.info(full_log_message)
+                llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
+                return response_text, input_tokens, output_tokens
+
+
+            elif APP_CONFIG.CURRENT_PROVIDER == "Ollama":
+                system_prompt = system_prompt_override or (session_data['system_prompt'] if session_id else "")
+                history_source = chat_history or (session_data.get('chat_object', []) if session_id else [])
+                
+                messages = [{'role': msg.get('role'), 'content': msg.get('content')} for msg in history_source]
+                messages.append({'role': 'user', 'content': prompt})
+
+                full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
+                full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
+                for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
+
+                response = await llm_instance.chat(
+                    model=APP_CONFIG.CURRENT_MODEL,
+                    messages=messages,
+                    system_prompt=system_prompt
+                )
+                if not response or "message" not in response or "content" not in response["message"]:
+                    raise RuntimeError("Ollama LLM returned an empty or invalid response.")
+                response_text = response["message"]["content"].strip()
+                
+                if 'prompt_eval_count' in response and 'eval_count' in response:
+                    input_tokens = response.get('prompt_eval_count', 0)
+                    output_tokens = response.get('eval_count', 0)
+                    if session_id:
+                        update_token_count(session_id, input_tokens, output_tokens)
+                
+                llm_logger.info(full_log_message)
+                llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
+                return response_text, input_tokens, output_tokens
+
             else:
-                text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history]) + f"user: {prompt}\n\nassistant:"
-                body = json.dumps({"inputText": text_prompt, "textGenerationConfig": {"maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9}})
-            
-            loop = asyncio.get_running_loop()
-
-            app_logger.warning(f"Using non-streaming 'invoke_model' for model: {model_id_to_invoke}. Token usage not available for Amazon Bedrock.")
-            response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
-            response_body = json.loads(response.get('body').read())
-
-            if "anthropic" in model_id_to_invoke: response_text = response_body.get('content')[0].get('text')
-            elif "amazon.nova" in model_id_to_invoke: response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
-            else: response_text = response_body.get('results')[0].get('outputText')
-
-        elif APP_CONFIG.CURRENT_PROVIDER == "Ollama":
-            system_prompt = system_prompt_override or (session_data['system_prompt'] if session_data else "")
-            history_source = chat_history or (session_data.get('chat_object', []) if session_data else [])
-            
-            messages = [{'role': msg.get('role'), 'content': msg.get('content')} for msg in history_source]
-            messages.append({'role': 'user', 'content': prompt})
-
-            full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
-            full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
-            for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
-
-            response = await llm_instance.chat(
-                model=APP_CONFIG.CURRENT_MODEL,
-                messages=messages,
-                system_prompt=system_prompt
-            )
-            if not response or "message" not in response or "content" not in response["message"]:
-                raise RuntimeError("Ollama LLM returned an empty or invalid response.")
-            response_text = response["message"]["content"].strip()
-            
-            if 'prompt_eval_count' in response and 'eval_count' in response:
-                input_tokens = response.get('prompt_eval_count', 0)
-                output_tokens = response.get('eval_count', 0)
-                if session_id:
-                    update_token_count(session_id, input_tokens, output_tokens)
-
-        else:
-            raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
-
-        llm_logger.info(full_log_message)
-        llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
-        # --- MODIFIED: Return token counts along with text ---
-        return response_text, input_tokens, output_tokens
-        # --- END MODIFICATION ---
-
-    except Exception as e:
-        app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
-        llm_logger.error(full_log_message)
-        llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
-        if raise_on_error:
+                raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
+        
+        except (InternalServerError, RateLimitError) as e:
+            if APP_CONFIG.CURRENT_PROVIDER == "Anthropic" and attempt < max_retries - 1:
+                delay = (base_delay * (2 ** attempt)) + random.uniform(0, 1)
+                app_logger.warning(f"Anthropic model overloaded. Retrying in {delay:.2f} seconds... (Attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+                continue
+            else:
+                app_logger.error(f"Anthropic model still overloaded after {max_retries} retries. Aborting.")
+                raise e
+        except Exception as e:
+            app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
+            llm_logger.error(full_log_message)
+            llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
             raise e
-        # --- MODIFIED: Return zero tokens on error ---
-        error_message = f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the language model: {str(e)}"
-        return error_message, 0, 0
-        # --- END MODIFICATION ---
+    
+    # This part of the code is only reached if the try/except/continue/raise logic is correct
+    # But as a fallback, return an error message
+    error_message = f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the Anthropic model: Overloaded_error after {max_retries} retries."
+    raise RuntimeError(error_message)
+
 
 async def list_models(provider: str, credentials: dict) -> list[dict]:
     if provider == "Google":

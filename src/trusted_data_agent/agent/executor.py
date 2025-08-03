@@ -386,7 +386,7 @@ class PlanExecutor:
         self.collected_data.append(table_list_result)
         yield _format_sse({"step": "Tool Execution Result", "details": table_list_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
         
-        tables = [item['TableName'] for item in table_list_result.get('results', [])]
+        tables = [item['TableName'] for item in table_list_result.get('results', []) if item.get('TableName')]
         if not tables:
             yield _format_sse({"step": "Workflow Halted", "details": "No tables found in the database."})
             return
@@ -471,23 +471,12 @@ class PlanExecutor:
 
                 tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
                 if tool_scopes.get(tool_name) == 'column':
-                    # Pass the table_workflow_context for potentially more informed skipping
                     async for event in self._execute_column_iteration(
                         callback_llm=False,
                         workflow_context=table_workflow_context
                     ):
                         yield event
-                    # Column iteration results are appended internally, so we just check the last one.
-                    # In this workflow context, _execute_column_iteration appends to self.collected_data directly.
-                    # We need to ensure that the workflow context can be updated if necessary.
                     if self.collected_data and isinstance(self.collected_data[-1], list):
-                        # If _execute_column_iteration returns a list of results (one per column)
-                        # we need to inspect them to update the workflow context.
-                        # For simplicity, we'll just consider the aggregated outcome.
-                        # More granular updates would require iterating through `self.collected_data[-1]`
-                        # to find results that could update the context (e.g., total_nulls).
-                        # For now, if the workflow is managing skipping for nulls,
-                        # this specific update is less critical here as it's done before column iteration.
                         pass
                 else: 
                     tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
@@ -817,8 +806,8 @@ class PlanExecutor:
                     app_logger.warning(f"Tool '{tool_name}' marked as globally failed for this session during iteration.")
                     all_column_results.append({ "status": "error", "reason": f"Tool '{tool_name}' is non-functional.", "metadata": {"tool_name": tool_name, "col_name": col_name}})
                     yield _format_sse({ "step": f"Halting iteration for globally failed tool: {tool_name}", "details": error_details, "type": "error" })
-                    break # Stop processing further columns if the tool itself is fundamentally broken
-
+                    break
+            
             if 'notification' in iter_command:
                 yield _format_sse({
                     "step": "System Notification", 
