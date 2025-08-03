@@ -229,13 +229,11 @@ class PlanExecutor:
             is_workflow = "phase 1" in prompt_text.lower() and "cycle through" in prompt_text.lower()
             if is_workflow:
                 app_logger.info(f"Workflow prompt '{prompt_name}' detected. Switching to algorithmic execution.")
-                # --- MODIFIED: Include prompt_text in the details for UX transparency ---
                 yield _format_sse({
                     "step": f"Workflow Detected: {prompt_name}",
                     "details": prompt_text,
                     "prompt_name": prompt_name
                 }, "prompt_selected")
-                # --- END MODIFICATION ---
                 async for event in self._parse_and_execute_workflow(prompt_text, command.get("arguments", {})):
                     yield event
                 self.state = AgentState.SUMMARIZING
@@ -326,6 +324,8 @@ class PlanExecutor:
             else:
                 async for event in self._execute_column_iteration():
                     yield event
+        
+        self.next_action_str = "FINAL_ANSWER:"
     
     async def _execute_standard_tool(self):
         """
@@ -849,7 +849,16 @@ class PlanExecutor:
                 elif tool_name == 'qlty_univariateStatistics':
                     flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
                     if flat_results:
-                         html += formatter._render_table({"results": flat_results[0]['results'], "metadata": flat_results[0]['metadata']}, 0, f"Univariate Statistics for {table_name}")
+                         # --- MODIFIED: Combine results from all successful runs ---
+                         combined_results = []
+                         for res in flat_results:
+                             combined_results.extend(res.get('results', []))
+                         
+                         if combined_results:
+                             # Use metadata from the first successful result for the title
+                             first_meta = flat_results[0].get('metadata', {})
+                             html += formatter._render_table({"results": combined_results, "metadata": first_meta}, 0, f"Univariate Statistics for {table_name}")
+                         # --- END MODIFICATION ---
 
             html += "</div></details>"
 
