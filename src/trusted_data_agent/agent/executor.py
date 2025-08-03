@@ -306,6 +306,7 @@ class PlanExecutor:
                 self.state = AgentState.SUMMARIZING
                 return
 
+            # This block is now only executed for non-workflow prompts
             if self.active_prompt_plan:
                 app_logger.warning(f"LLM attempted a nested prompt call. Forcing summarization.")
                 self.state = AgentState.SUMMARIZING
