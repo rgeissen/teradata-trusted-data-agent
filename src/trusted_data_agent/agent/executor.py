@@ -229,7 +229,13 @@ class PlanExecutor:
             is_workflow = "phase 1" in prompt_text.lower() and "cycle through" in prompt_text.lower()
             if is_workflow:
                 app_logger.info(f"Workflow prompt '{prompt_name}' detected. Switching to algorithmic execution.")
-                yield _format_sse({ "step": f"Workflow Detected: {prompt_name}", "details": "Switching to deterministic, algorithmic execution mode for this complex plan." })
+                # --- MODIFIED: Include prompt_text in the details for UX transparency ---
+                yield _format_sse({
+                    "step": f"Workflow Detected: {prompt_name}",
+                    "details": prompt_text,
+                    "prompt_name": prompt_name
+                }, "prompt_selected")
+                # --- END MODIFICATION ---
                 async for event in self._parse_and_execute_workflow(prompt_text, command.get("arguments", {})):
                     yield event
                 self.state = AgentState.SUMMARIZING
@@ -287,7 +293,6 @@ class PlanExecutor:
             
             ddl_text = ddl_result.get("results", [{}])[0].get("Request Text", "")
             if ddl_text:
-                # --- MODIFIED: Enhanced prompt to ensure text generation ---
                 desc_prompt = (
                     "You are a data analyst. Your task is to provide a natural language business description based on a table's DDL.\n\n"
                     "**CRITICAL INSTRUCTIONS:**\n"
@@ -298,7 +303,6 @@ class PlanExecutor:
                     "This table likely stores customer information. The `CUST_ID` column is a unique identifier for each customer, and `LTV` probably represents the customer's lifetime value score.\n\n"
                     f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
                 )
-                # --- END MODIFICATION ---
                 description, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
                 desc_result = {"type": "business_description", "table_name": table_name, "description": description, "metadata": {"tool_name": "llm_description_generation"}}
                 self.collected_data.append(desc_result)
@@ -497,6 +501,23 @@ class PlanExecutor:
 
         all_column_results = []
         
+        first_column_to_try = next((col.get("ColumnName") for col in all_columns_metadata), None)
+        if first_column_to_try:
+            preflight_args = base_args.copy()
+            preflight_args['col_name'] = first_column_to_try
+            preflight_command = {"tool_name": tool_name, "arguments": preflight_args}
+            preflight_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], preflight_command)
+            
+            if isinstance(preflight_result, dict) and "error" in preflight_result:
+                error_details = preflight_result.get("data", preflight_result.get("error", ""))
+                if "Function" in str(error_details) and "does not exist" in str(error_details):
+                    self.globally_failed_tools.add(tool_name)
+                    app_logger.warning(f"Tool '{tool_name}' marked as globally failed by pre-flight check.")
+                    yield _format_sse({ "step": f"Halting iteration for globally failed tool: {tool_name}", "details": "Pre-flight check failed.", "type": "error" })
+                    all_column_results.append({ "status": "error", "reason": f"Tool '{tool_name}' is non-functional.", "metadata": {"tool_name": tool_name}})
+                    self.collected_data.append(all_column_results)
+                    return 
+
         tool_constraints = None
         async for event in self._get_tool_constraints(tool_name):
             if isinstance(event, dict):
@@ -509,12 +530,16 @@ class PlanExecutor:
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
             
-            possible_keys = ["datatype", "columntype", "type"]
             col_type = ""
             for key, value in column_info.items():
-                if key.lower() in possible_keys:
+                if key.lower() in ["datatype", "columntype", "type"]:
                     col_type = (value or "").upper()
                     break
+            if not col_type:
+                for key, value in column_info.items():
+                    if "type" in key.lower():
+                        col_type = (value or "").upper()
+                        break
 
             if required_type:
                 is_numeric_column = any(t in col_type for t in ["INT", "NUM", "DEC", "FLOAT", "BYTEINT", "SMALLINT", "BIGINT"])
@@ -546,10 +571,6 @@ class PlanExecutor:
             iter_args = base_args.copy()
             iter_args['col_name'] = col_name
             
-            if db_name and table_name and '.' not in table_name:
-                iter_args["table_name"] = f"{db_name}.{table_name}"
-                if 'db_name' in iter_args: del iter_args["db_name"]
-
             iter_command = {"tool_name": tool_name, "arguments": iter_args}
 
             yield _format_sse({"step": "Tool Execution Intent", "details": iter_command}, "tool_result")
