@@ -256,6 +256,45 @@ class PlanExecutor:
         else:
             self.state = AgentState.SUMMARIZING
 
+    def _update_workflow_context(self, context: dict, tool_result: dict):
+        """
+        Generically inspects a tool result and updates the workflow context with derived facts.
+        """
+        if not isinstance(tool_result, dict): return
+        
+        results = tool_result.get("results")
+        if not isinstance(results, list) or not results: return
+
+        # Heuristic: Does this look like column summary data?
+        first_row = results[0]
+        if 'ColumnName' in first_row and 'NullCount' in first_row:
+            app_logger.info(f"Context update: Found column summary data for table {context['table_name']}.")
+            try:
+                total_nulls = sum(int(row.get('NullCount', 1)) for row in results)
+                context['total_nulls'] = total_nulls
+                app_logger.info(f"Context update: Total nulls for table is {total_nulls}.")
+            except (ValueError, TypeError):
+                app_logger.warning("Could not calculate total nulls from summary data.")
+
+    async def _should_skip_in_workflow(self, tool_name: str, context: dict) -> tuple[bool, str]:
+        """
+        Generically checks if a tool call should be skipped based on the current workflow context.
+        """
+        mcp_tools = self.dependencies['STATE'].get('mcp_tools', {})
+        tool_spec = mcp_tools.get(tool_name)
+        if not tool_spec:
+            return False, ""
+
+        # Heuristic 1: Skip tools related to missing/null values if we know there are none.
+        tool_purpose = tool_spec.description.lower()
+        is_about_nulls = 'missing' in tool_purpose or 'null' in tool_purpose
+        
+        if is_about_nulls and context.get('total_nulls') == 0:
+            reason = f"Skipping because a previous step established that table '{context['table_name']}' has no null values."
+            return True, reason
+
+        return False, ""
+
     async def _parse_and_execute_workflow(self, prompt_text: str, args: dict):
         """
         Parses a workflow prompt into a deterministic plan and executes it algorithmically.
@@ -278,53 +317,100 @@ class PlanExecutor:
             yield _format_sse({"step": "Workflow Halted", "details": "No tables found in the database."})
             return
 
+        # --- MODIFICATION: Dynamically parse and resolve the tool sequence ---
+        tool_sequence_pattern = re.compile(r"using the `?(\w+)`? tool", re.IGNORECASE)
+        phase_2_match = re.search(r"## Phase 2(.*?)## Phase 3", prompt_text, re.DOTALL | re.IGNORECASE)
+        
+        parsed_tool_sequence = []
+        if phase_2_match:
+            phase_2_text = phase_2_match.group(1)
+            parsed_tool_sequence = tool_sequence_pattern.findall(phase_2_text)
+
+        if not parsed_tool_sequence:
+            raise ValueError("Workflow parsing failed: Could not determine tool sequence from prompt text.")
+        
+        # --- GENERIC TOOL NAME RESOLUTION ---
+        resolved_tool_sequence = []
+        all_valid_tools = self.dependencies['STATE'].get('mcp_tools', {}).keys()
+        for parsed_name in parsed_tool_sequence:
+            if parsed_name in all_valid_tools:
+                resolved_tool_sequence.append(parsed_name)
+                continue
+            
+            # Suffix-based matching for legacy names like 'td_base_tableDDL'
+            possible_matches = [valid_name for valid_name in all_valid_tools if parsed_name.endswith(valid_name)]
+            
+            if len(possible_matches) == 1:
+                resolved_name = possible_matches[0]
+                resolved_tool_sequence.append(resolved_name)
+                yield _format_sse({
+                    "step": "System Correction",
+                    "details": f"Resolved ambiguous tool name '{parsed_name}' to '{resolved_name}' based on server capabilities.",
+                    "type": "workaround"
+                })
+            else:
+                raise ValueError(f"Workflow parsing failed: Tool name '{parsed_name}' from prompt is ambiguous or unknown.")
+        
+        app_logger.info(f"Dynamically parsed and resolved workflow sequence: {resolved_tool_sequence}")
+        # --- END MODIFICATION ---
+
         # Phase 2: Iterate through tables
         yield _format_sse({"step": f"Workflow - Phase 2: Collect Table Information for {len(tables)} tables"})
         for table_name in tables:
             yield _format_sse({"step": f"Processing Table: {table_name}"})
             
-            # Step 2.1: Get DDL and generate business description
-            self.current_command = {"tool_name": "base_tableDDL", "arguments": {"db_name": db_name, "table_name": table_name}}
-            ddl_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
-            self.collected_data.append(ddl_result)
-            yield _format_sse({"step": "Tool Execution Result", "details": ddl_result, "tool_name": "base_tableDDL"}, "tool_result")
-            
-            ddl_text = ddl_result.get("results", [{}])[0].get("Request Text", "")
-            if ddl_text:
-                desc_prompt = (
-                    "You are a data analyst. Your task is to provide a natural language business description based on a table's DDL.\n\n"
-                    "**CRITICAL INSTRUCTIONS:**\n"
-                    "1. Your entire response MUST be plain text.\n"
-                    "2. DO NOT generate JSON, tool calls, or any code.\n"
-                    "3. Describe the likely business purpose of the table and each column.\n\n"
-                    "**EXAMPLE OUTPUT:**\n"
-                    "This table likely stores customer information. The `CUST_ID` column is a unique identifier for each customer, and `LTV` probably represents the customer's lifetime value score.\n\n"
-                    f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
-                )
-                description, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
-                desc_result = {"type": "business_description", "table_name": table_name, "description": description, "metadata": {"tool_name": "llm_description_generation"}}
-                self.collected_data.append(desc_result)
-                yield _format_sse({"step": "Generated Business Description", "details": desc_result}, "tool_result")
+            table_workflow_context = {"table_name": table_name}
 
-            # Step 2.2: Column Summary
-            self.current_command = {"tool_name": "qlty_columnSummary", "arguments": {"database_name": db_name, "table_name": table_name}}
-            summary_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
-            self.collected_data.append(summary_result)
-            yield _format_sse({"step": "Tool Execution Result", "details": summary_result, "tool_name": "qlty_columnSummary"}, "tool_result")
+            for tool_name in resolved_tool_sequence:
+                
+                should_skip, reason = await self._should_skip_in_workflow(tool_name, table_workflow_context)
+                if should_skip:
+                    yield _format_sse({
+                        "step": f"Workflow Step Skipped: {tool_name}",
+                        "details": reason,
+                        "type": "workaround"
+                    })
+                    self.collected_data.append({
+                        "status": "skipped",
+                        "reason": reason,
+                        "metadata": {"tool_name": tool_name, "table_name": table_name}
+                    })
+                    continue
 
-            # Step 2.3: Univariate Statistics (for all numeric columns)
-            self.current_command = {"tool_name": "qlty_univariateStatistics", "arguments": {"database_name": db_name, "table_name": table_name}}
-            async for event in self._execute_column_iteration():
-                yield event
+                self.current_command = {
+                    "tool_name": tool_name,
+                    "arguments": {"database_name": db_name, "table_name": table_name, "db_name": db_name}
+                }
 
-            # Step 2.4: Rows with Missing Values
-            self.current_command = {"tool_name": "qlty_rowsWithMissingValues", "arguments": {"database_name": db_name, "table_name": table_name}}
-            if self.current_command["tool_name"] in self.globally_failed_tools:
-                 yield _format_sse({"step": f"Skipping Globally Failed Tool: {self.current_command['tool_name']}"})
-            else:
-                async for event in self._execute_column_iteration():
-                    yield event
-        
+                if tool_name == "base_tableDDL":
+                    ddl_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+                    self.collected_data.append(ddl_result)
+                    yield _format_sse({"step": "Tool Execution Result", "details": ddl_result, "tool_name": tool_name}, "tool_result")
+                    ddl_text = ddl_result.get("results", [{}])[0].get("Request Text", "")
+                    if ddl_text:
+                        desc_prompt = (
+                            "You are a data analyst. Your task is to provide a natural language business description based on a table's DDL.\n\n"
+                            "**CRITICAL INSTRUCTIONS:**\n1. Your entire response MUST be plain text.\n2. DO NOT generate JSON, tool calls, or any code.\n3. Describe the likely business purpose of the table and each column.\n\n"
+                            f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
+                        )
+                        description, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
+                        desc_result = {"type": "business_description", "table_name": table_name, "description": description, "metadata": {"tool_name": "llm_description_generation"}}
+                        self.collected_data.append(desc_result)
+                        yield _format_sse({"step": "Generated Business Description", "details": desc_result}, "tool_result")
+                    continue
+
+                tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
+                if tool_scopes.get(tool_name) == 'column':
+                    async for event in self._execute_column_iteration():
+                        yield event
+                    tool_result = self.collected_data[-1] if self.collected_data else {}
+                else: 
+                    tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+                    self.collected_data.append(tool_result)
+                    yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
+
+                self._update_workflow_context(table_workflow_context, tool_result)
+
         self.next_action_str = "FINAL_ANSWER:"
     
     async def _execute_standard_tool(self):
@@ -362,7 +448,7 @@ class PlanExecutor:
             self.collected_data.append(tool_result)
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
-            yield _format_sse({"details": tool_result}, "request_user_input")
+            yield _format_sse({"details": col_result}, "request_user_input")
             self.state = AgentState.ERROR
             return
 
@@ -434,11 +520,12 @@ class PlanExecutor:
         self.tool_constraints_cache[tool_name] = constraints
         yield constraints
 
-    async def _execute_column_iteration(self):
+    async def _execute_column_iteration(self, column_subset: list = None):
         """
         Handles the execution of tools that operate on a per-column basis.
         This version is adaptive: it fetches column metadata first (or uses cached data)
         and only runs tools on columns with a compatible data type based on LLM-inferred constraints.
+        If `column_subset` is provided, it will only iterate over those columns.
         """
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
@@ -478,26 +565,30 @@ class PlanExecutor:
             return
 
         all_columns_metadata = []
-        if self.collected_data:
-            last_result = self.collected_data[-1]
-            if isinstance(last_result, dict):
-                lr_meta = last_result.get("metadata", {})
-                if lr_meta.get("tool_name") in ["qlty_columnSummary", "base_columnDescription"] and lr_meta.get("table_name", "").endswith(table_name):
-                    app_logger.info(f"Reusing column metadata from previous '{lr_meta.get('tool_name')}' tool call.")
-                    all_columns_metadata = last_result.get("results", [])
-        
-        if not all_columns_metadata:
-            yield _format_sse({
-                "step": f"Adaptive column tool detected: {tool_name}", 
-                "details": "Fetching column metadata to determine compatibility.",
-                "type": "workaround"
-            })
-            cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
-            cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
+        if column_subset:
+            all_columns_metadata = [{"ColumnName": col_name, "DataType": "UNKNOWN"} for col_name in column_subset]
+            app_logger.info(f"Executing column iteration on a pre-defined subset of {len(column_subset)} columns.")
+        else:
+            if self.collected_data:
+                last_result = self.collected_data[-1]
+                if isinstance(last_result, dict):
+                    lr_meta = last_result.get("metadata", {})
+                    if lr_meta.get("tool_name") in ["qlty_columnSummary", "base_columnDescription"] and lr_meta.get("table_name", "").endswith(table_name):
+                        app_logger.info(f"Reusing column metadata from previous '{lr_meta.get('tool_name')}' tool call.")
+                        all_columns_metadata = last_result.get("results", [])
+            
+            if not all_columns_metadata:
+                yield _format_sse({
+                    "step": f"Adaptive column tool detected: {tool_name}", 
+                    "details": "Fetching column metadata to determine compatibility.",
+                    "type": "workaround"
+                })
+                cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
+                cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
 
-            if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
-                raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
-            all_columns_metadata = cols_result.get('results', [])
+                if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
+                    raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
+                all_columns_metadata = cols_result.get('results', [])
 
         all_column_results = []
         
@@ -519,11 +610,12 @@ class PlanExecutor:
                     return 
 
         tool_constraints = None
-        async for event in self._get_tool_constraints(tool_name):
-            if isinstance(event, dict):
-                tool_constraints = event
-            else:
-                yield event
+        if not column_subset or any(col.get("DataType") != "UNKNOWN" for col in all_columns_metadata):
+            async for event in self._get_tool_constraints(tool_name):
+                if isinstance(event, dict):
+                    tool_constraints = event
+                else:
+                    yield event
         
         required_type = tool_constraints.get("dataType") if tool_constraints else None
 
@@ -541,7 +633,7 @@ class PlanExecutor:
                         col_type = (value or "").upper()
                         break
 
-            if required_type:
+            if required_type and col_type != "UNKNOWN":
                 is_numeric_column = any(t in col_type for t in ["INT", "NUM", "DEC", "FLOAT", "BYTEINT", "SMALLINT", "BIGINT"])
                 is_char_column = any(t in col_type for t in ["CHAR", "VARCHAR"])
                 
@@ -818,7 +910,14 @@ class PlanExecutor:
             if not isinstance(item, dict): continue
             
             metadata = item.get("metadata", {})
-            table_name = metadata.get("table_name", metadata.get("table"))
+            tool_name = metadata.get("tool_name")
+            
+            if item.get("status") == "skipped":
+                table_name = metadata.get("table_name")
+                if not table_name: continue
+            else:
+                table_name = metadata.get("table_name", metadata.get("table"))
+
             if table_name and '.' in table_name:
                 table_name = table_name.split('.')[1]
 
@@ -847,18 +946,19 @@ class PlanExecutor:
                 elif tool_name == 'qlty_columnSummary':
                     html += formatter._render_table(item, 0, f"Column Summary for {table_name}")
                 elif tool_name == 'qlty_univariateStatistics':
-                    flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
-                    if flat_results:
-                         # --- MODIFIED: Combine results from all successful runs ---
-                         combined_results = []
-                         for res in flat_results:
-                             combined_results.extend(res.get('results', []))
-                         
-                         if combined_results:
-                             # Use metadata from the first successful result for the title
-                             first_meta = flat_results[0].get('metadata', {})
-                             html += formatter._render_table({"results": combined_results, "metadata": first_meta}, 0, f"Univariate Statistics for {table_name}")
-                         # --- END MODIFICATION ---
+                    if isinstance(item, list): 
+                        flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
+                        if flat_results:
+                            combined_results = []
+                            for res in flat_results:
+                                combined_results.extend(res.get('results', []))
+                            
+                            if combined_results:
+                                first_meta = flat_results[0].get('metadata', {})
+                                html += formatter._render_table({"results": combined_results, "metadata": first_meta}, 0, f"Univariate Statistics for {table_name}")
+                elif item.get("status") == "skipped":
+                     html += f"<div class='response-card'><p class='text-sm text-gray-400 italic'>Skipped Step: <strong>{tool_name}</strong>. Reason: {item.get('reason')}</p></div>"
+
 
             html += "</div></details>"
 
