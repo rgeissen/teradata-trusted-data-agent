@@ -848,19 +848,31 @@ class PlanExecutor:
         if not summary_text:
             yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
             
-            # Serialize the collected data to be injected into the prompt
             collected_data_str = json.dumps(self.collected_data, indent=2)
+            
+            final_instructions = ""
+            if self.active_prompt_plan:
+                # Provide the full original plan as the final set of instructions
+                final_instructions = (
+                    "--- ORIGINAL PLAN & FINAL INSTRUCTIONS ---\n"
+                    "The data-gathering phases of the following plan have been successfully completed. "
+                    "Your task is to now execute the final phase, which involves summarizing the results and presenting them according to the plan's guidelines.\n\n"
+                    f"{self.active_prompt_plan}\n\n"
+                )
 
             final_prompt = (
-                "You have executed a multi-step plan. Here is a JSON blob containing all of the data you gathered:\n"
+                "You are a data analyst responsible for the final step of a complex task.\n\n"
+                "--- CONTEXT ---\n"
+                "A multi-step plan was executed to gather data and answer a user's request. All the data has been collected and is provided below.\n\n"
                 f"--- COLLECTED DATA ---\n{collected_data_str}\n\n"
+                f"{final_instructions}"
                 "--- YOUR TASK ---\n"
-                f"Your final task is to synthesize the information in the COLLECTED DATA above into a comprehensive, natural language answer for the user's original request: '{self.original_user_input}'. "
-                "Your response MUST start with `FINAL_ANSWER:`.\n\n"
+                f"Synthesize the information in the COLLECTED DATA to generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
+                "Your response MUST start with `FINAL_ANSWER:` and strictly follow the presentation and communication guidelines from the final phase of the ORIGINAL PLAN.\n\n"
                 "**CRITICAL INSTRUCTIONS:**\n"
-                "1. Provide a concise, user-focused summary in plain text or simple markdown. Your summary MUST be based *only* on the data provided above.\n"
-                "2. **DO NOT** include the raw JSON data, SQL code, or complex tables in your summary. The system will format and append the detailed data automatically.\n"
-                "3. If you see results with a 'skipped' status in the data, you MUST mention this in your summary and explain that the tool was not applicable to that specific column or data type.\n"
+                "1. Your summary MUST be based *only* on the data provided and the presentation guidelines from the ORIGINAL PLAN.\n"
+                "2. **DO NOT** re-execute any tools or mention the previous phases (e.g., 'Phase 1'). Focus only on the final presentation.\n"
+                "3. If you see results with a 'skipped' status in the data, you MUST mention this in your summary.\n"
                 "4. Do not describe your internal thought process or mention that you were given JSON."
             )
             final_llm_response, input_tokens, output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
@@ -919,7 +931,7 @@ class PlanExecutor:
                 data_by_table[table_name] = []
             data_by_table[table_name].append(item)
 
-        html = f"<div class='response-card summary-card'><p>{llm_summary}</p></div>"
+        html = f"<div class='response-card summary-card'>{llm_summary}</div>"
         
         formatter = OutputFormatter("", [])
         
