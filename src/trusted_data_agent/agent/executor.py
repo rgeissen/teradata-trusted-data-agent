@@ -845,18 +845,23 @@ class PlanExecutor:
         if final_answer_match:
             summary_text = final_answer_match.group(1).strip()
 
-        # If there was a FINAL_ANSWER tag but no text, or if there was no tag at all, generate the summary.
         if not summary_text:
             yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
+            
+            # Serialize the collected data to be injected into the prompt
+            collected_data_str = json.dumps(self.collected_data, indent=2)
+
             final_prompt = (
-                "You have executed a multi-step plan. All results are in the history. "
-                f"Your final task is to synthesize this information into a comprehensive, natural language answer for the user's original request: '{self.original_user_input}'. "
+                "You have executed a multi-step plan. Here is a JSON blob containing all of the data you gathered:\n"
+                f"--- COLLECTED DATA ---\n{collected_data_str}\n\n"
+                "--- YOUR TASK ---\n"
+                f"Your final task is to synthesize the information in the COLLECTED DATA above into a comprehensive, natural language answer for the user's original request: '{self.original_user_input}'. "
                 "Your response MUST start with `FINAL_ANSWER:`.\n\n"
                 "**CRITICAL INSTRUCTIONS:**\n"
-                "1. Provide a concise, user-focused summary in plain text or simple markdown.\n"
-                "2. **DO NOT** include raw data, SQL code, or complex tables in your summary. The system will format and append this data automatically.\n"
-                "3. If you see results with a 'skipped' status, you MUST mention this in your summary and explain that the tool was not applicable to that specific column or data type.\n"
-                "4. Do not describe your internal thought process."
+                "1. Provide a concise, user-focused summary in plain text or simple markdown. Your summary MUST be based *only* on the data provided above.\n"
+                "2. **DO NOT** include the raw JSON data, SQL code, or complex tables in your summary. The system will format and append the detailed data automatically.\n"
+                "3. If you see results with a 'skipped' status in the data, you MUST mention this in your summary and explain that the tool was not applicable to that specific column or data type.\n"
+                "4. Do not describe your internal thought process or mention that you were given JSON."
             )
             final_llm_response, input_tokens, output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             yield _format_sse({"input": input_tokens, "output": output_tokens}, "llm_call_metrics")
