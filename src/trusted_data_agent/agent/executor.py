@@ -314,11 +314,9 @@ class PlanExecutor:
             
             arguments = command.get("arguments", command.get("parameters", {}))
             
-            # --- MODIFICATION: Correctly handle return from enrichment function ---
             enriched_arguments, events_to_yield = self._enrich_arguments_from_history(prompt_text, arguments)
             for event in events_to_yield:
                 yield event
-            # --- END MODIFICATION ---
 
             self.active_prompt_plan = prompt_text.format(**enriched_arguments)
             yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
@@ -471,7 +469,7 @@ class PlanExecutor:
 
                 tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
                 if tool_scopes.get(tool_name) == 'column':
-                    async for event in self._execute_column_iteration():
+                    async for event in self._execute_column_iteration(callback_llm=False):
                         yield event
                     tool_result = self.collected_data[-1] if self.collected_data else {}
                 else: 
@@ -480,7 +478,7 @@ class PlanExecutor:
                     yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
 
                 self._update_workflow_context(table_workflow_context, tool_result)
-
+        
         self.next_action_str = "FINAL_ANSWER:"
     
     async def _execute_standard_tool(self):
@@ -590,7 +588,7 @@ class PlanExecutor:
         self.tool_constraints_cache[tool_name] = constraints
         yield constraints
 
-    async def _execute_column_iteration(self, column_subset: list = None):
+    async def _execute_column_iteration(self, column_subset: list = None, callback_llm: bool = True):
         """
         Handles the execution of tools that operate on a per-column basis.
         This version is adaptive: it fetches column metadata first (or uses cached data)
@@ -630,8 +628,9 @@ class PlanExecutor:
             self.collected_data.append(col_result)
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
             yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
-            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
-                yield event
+            if callback_llm:
+                async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                    yield event
             return
 
         all_columns_metadata = []
@@ -774,8 +773,9 @@ class PlanExecutor:
         tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": all_column_results})
 
         yield _format_sse({"step": "Thinking about the next action...", "details": "Adaptive column iteration complete. Resuming main plan."})
-        async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
-            yield event
+        if callback_llm:
+            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                yield event
 
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
         """
@@ -784,39 +784,7 @@ class PlanExecutor:
         """
         prompt_for_next_step = "" 
         
-        last_tool_failed = tool_result_str and '"error":' in tool_result_str.lower()
-        object_does_not_exist = tool_result_str and "object does not exist" in tool_result_str.lower()
-
-        if last_tool_failed and object_does_not_exist and not self.active_prompt_plan:
-             prompt_for_next_step = (
-                "The last tool call failed because the object (e.g., table) does not exist. This is a common error when the database name is missing.\n\n"
-                "**CRITICAL RECOVERY INSTRUCTION:**\n"
-                "1. **Review the conversation history.** Look for a recently mentioned database name (e.g., `DEMO_Customer360_db`).\n"
-                "2. **If you find a database name,** your next action is to **retry the failed tool call**, but this time include the `db_name` argument with the value you found in the history.\n"
-                "3. **If you cannot find a database name in the history,** then and only then should you ask the user for clarification by responding with `FINAL_ANSWER:`."
-             )
-        elif self.active_prompt_plan and not tool_result_str:
-            app_logger.info("Applying forceful, plan-initiating reasoning for next step.")
-            prompt_for_next_step = (
-                "You have just been given a detailed, multi-phase plan. Your current task is to begin execution.\n\n"
-                f"--- FULL PLAN ---\n{self.active_prompt_plan}\n\n"
-                "--- YOUR IMMEDIATE TASK ---\n"
-                "**Execute Phase 1, Step 1 of the plan.** Read the plan carefully and identify the very first tool you need to call. "
-                "Your response MUST be a single JSON block for that tool call. Do not summarize or ask questions."
-            )
-        elif self.iteration_context and self.iteration_context["item_index"] == 0 and self.iteration_context["action_count_for_item"] == 0:
-            app_logger.info("Applying forceful, iteration-initiating reasoning for next step.")
-            ctx = self.iteration_context
-            first_item = ctx["items"][0]
-            prompt_for_next_step = (
-                "You have successfully completed Phase 1 and have the list of items to process. Your task is to now begin Phase 2.\n\n"
-                f"--- FULL PLAN ---\n{self.active_prompt_plan}\n\n"
-                "--- YOUR IMMEDIATE TASK ---\n"
-                f"**Begin Phase 2 with the very first item: `{first_item}`.** "
-                "According to the plan, what is the first tool you need to call for this item? "
-                "Your response MUST be a single JSON block for that tool call."
-            )
-        elif self.active_prompt_plan:
+        if self.active_prompt_plan:
             app_logger.info("Applying forceful, plan-aware reasoning for next step.")
             last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
             prompt_for_next_step = (
@@ -833,62 +801,6 @@ class PlanExecutor:
                 "**CRITICAL RULE on `FINAL_ANSWER`:** The `FINAL_ANSWER` keyword is reserved **exclusively** for the final, complete, user-facing response at the very end of the entire plan. "
                 "Do **NOT** use `FINAL_ANSWER` for intermediate thoughts, status updates, or summaries of completed phases. If you are not delivering the final product to the user, your response must be a tool call."
             )
-        elif self.iteration_context:
-            ctx = self.iteration_context
-            current_item_name = ctx["items"][ctx["item_index"]]
-            
-            if last_tool_failed:
-                prompt_for_next_step = (
-                    f"You are in the middle of an iterative plan for the item: **`{current_item_name}`**. "
-                    "The last tool call failed. This is an expected failure for tools that only work on specific data types (e.g., statistics on numeric columns).\n\n"
-                    "**CRITICAL INSTRUCTION:** Your task is to continue the plan. Acknowledge the minor error and proceed.\n"
-                    "1. Look at the **ORIGINAL PLAN**.\n"
-                    "2. Execute the **very next step** in the sequence for the **current item** (`{current_item_name}`).\n"
-                    "3. **DO NOT** restart the plan. **DO NOT** skip to the next item."
-                    f"\n\n--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
-                )
-            else:
-                last_tool_table = self.current_command.get("arguments", {}).get("table_name", "")
-                
-                if last_tool_table and last_tool_table != current_item_name:
-                    try:
-                        new_index = ctx["items"].index(last_tool_table)
-                        ctx["item_index"] = new_index
-                        ctx["action_count_for_item"] = 1
-                        current_item_name = ctx["items"][ctx["item_index"]]
-                    except ValueError:
-                        pass 
-
-                if ctx["action_count_for_item"] >= 4: # Safety break per item
-                    ctx["item_index"] += 1
-                    ctx["action_count_for_item"] = 0
-                    if ctx["item_index"] >= len(ctx["items"]):
-                        self.iteration_context = None
-                        prompt_for_next_step = (
-                            "You have successfully completed all steps for all items in the iterative phase of the plan. "
-                            "All results are now in the conversation history. Your next and final task is to proceed to the next major phase of the **ORIGINAL PLAN** (Phase 3). "
-                            "This final phase requires you to synthesize all the information you have gathered into a comprehensive dashboard or report. "
-                            "This is a text generation task. Do not call any more tools. "
-                            "Your response **MUST** start with `FINAL_ANSWER:`."
-                        )
-                    else:
-                         current_item_name = ctx["items"][ctx["item_index"]]
-                         prompt_for_next_step = (
-                            f"You have finished all steps for the previous item. Now, begin Phase 2 for the **next item**: `{current_item_name}`. "
-                            "According to the original plan, what is the first step for this new item?"
-                        )
-                else:
-                    prompt_for_next_step = (
-                        "You are executing a multi-step, iterative plan.\n\n"
-                        f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
-                        f"--- CURRENT FOCUS ---\n"
-                        f"- You are working on item: **`{current_item_name}`**.\n"
-                        f"- You have taken {ctx['action_count_for_item']} action(s) for this item so far.\n"
-                        "- The result of the last action is in the conversation history.\n\n"
-                        "--- YOUR NEXT TASK ---\n"
-                        "1. Look at the **ORIGINAL PLAN** to see what the next step in the sequence is for the current item (`{current_item_name}`).\n"
-                        "2. Execute the correct next step. Provide a tool call in a `json` block or perform the required text generation."
-                    )
         else:
             prompt_for_next_step = (
                 "You have just received data from a tool call. Review the data and your instructions to decide the next step.\n\n"
@@ -932,7 +844,9 @@ class PlanExecutor:
 
         if final_answer_match:
             summary_text = final_answer_match.group(1).strip()
-        else:
+
+        # If there was a FINAL_ANSWER tag but no text, or if there was no tag at all, generate the summary.
+        if not summary_text:
             yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
             final_prompt = (
                 "You have executed a multi-step plan. All results are in the history. "
