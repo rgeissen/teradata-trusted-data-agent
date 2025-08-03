@@ -166,6 +166,72 @@ class PlanExecutor:
                 "type": "workaround"
             })
 
+    def _enrich_arguments_from_history(self, prompt_text: str, arguments: dict) -> tuple[dict, list]:
+        """
+        Enriches a given set of arguments with context from the conversation history
+        to fill in any missing placeholders required by the prompt text.
+        Returns the enriched arguments and a list of any SSE events to be yielded.
+        """
+        events_to_yield = []
+        required_placeholders = re.findall(r'{(\w+)}', prompt_text)
+        enriched_args = arguments.copy()
+        
+        alias_map = {
+            "database_name": ["db_name"],
+            "table_name": ["tbl_name", "object_name", "obj_name"],
+            "column_name": ["col_name"]
+        }
+        reverse_alias_map = {alias: canon for canon, aliases in alias_map.items() for alias in aliases}
+
+        for placeholder in required_placeholders:
+            if placeholder in enriched_args:
+                continue
+
+            found_alias = False
+            for alias, canon in reverse_alias_map.items():
+                if canon == placeholder and alias in enriched_args:
+                    enriched_args[placeholder] = enriched_args[alias]
+                    found_alias = True
+                    break
+            if found_alias:
+                continue
+
+            app_logger.info(f"Placeholder '{placeholder}' is missing. Searching conversation history for context.")
+            session_data = session_manager.get_session(self.session_id)
+            if not session_data: continue
+
+            for entry in reversed(session_data.get("generic_history", [])):
+                content = entry.get("content")
+                if not isinstance(content, str): continue
+                
+                try:
+                    if entry.get("role") == "assistant":
+                        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", content, re.DOTALL)
+                        if json_match:
+                            command = json.loads(json_match.group(1).strip())
+                            args_to_check = command.get("arguments", {})
+                            if placeholder in args_to_check:
+                                enriched_args[placeholder] = args_to_check[placeholder]
+                                break
+                            for alias, canon in reverse_alias_map.items():
+                                if canon == placeholder and alias in args_to_check:
+                                    enriched_args[placeholder] = args_to_check[alias]
+                                    break
+                            if placeholder in enriched_args: break
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            
+            if placeholder in enriched_args:
+                app_logger.info(f"Found value for '{placeholder}' in history: '{enriched_args[placeholder]}'")
+                event = _format_sse({
+                    "step": "System Correction",
+                    "details": f"LLM omitted the '{placeholder}' parameter. The system inferred it from the conversation history.",
+                    "type": "workaround"
+                })
+                events_to_yield.append(event)
+
+        return enriched_args, events_to_yield
+
     async def _handle_deciding(self):
         """
         Parses the LLM's next action string to determine whether to execute a tool,
@@ -245,8 +311,16 @@ class PlanExecutor:
                 return
 
             self.active_prompt_name = prompt_name
+            
             arguments = command.get("arguments", command.get("parameters", {}))
-            self.active_prompt_plan = prompt_text.format(**arguments)
+            
+            # --- MODIFICATION: Correctly handle return from enrichment function ---
+            enriched_arguments, events_to_yield = self._enrich_arguments_from_history(prompt_text, arguments)
+            for event in events_to_yield:
+                yield event
+            # --- END MODIFICATION ---
+
+            self.active_prompt_plan = prompt_text.format(**enriched_arguments)
             yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
             async for event in self._get_next_action_from_llm():
                 yield event
@@ -317,7 +391,6 @@ class PlanExecutor:
             yield _format_sse({"step": "Workflow Halted", "details": "No tables found in the database."})
             return
 
-        # --- MODIFICATION: Dynamically parse and resolve the tool sequence ---
         tool_sequence_pattern = re.compile(r"using the `?(\w+)`? tool", re.IGNORECASE)
         phase_2_match = re.search(r"## Phase 2(.*?)## Phase 3", prompt_text, re.DOTALL | re.IGNORECASE)
         
@@ -329,7 +402,6 @@ class PlanExecutor:
         if not parsed_tool_sequence:
             raise ValueError("Workflow parsing failed: Could not determine tool sequence from prompt text.")
         
-        # --- GENERIC TOOL NAME RESOLUTION ---
         resolved_tool_sequence = []
         all_valid_tools = self.dependencies['STATE'].get('mcp_tools', {}).keys()
         for parsed_name in parsed_tool_sequence:
@@ -337,7 +409,6 @@ class PlanExecutor:
                 resolved_tool_sequence.append(parsed_name)
                 continue
             
-            # Suffix-based matching for legacy names like 'td_base_tableDDL'
             possible_matches = [valid_name for valid_name in all_valid_tools if parsed_name.endswith(valid_name)]
             
             if len(possible_matches) == 1:
@@ -352,7 +423,6 @@ class PlanExecutor:
                 raise ValueError(f"Workflow parsing failed: Tool name '{parsed_name}' from prompt is ambiguous or unknown.")
         
         app_logger.info(f"Dynamically parsed and resolved workflow sequence: {resolved_tool_sequence}")
-        # --- END MODIFICATION ---
 
         # Phase 2: Iterate through tables
         yield _format_sse({"step": f"Workflow - Phase 2: Collect Table Information for {len(tables)} tables"})
