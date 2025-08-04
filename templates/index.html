@@ -864,6 +864,7 @@
         
         const systemPromptPopupOverlay = document.getElementById('system-prompt-popup-overlay');
         const systemPromptPopupContent = document.getElementById('system-prompt-popup-content');
+        const systemPromptPopupTitle = document.getElementById('system-prompt-popup-title');
         const systemPromptPopupText = document.getElementById('system-prompt-popup-text');
         const systemPromptPopupClose = document.getElementById('system-prompt-popup-close');
 
@@ -889,6 +890,9 @@
         let pristineConfig = {};
         let pristineChartConfig = {};
         let isMouseOverStatus = false; 
+        
+        // --- NEW: Cache for default system prompts ---
+        let defaultPromptsCache = {};
 
         const thinkingIndicator = document.getElementById('thinking-indicator');
         const promptNameDisplay = document.getElementById('prompt-name-display');
@@ -938,6 +942,32 @@
             const prompts = getSystemPrompts();
             const key = getPromptStorageKey(provider, model);
             return prompts[key]?.isCustom || false;
+        }
+
+        // --- NEW: Helper function to get and cache default system prompts ---
+        async function getDefaultSystemPrompt(provider, model) {
+            const key = getPromptStorageKey(provider, model);
+            if (defaultPromptsCache[key]) {
+                return defaultPromptsCache[key];
+            }
+
+            try {
+                const res = await fetch(`/system_prompt/${provider}/${getNormalizedModelId(model)}`);
+                if (!res.ok) {
+                    throw new Error(`Failed to fetch default prompt: ${res.statusText}`);
+                }
+                const data = await res.json();
+                if (data.system_prompt) {
+                    defaultPromptsCache[key] = data.system_prompt;
+                    return data.system_prompt;
+                }
+                throw new Error("Server response did not contain a system_prompt.");
+            } catch (e) {
+                console.error(`Error getting default system prompt for ${key}:`, e);
+                promptEditorStatus.textContent = 'Error fetching default prompt.';
+                promptEditorStatus.className = 'text-sm text-red-400';
+                return null; // Return null on failure
+            }
         }
 
 
@@ -1753,6 +1783,14 @@
 
         function openSystemPromptPopup() {
             const promptText = getSystemPromptForModel(currentProvider, currentModel);
+            const isCustom = isPromptCustomForModel(currentProvider, currentModel);
+            
+            if (isCustom) {
+                systemPromptPopupTitle.innerHTML = `Custom System Prompt for: <code class="text-teradata-orange font-normal">${currentProvider} / ${getNormalizedModelId(currentModel)}</code>`;
+            } else {
+                systemPromptPopupTitle.innerHTML = `Default System Prompt Selected for: <code class="text-teradata-orange font-normal">${currentProvider}</code>`;
+            }
+
             systemPromptPopupText.textContent = promptText || "Could not load system prompt.";
             systemPromptPopupOverlay.classList.remove('hidden', 'opacity-0');
             systemPromptPopupContent.classList.remove('scale-95', 'opacity-0');
@@ -2089,33 +2127,38 @@
             setTimeout(() => promptEditorOverlay.classList.add('hidden'), 300);
         }
 
-        function saveSystemPromptChanges() {
-            const newPrompt = promptEditorTextarea.value;
-            saveSystemPromptForModel(currentProvider, currentModel, newPrompt, true);
+        // --- MODIFIED: `saveSystemPromptChanges` is now async and uses comparison ---
+        async function saveSystemPromptChanges() {
+            const newPromptText = promptEditorTextarea.value;
+            const defaultPromptText = await getDefaultSystemPrompt(currentProvider, currentModel);
+
+            if (defaultPromptText === null) {
+                // Error already handled in getDefaultSystemPrompt
+                return;
+            }
+
+            const isCustom = newPromptText.trim() !== defaultPromptText.trim();
+            
+            saveSystemPromptForModel(currentProvider, currentModel, newPromptText, isCustom);
             updateStatusPromptName();
+            
             promptEditorStatus.textContent = 'Saved!';
             promptEditorStatus.className = 'text-sm text-green-400';
             setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
         }
 
+        // --- MODIFIED: `resetSystemPrompt` is now async ---
         async function resetSystemPrompt(force = false) {
-            try {
-                const chartingIntensity = chartingIntensitySelect.value;
-                const res = await fetch(`/system_prompt/${currentProvider}/${getNormalizedModelId(currentModel)}?charting_intensity=${chartingIntensity}`);
-                const data = await res.json();
-                if (data.system_prompt) {
-                    saveSystemPromptForModel(currentProvider, currentModel, data.system_prompt, false);
-                    promptEditorTextarea.value = data.system_prompt;
-                    updateStatusPromptName();
-                    if (!force) {
-                        promptEditorStatus.textContent = 'Reset to default and saved!';
-                        promptEditorStatus.className = 'text-sm text-yellow-400';
-                        setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
-                    }
+            const defaultPrompt = await getDefaultSystemPrompt(currentProvider, currentModel);
+            if (defaultPrompt) {
+                saveSystemPromptForModel(currentProvider, currentModel, defaultPrompt, false);
+                promptEditorTextarea.value = defaultPrompt;
+                updateStatusPromptName();
+                if (!force) {
+                    promptEditorStatus.textContent = 'Reset to default and saved!';
+                    promptEditorStatus.className = 'text-sm text-yellow-400';
+                    setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
                 }
-            } catch (e) {
-                promptEditorStatus.textContent = 'Error resetting prompt.';
-                promptEditorStatus.className = 'text-sm text-red-400';
             }
         }
         
