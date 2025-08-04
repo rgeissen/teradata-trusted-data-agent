@@ -882,12 +882,10 @@
         let mouseMoveHandler = null;
         let pristineConfig = {};
         let pristineChartConfig = {};
-        let isMouseOverStatus = false; // <<< NEW: State for tracking mouse hover
+        let isMouseOverStatus = false; 
 
-        // --- NEW: Event listeners for auto-scrolling logic ---
         statusWindowContent.addEventListener('mouseenter', () => { isMouseOverStatus = true; });
         statusWindowContent.addEventListener('mouseleave', () => { isMouseOverStatus = false; });
-        // --- END NEW ---
         
         function getSystemPrompts() {
             try {
@@ -1064,7 +1062,6 @@
                 stepEl.classList.add('completed');
             }
 
-            // --- MODIFIED: Conditional auto-scrolling ---
             if (!isMouseOverStatus) {
                 statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
             }
@@ -1324,7 +1321,11 @@
                     resourceElement.open = true;
                     resourceElement.classList.add('resource-selected');
                     currentlySelectedResource = resourceElement;
-                    resourceElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    
+                    // Add a delay to allow the category panel to finish its opening animation
+                    setTimeout(() => {
+                        resourceElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 350); // A bit longer than the CSS transition (0.3s)
                 }
             }
         }
