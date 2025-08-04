@@ -882,6 +882,12 @@
         let mouseMoveHandler = null;
         let pristineConfig = {};
         let pristineChartConfig = {};
+        let isMouseOverStatus = false; // <<< NEW: State for tracking mouse hover
+
+        // --- NEW: Event listeners for auto-scrolling logic ---
+        statusWindowContent.addEventListener('mouseenter', () => { isMouseOverStatus = true; });
+        statusWindowContent.addEventListener('mouseleave', () => { isMouseOverStatus = false; });
+        // --- END NEW ---
         
         function getSystemPrompts() {
             try {
@@ -1011,7 +1017,6 @@
 
         function updateStatusWindow(eventData, isFinal = false) {
             const { step, details, type } = eventData;
-            const shouldScroll = statusWindowContent.scrollHeight - statusWindowContent.scrollTop <= statusWindowContent.clientHeight + 10;
 
             const lastStep = document.getElementById(`status-step-${currentStatusId}`);
             if (lastStep) {
@@ -1059,7 +1064,8 @@
                 stepEl.classList.add('completed');
             }
 
-            if (shouldScroll) {
+            // --- MODIFIED: Conditional auto-scrolling ---
+            if (!isMouseOverStatus) {
                 statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
             }
         }
