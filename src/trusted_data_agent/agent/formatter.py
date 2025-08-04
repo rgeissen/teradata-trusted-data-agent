@@ -13,13 +13,33 @@ class OutputFormatter:
         self.collected_data = collected_data
         self.processed_data_indices = set()
 
-    def _sanitize_summary(self) -> str:
-        # This regex now also removes markdown tables
-        markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
-        clean_summary = re.sub(markdown_table_pattern, "\n(Data table is shown below)\n", self.raw_summary)
+    def _has_renderable_tables(self) -> bool:
+        """Checks if there is any data that will be rendered as a table."""
+        for item in self.collected_data:
+            if isinstance(item, dict) and "results" in item:
+                results = item.get("results")
+                if isinstance(results, list) and results and all(isinstance(row, dict) for row in results):
+                    return True
+        return False
 
+    def _sanitize_summary(self) -> str:
+        """
+        Cleans the LLM's summary text, removing markdown elements that will be
+        rendered separately and replacing them intelligently.
+        """
+        clean_summary = self.raw_summary
+        
+        # Check for markdown tables and decide whether to add a placeholder.
+        markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
+        if markdown_table_pattern.search(clean_summary):
+            # Only add the placeholder if we actually have table data to render.
+            # This prevents a confusing placeholder if the LLM hallucinates a table.
+            replacement_text = "\n(Data table is shown below)\n" if self._has_renderable_tables() else ""
+            clean_summary = re.sub(markdown_table_pattern, replacement_text, clean_summary)
+
+        # Remove DDL blocks, as they are rendered by a dedicated function.
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
-        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", self.raw_summary)
+        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
         
         lines = clean_summary.strip().split('\n')
         html_output = ""
