@@ -978,7 +978,7 @@ class PlanExecutor:
                 summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
         if self.active_prompt_name == "qlty_databaseQuality":
-            final_html = self._format_quality_workflow_summary(llm_summary)
+            final_html = self._format_quality_workflow_summary(summary_text)
         else:
             formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
             final_html = formatter.render()
@@ -1046,7 +1046,7 @@ class PlanExecutor:
                     html += formatter._render_table(item, 0, f"Column Summary for {table_name}")
                 elif tool_name == 'qlty_univariateStatistics':
                     if isinstance(item, list): # This handles the case where _execute_column_iteration returns a list of individual column results
-                        flat_results = [res for col_res in item if isinstance(col_res, dict) and res.get('status') == 'success']
+                        flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
                         if flat_results:
                             combined_results = []
                             for res in flat_results:
