@@ -267,7 +267,27 @@ async def list_models(provider: str, credentials: dict) -> list[dict]:
         return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_GOOGLE_MODELS} for name in clean_models]
     
     elif provider == "Anthropic":
-        return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_ANTHROPIC_MODELS} for name in CERTIFIED_ANTHROPIC_MODELS]
+        try:
+            client = AsyncAnthropic(api_key=credentials.get("apiKey"))
+            models_page = await client.models.list()
+            
+            model_names = []
+            # Correctly iterate over the .data attribute of the Page object
+            for model in models_page.data:
+                # Defensive check for item structure. Handles both direct model objects
+                # and the unexpected case of model objects wrapped in a tuple.
+                if hasattr(model, 'id'):
+                    model_names.append(model.id)
+                elif isinstance(model, tuple) and len(model) > 0 and hasattr(model[0], 'id'):
+                    model_names.append(model[0].id)
+                else:
+                    # Log a warning if the structure is something else entirely, but don't fail.
+                    app_logger.warning(f"Unexpected item structure in Anthropic models list: {type(model)}")
+
+            return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_ANTHROPIC_MODELS} for name in model_names]
+        except Exception as e:
+            app_logger.error(f"Failed to fetch models from Anthropic: {e}")
+            raise e
 
     elif provider == "Amazon":
         bedrock_client = boto3.client(

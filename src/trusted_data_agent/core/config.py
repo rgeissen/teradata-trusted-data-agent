@@ -16,7 +16,7 @@ class AppConfig:
 APP_CONFIG = AppConfig()
 
 CERTIFIED_GOOGLE_MODELS = ["gemini-1.5-flash-latest"]
-CERTIFIED_ANTHROPIC_MODELS = ["claude-3-5-sonnet-20240620"]
+CERTIFIED_ANTHROPIC_MODELS = ["claude-sonnet-4-20250514"]
 CERTIFIED_AMAZON_MODELS = ["amazon.nova-pro-v1:0"]
 CERTIFIED_AMAZON_PROFILES = ["arn:aws:bedrock:eu-central-1:960887920495:inference-profile/eu.amazon.nova-pro-v1:0"]
 # --- NEW: Add a placeholder for certified Ollama models ---
