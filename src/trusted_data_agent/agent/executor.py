@@ -463,7 +463,18 @@ class PlanExecutor:
                             "**CRITICAL INSTRUCTIONS:**\n1. Your entire response MUST be plain text.\n2. DO NOT generate JSON, tool calls, or any code.\n3. Describe the likely business purpose of the table and each column.\n\n"
                             f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
                         )
-                        description, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
+                        description, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
+                        
+                        updated_session = session_manager.get_session(self.session_id)
+                        if updated_session:
+                            token_data = {
+                                "statement_input": statement_input_tokens,
+                                "statement_output": statement_output_tokens,
+                                "total_input": updated_session.get("input_tokens", 0),
+                                "total_output": updated_session.get("output_tokens", 0)
+                            }
+                            yield _format_sse(token_data, "token_update")
+
                         desc_result = {"type": "business_description", "table_name": table_name, "description": description, "metadata": {"tool_name": "llm_description_generation"}}
                         self.collected_data.append(desc_result)
                         yield _format_sse({"step": "Generated Business Description", "details": desc_result}, "tool_result")
@@ -590,13 +601,23 @@ class PlanExecutor:
                 "type": "workaround"
             })
 
-            response_text, _, _ = await llm_handler.call_llm_api(
+            response_text, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], 
                 prompt, 
                 raise_on_error=True,
                 system_prompt_override="You are a JSON-only responding assistant."
             )
             
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                token_data = {
+                    "statement_input": statement_input_tokens,
+                    "statement_output": statement_output_tokens,
+                    "total_input": updated_session.get("input_tokens", 0),
+                    "total_output": updated_session.get("output_tokens", 0)
+                }
+                yield _format_sse(token_data, "token_update")
+
             try:
                 match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if not match:
@@ -878,14 +899,15 @@ class PlanExecutor:
         else:
             final_prompt_to_llm = prompt_for_next_step
 
-        self.next_action_str, input_tokens, output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
-        yield _format_sse({"input": input_tokens, "output": output_tokens}, "llm_call_metrics")
+        self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
         
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
             token_data = {
-                "input_tokens": updated_session.get("input_tokens", 0),
-                "output_tokens": updated_session.get("output_tokens", 0)
+                "statement_input": statement_input_tokens,
+                "statement_output": statement_output_tokens,
+                "total_input": updated_session.get("input_tokens", 0),
+                "total_output": updated_session.get("output_tokens", 0)
             }
             yield _format_sse(token_data, "token_update")
         
@@ -937,14 +959,15 @@ class PlanExecutor:
                 "3. If you see results with a 'skipped' status in the data, you MUST mention this in your summary.\n"
                 "4. Do not describe your internal thought process or mention that you were given JSON."
             )
-            final_llm_response, input_tokens, output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
-            yield _format_sse({"input": input_tokens, "output": output_tokens}, "llm_call_metrics")
+            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             
             updated_session = session_manager.get_session(self.session_id)
             if updated_session:
                 token_data = {
-                    "input_tokens": updated_session.get("input_tokens", 0),
-                    "output_tokens": updated_session.get("output_tokens", 0)
+                    "statement_input": statement_input_tokens,
+                    "statement_output": statement_output_tokens,
+                    "total_input": updated_session.get("input_tokens", 0),
+                    "total_output": updated_session.get("output_tokens", 0)
                 }
                 yield _format_sse(token_data, "token_update")
 
@@ -955,7 +978,7 @@ class PlanExecutor:
                 summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
         if self.active_prompt_name == "qlty_databaseQuality":
-            final_html = self._format_quality_workflow_summary(summary_text)
+            final_html = self._format_quality_workflow_summary(llm_summary)
         else:
             formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
             final_html = formatter.render()

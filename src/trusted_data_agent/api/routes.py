@@ -359,23 +359,17 @@ async def ask_stream():
 
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
-            # --- MODIFIED: Capture token counts from the return tuple ---
-            llm_reasoning_and_command, input_tokens, output_tokens = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
-            
-            # --- MODIFIED: Send per-call and total token updates ---
-            yield _format_sse({
-                "input": input_tokens,
-                "output": output_tokens
-            }, "llm_call_metrics")
+            llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
             
             updated_session = session_manager.get_session(session_id)
             if updated_session:
                 token_data = {
-                    "input_tokens": updated_session.get("input_tokens", 0),
-                    "output_tokens": updated_session.get("output_tokens", 0)
+                    "statement_input": statement_input_tokens,
+                    "statement_output": statement_output_tokens,
+                    "total_input": updated_session.get("input_tokens", 0),
+                    "total_output": updated_session.get("output_tokens", 0)
                 }
                 yield _format_sse(token_data, "token_update")
-            # --- END MODIFICATION ---
             
             if STATE['llm'] and APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama"]:
                 session_data['chat_object'].append({'role': 'user', 'content': user_input})
