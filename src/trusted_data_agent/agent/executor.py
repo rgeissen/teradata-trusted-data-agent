@@ -382,6 +382,7 @@ class PlanExecutor:
         self.current_command = {"tool_name": "base_tableList", "arguments": {"db_name": db_name}}
         async for event in self._intercept_and_correct_command(): yield event
         
+        yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
         table_list_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         self.collected_data.append(table_list_result)
         yield _format_sse({"step": "Tool Execution Result", "details": table_list_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
@@ -453,6 +454,7 @@ class PlanExecutor:
                 }
 
                 if tool_name == "base_tableDDL":
+                    yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                     ddl_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
                     self.collected_data.append(ddl_result)
                     yield _format_sse({"step": "Tool Execution Result", "details": ddl_result, "tool_name": tool_name}, "tool_result")
@@ -490,6 +492,7 @@ class PlanExecutor:
                     if self.collected_data and isinstance(self.collected_data[-1], list):
                         pass
                 else: 
+                    yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                     tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
                     self.collected_data.append(tool_result)
                     yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
@@ -503,6 +506,7 @@ class PlanExecutor:
         handles the result.
         """
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
+        yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
         tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         
         if 'notification' in self.current_command:
@@ -532,7 +536,7 @@ class PlanExecutor:
             self.collected_data.append(tool_result)
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
-            yield _format_sse({"details": col_result}, "request_user_input")
+            yield _format_sse({"details": tool_result}, "request_user_input")
             self.state = AgentState.ERROR
             return
 
@@ -654,6 +658,7 @@ class PlanExecutor:
         specific_column = base_args.get("col_name") or base_args.get("column_name")
         if specific_column:
             yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
+            yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], base_command)
             
             if 'notification' in self.current_command:
@@ -702,6 +707,7 @@ class PlanExecutor:
                     "type": "workaround"
                 })
                 cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
+                yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                 cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
 
                 if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
@@ -721,6 +727,7 @@ class PlanExecutor:
             temp_globally_failed_tools_check = False 
             try:
                 # We do not want to add this preflight result to collected_data, just check for functionality
+                yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                 preflight_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], preflight_command)
                 if isinstance(preflight_result, dict) and "error" in preflight_result:
                     error_details = preflight_result.get("data", preflight_result.get("error", ""))
@@ -818,6 +825,7 @@ class PlanExecutor:
             iter_command = {"tool_name": tool_name, "arguments": iter_args}
 
             yield _format_sse({"step": "Tool Execution Intent", "details": iter_command}, "tool_result")
+            yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
             
             if isinstance(col_result, dict) and "error" in col_result:

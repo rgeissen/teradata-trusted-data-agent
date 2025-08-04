@@ -1024,7 +1024,11 @@
         }
 
         function updateStatusWindow(eventData, isFinal = false) {
+            // --- MODIFIED: Check for step property before rendering ---
             const { step, details, type } = eventData;
+            if (!step) {
+                return; // Don't render status updates without a title
+            }
 
             const lastStep = document.getElementById(`status-step-${currentStatusId}`);
             if (lastStep) {
@@ -1096,7 +1100,6 @@
             document.getElementById('total-output-tokens').textContent = (data.total_output || 0).toLocaleString();
         }
 
-        // --- NEW: Helper function for the thinking indicator ---
         function setThinkingIndicator(isThinking) {
             if (isThinking) {
                 promptNameDisplay.classList.add('hidden');
@@ -1134,7 +1137,7 @@
             toggleLoading(true);
             statusWindowContent.innerHTML = ''; 
             currentStatusId = 0;
-            setThinkingIndicator(false); // Reset at the start of a stream
+            setThinkingIndicator(false); 
 
             try {
                 const response = await fetch(endpoint, {
@@ -1173,7 +1176,6 @@
                         if (dataLine) {
                             const eventData = JSON.parse(dataLine);
                             
-                            // --- CORRECTED LOGIC FOR THINKING INDICATOR ---
                             if (eventName === 'message' && eventData.step && eventData.step.includes("Thinking about the next action")) {
                                 setThinkingIndicator(true);
                             }
@@ -1181,7 +1183,6 @@
                             if (['llm_thought', 'tool_result', 'prompt_selected', 'final_answer', 'error'].includes(eventName)) {
                                 setThinkingIndicator(false);
                             }
-                            // --- END CORRECTED LOGIC ---
 
                             if (eventName === 'token_update') {
                                 updateTokenDisplay(eventData);
