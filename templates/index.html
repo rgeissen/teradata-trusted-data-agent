@@ -459,7 +459,13 @@
         <aside id="status-window" class="w-1/3 max-w-md h-full flex flex-col glass-panel rounded-l-2xl shadow-2xl border-l border-white/10">
             <header class="p-4 border-b border-white/10 flex flex-col justify-center items-center">
                 <h2 id="status-title" class="header-title text-lg font-bold text-white">Live Status</h2>
-                <div id="status-prompt-name" class="text-xs text-gray-400 mt-1 flex items-center gap-x-2">No Model/Prompt Loaded</div>
+                <div id="status-prompt-name" class="text-xs text-gray-400 mt-1 flex items-center justify-center gap-x-2 h-4">
+                    <span id="prompt-name-display">No Model/Prompt Loaded</span>
+                    <span id="thinking-indicator" class="hidden items-center gap-x-1 text-yellow-400">
+                        <svg class="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span>LLM Thinking...</span>
+                    </span>
+                </div>
                 <div id="token-usage-display" class="text-xs text-gray-400 mt-2 w-full">
                     <div id="token-normal-display">
                         <div class="flex justify-around items-center space-x-2">
@@ -884,6 +890,10 @@
         let pristineChartConfig = {};
         let isMouseOverStatus = false; 
 
+        // --- NEW: Thinking indicator elements ---
+        const thinkingIndicator = document.getElementById('thinking-indicator');
+        const promptNameDisplay = document.getElementById('prompt-name-display');
+
         statusWindowContent.addEventListener('mouseenter', () => { isMouseOverStatus = true; });
         statusWindowContent.addEventListener('mouseleave', () => { isMouseOverStatus = false; });
         
@@ -1086,8 +1096,21 @@
             document.getElementById('total-output-tokens').textContent = (data.total_output || 0).toLocaleString();
         }
 
+        // --- NEW: Helper function for the thinking indicator ---
+        function setThinkingIndicator(isThinking) {
+            if (isThinking) {
+                promptNameDisplay.classList.add('hidden');
+                thinkingIndicator.classList.remove('hidden');
+                thinkingIndicator.classList.add('flex');
+            } else {
+                thinkingIndicator.classList.add('hidden');
+                thinkingIndicator.classList.remove('flex');
+                promptNameDisplay.classList.remove('hidden');
+            }
+        }
+
         function updateStatusPromptName() {
-            const promptNameDiv = document.getElementById('status-prompt-name');
+            const promptNameDiv = document.getElementById('prompt-name-display');
             if (currentProvider && currentModel) {
                 const isCustom = isPromptCustomForModel(currentProvider, currentModel);
                 const promptType = isCustom ? `Custom` : `Default`;
@@ -1111,6 +1134,7 @@
             toggleLoading(true);
             statusWindowContent.innerHTML = ''; 
             currentStatusId = 0;
+            setThinkingIndicator(false); // Reset at the start of a stream
 
             try {
                 const response = await fetch(endpoint, {
@@ -1149,6 +1173,16 @@
                         if (dataLine) {
                             const eventData = JSON.parse(dataLine);
                             
+                            // --- CORRECTED LOGIC FOR THINKING INDICATOR ---
+                            if (eventName === 'message' && eventData.step && eventData.step.includes("Thinking about the next action")) {
+                                setThinkingIndicator(true);
+                            }
+                            
+                            if (['llm_thought', 'tool_result', 'prompt_selected', 'final_answer', 'error'].includes(eventName)) {
+                                setThinkingIndicator(false);
+                            }
+                            // --- END CORRECTED LOGIC ---
+
                             if (eventName === 'token_update') {
                                 updateTokenDisplay(eventData);
                                 const lastStep = document.getElementById(`status-step-${currentStatusId}`);
@@ -1200,7 +1234,9 @@
             } catch (error) {
                 addMessage('assistant', `Sorry, a connection error occurred: ${error.message}`);
                 updateStatusWindow({ step: "Error", details: error.stack, type: 'error' }, true);
+            } finally {
                 toggleLoading(false);
+                setThinkingIndicator(false); // Ensure it's off when stream ends
             }
         }
 
@@ -1322,10 +1358,9 @@
                     resourceElement.classList.add('resource-selected');
                     currentlySelectedResource = resourceElement;
                     
-                    // Add a delay to allow the category panel to finish its opening animation
                     setTimeout(() => {
                         resourceElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 350); // A bit longer than the CSS transition (0.3s)
+                    }, 350);
                 }
             }
         }
@@ -1341,6 +1376,7 @@
             updateTokenDisplay({ statement_input: 0, statement_output: 0, total_input: 0, total_output: 0 });
             addMessage('assistant', "Starting a new conversation... Please wait.");
             toggleLoading(true);
+            setThinkingIndicator(false);
             try {
                 const res = await fetch('/session', { 
                     method: 'POST',
