@@ -87,6 +87,7 @@ class PlanExecutor:
         self.dependencies = dependencies
         self.tool_constraints_cache = {} # Cache for inferred tool constraints
         self.globally_failed_tools = set() # Cache for tools that are fundamentally broken
+        self.is_workflow = False # NEW: Flag to track if we are in a complex workflow
 
     async def run(self):
         """
@@ -293,8 +294,9 @@ class PlanExecutor:
             if get_prompt_result is None: raise ValueError("Prompt retrieval from MCP server returned None.")
             prompt_text = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') else str(get_prompt_result)
 
-            is_workflow = "phase 1" in prompt_text.lower() and "cycle through" in prompt_text.lower()
-            if is_workflow:
+            is_workflow_prompt = "phase 1" in prompt_text.lower() and "cycle through" in prompt_text.lower()
+            if is_workflow_prompt:
+                self.is_workflow = True # NEW: Set the workflow flag
                 app_logger.info(f"Workflow prompt '{prompt_name}' detected. Switching to algorithmic execution.")
                 yield _format_sse({
                     "step": f"Workflow Detected: {prompt_name}",
@@ -901,9 +903,7 @@ class PlanExecutor:
         else:
             final_prompt_to_llm = prompt_for_next_step
         
-        # --- MODIFICATION: Add a dedicated event before the LLM call ---
         yield _format_sse({"step": "Calling LLM"})
-        # --- END MODIFICATION ---
 
         self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
         
@@ -923,154 +923,84 @@ class PlanExecutor:
 
     async def _handle_summarizing(self):
         """
-        Generates the final summary answer after the plan is complete.
-        It synthesizes all collected data and the LLM's final thoughts into a
-        formatted HTML response.
+        Generates the final summary answer. For complex workflows, it instructs the LLM
+        to return a structured report. For simple queries, it generates a standard summary.
         """
         llm_response = self.next_action_str
         summary_text = ""
+        final_collected_data = self.collected_data
 
-        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response, re.DOTALL | re.IGNORECASE)
-
-        if final_answer_match:
-            summary_text = final_answer_match.group(1).strip()
-
-        if not summary_text:
-            yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
+        if self.is_workflow:
+            yield _format_sse({"step": "Workflow finished, generating structured report...", "details": "The agent is synthesizing all collected data into a report format."})
             
             collected_data_str = json.dumps(self.collected_data, indent=2)
             
-            final_instructions = ""
-            if self.active_prompt_plan:
-                # Provide the full original plan as the final set of instructions
-                final_instructions = (
-                    "--- ORIGINAL PLAN & FINAL INSTRUCTIONS ---\n"
-                    "The data-gathering phases of the following plan have been successfully completed. "
-                    "Your task is to now execute the final phase, which involves summarizing the results and presenting them according to the plan's guidelines.\n\n"
-                    f"{self.active_prompt_plan}\n\n"
-                )
-
             final_prompt = (
-                "You are a data analyst responsible for the final step of a complex task.\n\n"
+                "You are a data analyst responsible for generating the final report from a complex, multi-step workflow.\n\n"
                 "--- CONTEXT ---\n"
-                "A multi-step plan was executed to gather data and answer a user's request. All the data has been collected and is provided below.\n\n"
+                "A workflow was executed to gather data and answer a user's request. All the data has been collected and is provided below.\n\n"
                 f"--- COLLECTED DATA ---\n{collected_data_str}\n\n"
-                f"{final_instructions}"
                 "--- YOUR TASK ---\n"
-                f"Synthesize the information in the COLLECTED DATA to generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
-                "Your response MUST start with `FINAL_ANSWER:` and strictly follow the presentation and communication guidelines from the final phase of the ORIGINAL PLAN.\n\n"
+                "Your task is to generate a final report in a specific JSON format. Your response **MUST** be a single, raw JSON object containing two keys:\n"
+                "1. `\"summary\"`: A natural language summary that synthesizes the key findings from the COLLECTED DATA to answer the user's original request. This summary should be comprehensive and easy to understand.\n"
+                "2. `\"structured_data\"`: The original COLLECTED DATA, passed through exactly as it was provided to you.\n\n"
                 "**CRITICAL INSTRUCTIONS:**\n"
-                "1. Your summary MUST be based *only* on the data provided and the presentation guidelines from the ORIGINAL PLAN.\n"
-                "2. **DO NOT** re-execute any tools or mention the previous phases (e.g., 'Phase 1'). Focus only on the final presentation.\n"
-                "3. If you see results with a 'skipped' status in the data, you MUST mention this in your summary.\n"
-                "4. Do not describe your internal thought process or mention that you were given JSON."
+                "1. Your entire response MUST be a single, valid JSON object. Do not include any text outside of the JSON structure.\n"
+                "2. The `summary` should be based *only* on the data provided.\n"
+                "3. If you see results with a 'skipped' status in the data, you MUST mention this in your `summary`.\n"
+                "4. The `structured_data` value MUST be the complete and unmodified JSON array from the `--- COLLECTED DATA ---` section."
             )
             yield _format_sse({"step": "Calling LLM"})
             final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             
             updated_session = session_manager.get_session(self.session_id)
             if updated_session:
-                token_data = {
-                    "statement_input": statement_input_tokens,
-                    "statement_output": statement_output_tokens,
-                    "total_input": updated_session.get("input_tokens", 0),
-                    "total_output": updated_session.get("output_tokens", 0)
-                }
+                token_data = { "statement_input": statement_input_tokens, "statement_output": statement_output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }
                 yield _format_sse(token_data, "token_update")
-
-            final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
-            if final_answer_match_inner:
-                summary_text = final_answer_match_inner.group(1).strip()
+            
+            # FIX: Robustly extract JSON from the LLM's response, ignoring markdown wrappers.
+            json_match = re.search(r"\{.*\}", final_llm_response, re.DOTALL)
+            if json_match:
+                llm_response = json_match.group(0)
             else:
-                summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
+                # If no JSON is found, pass the raw response and let the formatter handle the error.
+                llm_response = final_llm_response
 
-        if self.active_prompt_name == "qlty_databaseQuality":
-            final_html = self._format_quality_workflow_summary(summary_text)
         else:
-            formatter = OutputFormatter(llm_summary_text=summary_text, collected_data=self.collected_data)
-            final_html = formatter.render()
+            final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response, re.DOTALL | re.IGNORECASE)
+            if final_answer_match:
+                summary_text = final_answer_match.group(1).strip()
+            
+            if not summary_text:
+                yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
+                collected_data_str = json.dumps(self.collected_data, indent=2)
+                final_prompt = (
+                    "You are a data analyst responsible for the final step of a complex task.\n\n"
+                    "--- CONTEXT ---\n"
+                    "A multi-step plan was executed to gather data and answer a user's request. All the data has been collected and is provided below.\n\n"
+                    f"--- COLLECTED DATA ---\n{collected_data_str}\n\n"
+                    "--- YOUR TASK ---\n"
+                    f"Synthesize the information in the COLLECTED DATA to generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
+                    "Your response MUST start with `FINAL_ANSWER:`.\n\n"
+                    "**CRITICAL INSTRUCTIONS:**\n"
+                    "1. Your summary MUST be based *only* on the data provided.\n"
+                    "2. Do not describe your internal thought process or mention that you were given JSON."
+                )
+                yield _format_sse({"step": "Calling LLM"})
+                final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+                
+                updated_session = session_manager.get_session(self.session_id)
+                if updated_session:
+                    token_data = { "statement_input": statement_input_tokens, "statement_output": statement_output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }
+                    yield _format_sse(token_data, "token_update")
+
+                final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
+                summary_text = final_answer_match_inner.group(1).strip() if final_answer_match_inner else (final_llm_response or "The agent finished its plan but did not provide a final summary.")
+                llm_response = summary_text
+
+        formatter = OutputFormatter(llm_response_text=llm_response, collected_data=final_collected_data, is_workflow=self.is_workflow)
+        final_html = formatter.render()
         
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield _format_sse({"final_answer": final_html}, "final_answer")
         self.state = AgentState.DONE
-
-    def _format_quality_workflow_summary(self, llm_summary: str) -> str:
-        """
-        A specialized formatter to render the results of the qlty_databaseQuality workflow.
-        """
-        data_by_table = {}
-        for item in self.collected_data:
-            if not isinstance(item, dict):
-                # Handle lists of results from column iteration
-                if isinstance(item, list):
-                    for sub_item in item:
-                        if isinstance(sub_item, dict):
-                            metadata = sub_item.get("metadata", {})
-                            table_name = metadata.get("table_name", metadata.get("table"))
-                            if table_name and '.' in table_name:
-                                table_name = table_name.split('.')[1]
-                            if not table_name: continue
-                            if table_name not in data_by_table:
-                                data_by_table[table_name] = []
-                            data_by_table[table_name].append(sub_item)
-                continue
-            
-            metadata = item.get("metadata", {})
-            tool_name = metadata.get("tool_name")
-            
-            if item.get("status") == "skipped":
-                table_name = metadata.get("table_name")
-                if not table_name: continue
-            else:
-                table_name = metadata.get("table_name", metadata.get("table"))
-
-            if table_name and '.' in table_name:
-                table_name = table_name.split('.')[1]
-
-            if not table_name and item.get("type") == "business_description":
-                table_name = item.get("table_name")
-
-            if not table_name: continue
-
-            if table_name not in data_by_table:
-                data_by_table[table_name] = []
-            data_by_table[table_name].append(item)
-
-        html = f"<div class='response-card summary-card'>{llm_summary}</div>"
-        
-        formatter = OutputFormatter("", [])
-        
-        for table_name, data in data_by_table.items():
-            html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{table_name}</code></summary><div class='px-4'>"
-            
-            for item in data:
-                tool_name = item.get("metadata", {}).get("tool_name")
-                if item.get("type") == "business_description":
-                    html += f"<div class='response-card'><h4 class='text-lg font-semibold text-white mb-2'>Business Description</h4><p class='text-gray-300'>{item.get('description')}</p></div>"
-                elif tool_name == 'base_tableDDL':
-                    html += formatter._render_ddl(item, 0)
-                elif tool_name == 'qlty_columnSummary':
-                    html += formatter._render_table(item, 0, f"Column Summary for {table_name}")
-                elif tool_name == 'qlty_univariateStatistics':
-                    if isinstance(item, list): # This handles the case where _execute_column_iteration returns a list of individual column results
-                        flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
-                        if flat_results:
-                            combined_results = []
-                            for res in flat_results:
-                                combined_results.extend(res.get('results', []))
-                            
-                            if combined_results:
-                                # Try to get metadata from one of the successful results for consistent display
-                                first_successful_metadata = next((res.get('metadata') for res in flat_results if res.get('metadata')), {})
-                                html += formatter._render_table({"results": combined_results, "metadata": first_successful_metadata}, 0, f"Univariate Statistics for {table_name}")
-                    else: # Handle single result if not from column iteration
-                         if item.get('status') == 'success':
-                             html += formatter._render_table(item, 0, f"Univariate Statistics for {table_name}")
-
-                elif item.get("status") == "skipped":
-                     html += f"<div class='response-card'><p class='text-sm text-gray-400 italic'>Skipped Step: <strong>{tool_name}</strong>. Reason: {item.get('reason')}</p></div>"
-
-
-            html += "</div></details>"
-
-        return html

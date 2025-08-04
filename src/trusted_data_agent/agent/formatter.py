@@ -8,10 +8,29 @@ class OutputFormatter:
     Parses raw LLM output and structured tool data to generate professional,
     failure-safe HTML for the UI.
     """
-    def __init__(self, llm_summary_text: str, collected_data: list):
-        self.raw_summary = llm_summary_text
+    def __init__(self, llm_response_text: str, collected_data: list, is_workflow: bool = False):
+        self.raw_summary = llm_response_text
         self.collected_data = collected_data
+        self.is_workflow = is_workflow
         self.processed_data_indices = set()
+
+        if self.is_workflow:
+            try:
+                # FIX: Sanitize the response to handle non-standard whitespace before parsing.
+                sanitized_response = llm_response_text.replace(u'\xa0', u' ')
+                
+                # FIX: Robustly extract JSON, ignoring potential markdown wrappers from the LLM.
+                json_match = re.search(r"\{.*\}", sanitized_response, re.DOTALL)
+                if not json_match:
+                    raise json.JSONDecodeError("No JSON object found in the LLM response.", sanitized_response, 0)
+                
+                report_data = json.loads(json_match.group(0))
+                self.raw_summary = report_data.get("summary", "Workflow completed, but no summary was generated.")
+                self.collected_data = report_data.get("structured_data", collected_data)
+            except (json.JSONDecodeError, TypeError):
+                # Fallback if the LLM fails to produce valid JSON
+                self.raw_summary = "The agent finished the workflow but failed to generate a structured report. Displaying raw data instead."
+
 
     def _has_renderable_tables(self) -> bool:
         """Checks if there is any data that will be rendered as a table."""
@@ -32,8 +51,6 @@ class OutputFormatter:
         # Check for markdown tables and decide whether to add a placeholder.
         markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
         if markdown_table_pattern.search(clean_summary):
-            # Only add the placeholder if we actually have table data to render.
-            # This prevents a confusing placeholder if the LLM hallucinates a table.
             replacement_text = "\n(Data table is shown below)\n" if self._has_renderable_tables() else ""
             clean_summary = re.sub(markdown_table_pattern, replacement_text, clean_summary)
 
@@ -138,7 +155,6 @@ class OutputFormatter:
         
     def _render_chart(self, chart_data: dict, index: int) -> str:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
-        # The data-spec attribute will hold the JSON string for the chart
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
         self.processed_data_indices.add(index)
         return f"""
@@ -147,7 +163,75 @@ class OutputFormatter:
         </div>
         """
 
+    def _format_workflow_summary(self) -> str:
+        """
+        A specialized formatter to render the results of any multi-step workflow
+        that produces a structured report with collapsible sections.
+        """
+        data_by_table = {}
+        for item in self.collected_data:
+            # Handle lists of results from column iteration
+            if isinstance(item, list):
+                for sub_item in item:
+                    if isinstance(sub_item, dict):
+                        metadata = sub_item.get("metadata", {})
+                        table_name = metadata.get("table_name", metadata.get("table"))
+                        if table_name and '.' in table_name: table_name = table_name.split('.')[1]
+                        if not table_name: continue
+                        if table_name not in data_by_table: data_by_table[table_name] = []
+                        data_by_table[table_name].append(sub_item)
+                continue
+            
+            if not isinstance(item, dict): continue
+            
+            metadata = item.get("metadata", {})
+            table_name = metadata.get("table_name", metadata.get("table"))
+            if not table_name and item.get("type") == "business_description": table_name = item.get("table_name")
+            if table_name and '.' in table_name: table_name = table_name.split('.')[1]
+            if not table_name: continue
+
+            if table_name not in data_by_table: data_by_table[table_name] = []
+            data_by_table[table_name].append(item)
+
+        sanitized_summary = self._sanitize_summary()
+        html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
+        
+        for table_name, data in data_by_table.items():
+            html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{table_name}</code></summary><div class='px-4'>"
+            
+            for item in data:
+                tool_name = item.get("metadata", {}).get("tool_name")
+                if item.get("type") == "business_description":
+                    html += f"<div class='response-card'><h4 class='text-lg font-semibold text-white mb-2'>Business Description</h4><p class='text-gray-300'>{item.get('description')}</p></div>"
+                elif tool_name == 'base_tableDDL':
+                    html += self._render_ddl(item, 0)
+                elif tool_name == 'qlty_columnSummary':
+                    html += self._render_table(item, 0, f"Column Summary for {table_name}")
+                elif tool_name == 'qlty_univariateStatistics':
+                    if isinstance(item, list):
+                        flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
+                        if flat_results:
+                            combined_results = [res for col_res in flat_results for res in col_res.get('results', [])]
+                            if combined_results:
+                                first_successful_metadata = next((res.get('metadata') for res in flat_results if res.get('metadata')), {})
+                                html += self._render_table({"results": combined_results, "metadata": first_successful_metadata}, 0, f"Univariate Statistics for {table_name}")
+                    elif item.get('status') == 'success':
+                        html += self._render_table(item, 0, f"Univariate Statistics for {table_name}")
+                elif item.get("status") == "skipped":
+                     html += f"<div class='response-card'><p class='text-sm text-gray-400 italic'>Skipped Step: <strong>{tool_name or 'N/A'}</strong>. Reason: {item.get('reason')}</p></div>"
+            html += "</div></details>"
+
+        return html
+
     def render(self) -> str:
+        """
+        Main rendering method. It decides which formatting strategy to use
+        based on whether the execution was a workflow or a standard query.
+        """
+        if self.is_workflow:
+            return self._format_workflow_summary()
+
+        # Standard rendering for non-workflow responses
         final_html = ""
         clean_summary_html = self._sanitize_summary()
         if clean_summary_html:
@@ -157,7 +241,6 @@ class OutputFormatter:
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
             
-            # Check for chart type first
             if tool_result.get("type") == "chart":
                 final_html += self._render_chart(tool_result, i)
                 continue
