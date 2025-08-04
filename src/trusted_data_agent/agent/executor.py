@@ -382,7 +382,6 @@ class PlanExecutor:
         self.current_command = {"tool_name": "base_tableList", "arguments": {"db_name": db_name}}
         async for event in self._intercept_and_correct_command(): yield event
         
-        yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
         table_list_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         self.collected_data.append(table_list_result)
         yield _format_sse({"step": "Tool Execution Result", "details": table_list_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
@@ -454,7 +453,6 @@ class PlanExecutor:
                 }
 
                 if tool_name == "base_tableDDL":
-                    yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                     ddl_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
                     self.collected_data.append(ddl_result)
                     yield _format_sse({"step": "Tool Execution Result", "details": ddl_result, "tool_name": tool_name}, "tool_result")
@@ -465,6 +463,7 @@ class PlanExecutor:
                             "**CRITICAL INSTRUCTIONS:**\n1. Your entire response MUST be plain text.\n2. DO NOT generate JSON, tool calls, or any code.\n3. Describe the likely business purpose of the table and each column.\n\n"
                             f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
                         )
+                        yield _format_sse({"step": "Calling LLM"})
                         description, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
                         
                         updated_session = session_manager.get_session(self.session_id)
@@ -492,7 +491,6 @@ class PlanExecutor:
                     if self.collected_data and isinstance(self.collected_data[-1], list):
                         pass
                 else: 
-                    yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                     tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
                     self.collected_data.append(tool_result)
                     yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
@@ -506,7 +504,6 @@ class PlanExecutor:
         handles the result.
         """
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
-        yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
         tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         
         if 'notification' in self.current_command:
@@ -536,7 +533,7 @@ class PlanExecutor:
             self.collected_data.append(tool_result)
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
-            yield _format_sse({"details": tool_result}, "request_user_input")
+            yield _format_sse({"details": col_result}, "request_user_input")
             self.state = AgentState.ERROR
             return
 
@@ -604,7 +601,8 @@ class PlanExecutor:
                 "details": "Asking LLM to analyze tool requirements with dynamic hints...",
                 "type": "workaround"
             })
-
+            
+            yield _format_sse({"step": "Calling LLM"})
             response_text, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], 
                 prompt, 
@@ -658,7 +656,6 @@ class PlanExecutor:
         specific_column = base_args.get("col_name") or base_args.get("column_name")
         if specific_column:
             yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
-            yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], base_command)
             
             if 'notification' in self.current_command:
@@ -707,7 +704,6 @@ class PlanExecutor:
                     "type": "workaround"
                 })
                 cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
-                yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                 cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
 
                 if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
@@ -727,7 +723,6 @@ class PlanExecutor:
             temp_globally_failed_tools_check = False 
             try:
                 # We do not want to add this preflight result to collected_data, just check for functionality
-                yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
                 preflight_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], preflight_command)
                 if isinstance(preflight_result, dict) and "error" in preflight_result:
                     error_details = preflight_result.get("data", preflight_result.get("error", ""))
@@ -825,7 +820,6 @@ class PlanExecutor:
             iter_command = {"tool_name": tool_name, "arguments": iter_args}
 
             yield _format_sse({"step": "Tool Execution Intent", "details": iter_command}, "tool_result")
-            yield _format_sse({}, "tool_start") # <<< NEW: Signal tool execution start
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
             
             if isinstance(col_result, dict) and "error" in col_result:
@@ -906,6 +900,10 @@ class PlanExecutor:
             final_prompt_to_llm = f"{prompt_for_next_step}\n\nThe last tool execution returned the following result. Use this to inform your next action:\n\n{tool_result_str}"
         else:
             final_prompt_to_llm = prompt_for_next_step
+        
+        # --- MODIFICATION: Add a dedicated event before the LLM call ---
+        yield _format_sse({"step": "Calling LLM"})
+        # --- END MODIFICATION ---
 
         self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
         
@@ -967,6 +965,7 @@ class PlanExecutor:
                 "3. If you see results with a 'skipped' status in the data, you MUST mention this in your summary.\n"
                 "4. Do not describe your internal thought process or mention that you were given JSON."
             )
+            yield _format_sse({"step": "Calling LLM"})
             final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             
             updated_session = session_manager.get_session(self.session_id)

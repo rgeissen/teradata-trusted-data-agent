@@ -890,7 +890,6 @@
         let pristineChartConfig = {};
         let isMouseOverStatus = false; 
 
-        // --- NEW: Thinking indicator elements ---
         const thinkingIndicator = document.getElementById('thinking-indicator');
         const promptNameDisplay = document.getElementById('prompt-name-display');
 
@@ -1024,10 +1023,9 @@
         }
 
         function updateStatusWindow(eventData, isFinal = false) {
-            // --- MODIFIED: Check for step property before rendering ---
             const { step, details, type } = eventData;
             if (!step) {
-                return; // Don't render status updates without a title
+                return;
             }
 
             const lastStep = document.getElementById(`status-step-${currentStatusId}`);
@@ -1176,7 +1174,7 @@
                         if (dataLine) {
                             const eventData = JSON.parse(dataLine);
                             
-                            if (eventName === 'message' && eventData.step && eventData.step.includes("Thinking about the next action")) {
+                            if (eventName === 'message' && eventData.step === "Calling LLM") {
                                 setThinkingIndicator(true);
                             }
                             
