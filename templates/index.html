@@ -1672,16 +1672,21 @@
             setTimeout(() => configModalOverlay.classList.add('hidden'), 300);
         }
         
-        function getCurrentConfig() {
+        // --- MODIFIED: getCurrentConfig functions are now separate ---
+        function getCurrentCoreConfig() {
             const formData = new FormData(configForm);
-            const chartFormData = new FormData(chartConfigForm);
-            const config = Object.fromEntries(formData.entries());
-            const chartConfig = Object.fromEntries(chartFormData.entries());
-            return {...config, ...chartConfig};
+            return Object.fromEntries(formData.entries());
         }
 
+        function getCurrentChartConfig() {
+            const formData = new FormData(chartConfigForm);
+            return Object.fromEntries(formData.entries());
+        }
+
+        // --- MODIFIED: updateConfigButtonState now uses connection status and checks only the core form ---
         function updateConfigButtonState() {
             const isConnected = teradataStatusDot.classList.contains('connected');
+            
             if (!isConnected) {
                 configActionButtonText.textContent = 'Connect & Load';
                 configActionButton.type = 'submit';
@@ -1691,11 +1696,11 @@
                 return;
             }
 
-            const currentConfig = getCurrentConfig();
+            const currentConfig = getCurrentCoreConfig();
             const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineConfig);
             
             if (hasChanged) {
-                configActionButtonText.textContent = 'Connect & Load';
+                configActionButtonText.textContent = 'Reconnect & Load';
                 configActionButton.type = 'submit';
                 configActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500');
                 configActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
@@ -1709,21 +1714,37 @@
             }
         }
         
+        // --- MODIFIED: updateChartConfigButtonState now uses connection status and checks only the chart form ---
         function updateChartConfigButtonState() {
-            const currentConfig = Object.fromEntries(new FormData(chartConfigForm).entries());
+            const isConnected = chartStatusDot.classList.contains('connected');
+            const isCoreConnected = teradataStatusDot.classList.contains('connected');
+            
+            chartingFieldset.disabled = !isCoreConnected || chartingFieldset.dataset.cliDisabled === 'true';
+
+            if (!isConnected) {
+                chartActionButtonText.textContent = 'Connect & Load';
+                chartActionButton.type = 'submit';
+                chartActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500', 'bg-green-600', 'hover:bg-green-500', 'cursor-default');
+                chartActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                chartActionButton.onclick = null;
+                return;
+            }
+            
+            const currentConfig = getCurrentChartConfig();
             const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineChartConfig);
 
             if (hasChanged) {
-                chartActionButtonText.textContent = 'Connect & Load';
+                chartActionButtonText.textContent = 'Reconnect & Load';
                 chartActionButton.type = 'submit';
-                chartActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500');
+                chartActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500', 'bg-green-600', 'hover:bg-green-500', 'cursor-default');
                 chartActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                chartActionButton.onclick = null;
             } else {
-                chartActionButtonText.textContent = 'Close';
+                chartActionButtonText.textContent = 'Connected';
                 chartActionButton.type = 'button';
                 chartActionButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
-                chartActionButton.classList.add('bg-gray-600', 'hover:bg-gray-500');
-                chartActionButton.onclick = closeConfigModal;
+                chartActionButton.classList.add('bg-green-600', 'hover:bg-green-500', 'cursor-default');
+                chartActionButton.onclick = null;
             }
         }
 
@@ -1731,17 +1752,18 @@
             configModalOverlay.classList.remove('hidden', 'opacity-0');
             configModalContent.classList.remove('scale-95', 'opacity-0');
             
-            pristineConfig = getCurrentConfig();
-            pristineChartConfig = Object.fromEntries(new FormData(chartConfigForm).entries());
+            pristineConfig = getCurrentCoreConfig();
+            pristineChartConfig = getCurrentChartConfig();
             
             updateConfigButtonState();
             updateChartConfigButtonState();
         });
         
         configModalClose.addEventListener('click', () => {
-            const currentConfig = getCurrentConfig();
-            const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineConfig);
-            if (hasChanged) {
+            const coreChanged = JSON.stringify(getCurrentCoreConfig()) !== JSON.stringify(pristineConfig);
+            const chartChanged = JSON.stringify(getCurrentChartConfig()) !== JSON.stringify(pristineChartConfig);
+
+            if (coreChanged || chartChanged) {
                 showConfirmation('Discard Changes?', 'You have unsaved changes in your configuration. Are you sure you want to close?', closeConfigModal);
             } else {
                 closeConfigModal();
@@ -1834,25 +1856,18 @@
             }
 
             configLoadingSpinner.classList.remove('hidden');
+            configActionButton.disabled = true;
             configStatus.textContent = 'Connecting to Teradata & LLM...';
             configStatus.className = 'text-sm text-yellow-400 text-center';
 
             const formData = new FormData(e.target);
             const config = Object.fromEntries(formData.entries());
             
-            const mcpConfig = {
-                host: config.host,
-                port: config.port,
-                path: config.path
-            };
+            const mcpConfig = { host: config.host, port: config.port, path: config.path };
             localStorage.setItem('mcpConfig', JSON.stringify(mcpConfig));
             
             if (config.provider === 'Amazon') {
-                const awsCreds = {
-                    aws_access_key_id: config.aws_access_key_id,
-                    aws_secret_access_key: config.aws_secret_access_key,
-                    aws_region: config.aws_region
-                };
+                const awsCreds = { aws_access_key_id: config.aws_access_key_id, aws_secret_access_key: config.aws_secret_access_key, aws_region: config.aws_region };
                 localStorage.setItem('amazonApiKey', JSON.stringify(awsCreds));
             } else if (config.provider === 'Ollama') {
                 localStorage.setItem('ollamaHost', config.ollama_host);
@@ -1884,7 +1899,6 @@
                     if (!activePrompt) {
                         await resetSystemPrompt(true);
                     }
-                    updateStatusPromptName();
 
                     chatModalButton.disabled = false;
                     promptEditorButton.disabled = false;
@@ -1896,15 +1910,19 @@
                     userInput.placeholder = "Ask about databases, tables, users...";
                     
                     await startNewSession();
+                    
+                    pristineConfig = getCurrentCoreConfig();
+                    
+                    const isChartingEnabledByCLI = chartingFieldset.dataset.cliDisabled !== 'true';
 
-                    if (chartingFieldset.disabled) {
-                        setTimeout(() => {
-                            closeConfigModal();
-                            openSystemPromptPopup();
-                        }, 1000);
-                    } else {
-                        openSystemPromptPopup();
+                    if (!isChartingEnabledByCLI) {
+                         setTimeout(closeConfigModal, 1000);
                     }
+                    
+                    updateConfigButtonState();
+                    updateChartConfigButtonState();
+                    openSystemPromptPopup();
+
                 } else {
                     throw new Error(result.message || 'An unknown configuration error occurred.');
                 }
@@ -1917,7 +1935,7 @@
                 teradataStatusDot.classList.remove('connected');
             } finally {
                 configLoadingSpinner.classList.add('hidden');
-                pristineConfig = getCurrentConfig();
+                configActionButton.disabled = false;
                 updateConfigButtonState();
             }
         });
@@ -1925,7 +1943,8 @@
         chartConfigForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             chartConfigLoadingSpinner.classList.remove('hidden');
-            configStatus.textContent = 'Connecting to Chart Server...';
+            chartActionButton.disabled = true;
+            configStatus.textContent = 'Connecting & Classifying Charts...';
             configStatus.className = 'text-sm text-yellow-400 text-center';
             
             const formData = new FormData(e.target);
@@ -1941,7 +1960,7 @@
                 });
                 const result = await res.json();
                 if (res.ok) {
-                    configStatus.textContent = 'Success! Chart server connected and resources loaded.';
+                    configStatus.textContent = 'Success! Chart server connected and resources classified.';
                     configStatus.className = 'text-sm text-green-400 text-center';
                     chartStatusDot.classList.remove('disconnected');
                     chartStatusDot.classList.add('connected');
@@ -1952,6 +1971,11 @@
                     await loadResources('resources');
                     
                     await handleIntensityChange();
+
+                    pristineChartConfig = getCurrentChartConfig();
+                    updateChartConfigButtonState();
+                    
+                    // --- MODIFIED: Auto-close the modal on success ---
                     setTimeout(closeConfigModal, 1000);
 
                 } else {
@@ -1964,7 +1988,7 @@
                 chartStatusDot.classList.remove('connected');
             } finally {
                 chartConfigLoadingSpinner.classList.add('hidden');
-                pristineChartConfig = Object.fromEntries(new FormData(chartConfigForm).entries());
+                chartActionButton.disabled = false;
                 updateChartConfigButtonState();
             }
         });
@@ -2283,15 +2307,18 @@
                 const res = await fetch('/app-config');
                 const appConfig = await res.json();
                 
-                chartingFieldset.disabled = !appConfig.charting_enabled;
-                if (!appConfig.charting_enabled) {
+                // --- MODIFIED: Store CLI flag state in a data attribute ---
+                const isChartingCliEnabled = appConfig.charting_enabled;
+                chartingFieldset.dataset.cliDisabled = !isChartingCliEnabled;
+
+                if (!isChartingCliEnabled) {
                     chartingEngineCard.classList.add('opacity-50');
                     chartingEngineCard.title = "Charting is disabled. Start the server with the --charting flag to enable it.";
                 }
 
             } catch (e) {
                 console.error("Could not fetch app config", e);
-                chartingFieldset.disabled = true;
+                chartingFieldset.dataset.cliDisabled = 'true';
                 chartingEngineCard.classList.add('opacity-50');
             }
 

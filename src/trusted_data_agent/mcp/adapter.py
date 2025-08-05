@@ -142,6 +142,48 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             STATE['prompts_context'] = "--- No Prompts Available ---"
             STATE['structured_prompts'] = {}
 
+async def load_and_categorize_chart_resources(STATE: dict):
+    """
+    Loads all chart generation tools from the Chart MCP server,
+    categorizes them using an LLM, and stores them in the application state.
+    """
+    mcp_client = STATE.get('mcp_client')
+    llm_instance = STATE.get('llm')
+    if not mcp_client or not llm_instance:
+        raise Exception("MCP or LLM client not initialized for chart loading.")
+
+    async with mcp_client.session("chart_mcp_server") as temp_session:
+        app_logger.info("--- Loading Chart tools... ---")
+        loaded_charts = await load_mcp_tools(temp_session)
+        
+        STATE['mcp_charts'] = {tool.name: tool for tool in loaded_charts}
+        
+        chart_strings = [f"- `{tool.name}`: {tool.description}" for tool in loaded_charts]
+        STATE['charts_context'] = "--- Available Charting Tools ---\n" + "\n".join(chart_strings)
+        
+        chart_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_charts])
+        categorization_prompt = (
+            "You are a helpful assistant that organizes a list of data visualization tools into logical categories for a user interface. "
+            "Your response MUST be a single, valid JSON object. The keys should be the category names (e.g., 'Bar & Column', 'Pie & Donut', 'Line & Area'), "
+            f"and the values should be an array of tool names belonging to that category.\n\n"
+            f"--- Chart Tool List ---\n{chart_list_for_prompt}"
+        )
+        categorization_system_prompt = "You are a helpful assistant that organizes lists into JSON format."
+        
+        categorized_charts_str, _, _ = await llm_handler.call_llm_api(
+            llm_instance, categorization_prompt, raise_on_error=True,
+            system_prompt_override=categorization_system_prompt
+        )
+        
+        match = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL)
+        if match is None:
+            raise ValueError(f"LLM failed to return a valid JSON for chart categorization. Response: '{categorized_charts_str}'")
+        
+        cleaned_str = match.group(0)
+        categorized_charts = json.loads(cleaned_str)
+        STATE['structured_charts'] = {category: [{"name": name, "description": STATE['mcp_charts'][name].description} for name in tool_names if name in STATE['mcp_charts']] for category, tool_names in categorized_charts.items()}
+
+
 async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
     """
     Validates tool parameters, applies shims for common aliases, and attempts

@@ -315,26 +315,37 @@ async def configure_services():
 
 @api_bp.route("/configure_chart", methods=["POST"])
 async def configure_chart_service():
-    """Configures the optional charting engine service."""
+    """Configures and classifies resources from the optional charting engine service."""
     if not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"status": "error", "message": "Main MCP client not configured."}), 400
     
     data = await request.get_json()
+    original_server_configs = STATE['server_configs'].copy()
+
     try:
         chart_server_url = f"http://{data.get('chart_host')}:{data.get('chart_port')}{data.get('chart_path')}"
         STATE['server_configs']['chart_mcp_server'] = {"url": chart_server_url, "transport": "sse"}
         
+        # Re-initialize the client with the new chart server config
         STATE['mcp_client'] = MultiServerMCPClient(STATE['server_configs'])
+        
+        # Call the new adapter function to load and classify chart tools
+        await mcp_adapter.load_and_categorize_chart_resources(STATE)
+        
         APP_CONFIG.CHART_MCP_CONNECTED = True
         
-        return jsonify({"status": "success", "message": "Chart MCP server configured successfully."})
+        return jsonify({"status": "success", "message": "Chart MCP server configured and resources classified successfully."})
     except Exception as e:
-        if 'chart_mcp_server' in STATE['server_configs']:
-            del STATE['server_configs']['chart_mcp_server']
+        # Rollback configuration on failure
+        STATE['server_configs'] = original_server_configs
         STATE['mcp_client'] = MultiServerMCPClient(STATE['server_configs'])
         APP_CONFIG.CHART_MCP_CONNECTED = False
-        app_logger.error(f"Chart configuration failed: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Chart server connection failed: {e}"}), 500
+        STATE['structured_charts'] = {}
+        STATE['charts_context'] = "--- No Charts Available ---"
+        
+        app_logger.error(f"Chart configuration and classification failed: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Chart server connection or classification failed: {e}"}), 500
+
 
 @api_bp.route("/ask_stream", methods=["POST"])
 async def ask_stream():
