@@ -8,6 +8,17 @@ from trusted_data_agent.llm import handler as llm_handler
 
 app_logger = logging.getLogger("quart.app")
 
+# --- NEW: Formalized Parameter Alias Map ---
+# This map acts as a translation layer to correct common parameter name variations
+# from the LLM, enhancing agent robustness without LLM intervention.
+# It maps a canonical parameter name to a list of its common aliases.
+PARAMETER_ALIASES = {
+    "database_name": ["db_name", "database"],
+    "table_name": ["tbl_name", "object_name", "obj_name"],
+    "column_name": ["col_name", "column"]
+}
+
+
 def _patch_legacy_tool_definitions(tools: list):
     """
     Patches the definitions of legacy tools in-place.
@@ -146,27 +157,19 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
     tool_spec = mcp_tools[tool_name]
     spec_arg_names = set(tool_spec.args.keys())
 
-    # --- NEW: Enhanced General Parameter Aliasing Shim ---
-    # This shim handles a dictionary of common parameter name variations to
-    # prevent simple errors and improve reliability without LLM intervention.
-    PARAMETER_ALIASES = {
-        "database_name": ["db_name", "database"],
-        "table_name": ["tbl_name", "object_name", "obj_name"],
-        "column_name": ["col_name", "column"]
-    }
-
+    # --- REFACTORED: Use the module-level alias map ---
     corrected_args = args.copy()
     for canonical_name, aliases in PARAMETER_ALIASES.items():
         if canonical_name in spec_arg_names and canonical_name not in corrected_args:
             for alias in aliases:
                 if alias in corrected_args:
-                    app_logger.info(f"SHIM APPLIED: Translating '{alias}' to '{canonical_name}' for tool '{tool_name}'.")
+                    app_logger.info(f"SHIM APPLIED: Translating parameter alias '{alias}' to '{canonical_name}' for tool '{tool_name}'.")
                     corrected_args[canonical_name] = corrected_args.pop(alias)
                     break 
     
     command['arguments'] = corrected_args
     args = corrected_args
-    # --- END NEW SHIM ---
+    # --- END REFACTOR ---
 
     llm_arg_names = set(args.keys())
     required_params = {name for name, field in tool_spec.args.items() if field.get("required", False)}

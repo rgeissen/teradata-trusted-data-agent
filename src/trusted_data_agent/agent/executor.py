@@ -921,6 +921,63 @@ class PlanExecutor:
             raise ValueError("LLM failed to provide a response.")
         self.state = AgentState.DECIDING
 
+    def _prepare_data_for_final_summary(self) -> str:
+        """
+        Deterministically condenses the collected data into a concise string
+        to prevent exceeding LLM context limits in the final summarization prompt.
+        This version is enhanced to extract key findings from important tools.
+        """
+        summary_lines = []
+        for item in self.collected_data:
+            # Handle list of results, typical for column iterations
+            if isinstance(item, list) and item:
+                # Check the first element to guess the content
+                first_sub_item = item[0]
+                if isinstance(first_sub_item, dict):
+                    tool_name = first_sub_item.get("metadata", {}).get("tool_name", "Column-based tool")
+                    table_name = first_sub_item.get("metadata", {}).get("table_name", "a table")
+                    summary_lines.append(f"- Executed `{tool_name}` on table `{table_name}`.")
+                    # Add specific logic for important column-based tools
+                    if tool_name == 'qlty_univariateStatistics':
+                        for res in item:
+                            if isinstance(res, dict) and res.get("status") == "success":
+                                for stat in res.get("results", []):
+                                    col = stat.get("ColumnName")
+                                    std_dev = stat.get("StdDev")
+                                    if std_dev and float(std_dev) > 1000: # Example heuristic
+                                        summary_lines.append(f"  - Finding: High standard deviation ({std_dev}) for column `{col}`.")
+                    elif tool_name == 'qlty_columnSummary':
+                         for res in item:
+                            if isinstance(res, dict) and res.get("status") == "success":
+                                for stat in res.get("results", []):
+                                    col = stat.get("ColumnName")
+                                    null_count = stat.get("NullCount")
+                                    if null_count and int(null_count) > 0:
+                                        summary_lines.append(f"  - Finding: Column `{col}` contains {null_count} missing values.")
+                continue
+
+            if not isinstance(item, dict):
+                continue
+            
+            tool_name = item.get("metadata", {}).get("tool_name")
+            status = item.get("status")
+            
+            if item.get("type") == "business_description":
+                summary_lines.append(f"- Generated business description for table `{item.get('table_name')}`: \"{item.get('description', 'N/A')[:100]}...\"")
+            elif tool_name == "base_tableDDL":
+                table_name = item.get("metadata", {}).get("table", "a table")
+                summary_lines.append(f"- Retrieved DDL for table `{table_name}`.")
+            elif status == "success" and "results" in item:
+                result_count = len(item["results"])
+                summary_lines.append(f"- Tool `{tool_name}` executed successfully, returning {result_count} rows of data.")
+            elif status == "skipped":
+                summary_lines.append(f"- Skipped step: Tool `{tool_name}`. Reason: {item.get('reason')}")
+            elif status == "error":
+                 summary_lines.append(f"- An error occurred while running tool `{tool_name}`.")
+
+        return "\n".join(summary_lines)
+
+
     async def _handle_summarizing(self):
         """
         Generates the final summary answer. For complex workflows, it instructs the LLM
@@ -933,22 +990,23 @@ class PlanExecutor:
         if self.is_workflow:
             yield _format_sse({"step": "Workflow finished, generating structured report...", "details": "The agent is synthesizing all collected data into a report format."})
             
-            collected_data_str = json.dumps(self.collected_data, indent=2)
-            
+            # Use the deterministic pre-summarizer for the LLM prompt
+            summarized_data_str = self._prepare_data_for_final_summary()
+
             final_prompt = (
                 "You are a data analyst responsible for generating the final report from a complex, multi-step workflow.\n\n"
                 "--- CONTEXT ---\n"
-                "A workflow was executed to gather data and answer a user's request. All the data has been collected and is provided below.\n\n"
-                f"--- COLLECTED DATA ---\n{collected_data_str}\n\n"
+                "A workflow was executed to gather data and answer a user's request. A summary of the collected data is provided below.\n\n"
+                f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
                 "--- YOUR TASK ---\n"
                 "Your task is to generate a final report in a specific JSON format. Your response **MUST** be a single, raw JSON object containing two keys:\n"
-                "1. `\"summary\"`: A natural language summary that synthesizes the key findings from the COLLECTED DATA to answer the user's original request. This summary should be comprehensive and easy to understand.\n"
-                "2. `\"structured_data\"`: The original COLLECTED DATA, passed through exactly as it was provided to you.\n\n"
+                "1. `\"summary\"`: A natural language summary that synthesizes the key findings from the COLLECTED DATA SUMMARY to answer the user's original request. This summary should be comprehensive and easy to understand.\n"
+                "2. `\"structured_data\"`: The original, full COLLECTED DATA, which will be passed through programmatically. You do not need to include it here.\n\n"
                 "**CRITICAL INSTRUCTIONS:**\n"
-                "1. Your entire response MUST be a single, valid JSON object. Do not include any text outside of the JSON structure.\n"
-                "2. The `summary` should be based *only* on the data provided.\n"
-                "3. If you see results with a 'skipped' status in the data, you MUST mention this in your `summary`.\n"
-                "4. The `structured_data` value MUST be the complete and unmodified JSON array from the `--- COLLECTED DATA ---` section."
+                "1. Your entire response MUST be a single, valid JSON object containing only the `\"summary\"` key and its value.\n"
+                "2. The `summary` should be based *only* on the data summary provided.\n"
+                "3. If you see results with a 'skipped' status in the data summary, you MUST mention this in your `summary`.\n"
+                "Example response: {\"summary\": \"The data quality assessment for the database is complete. DDL was retrieved for three tables, and various quality checks were performed...\"}"
             )
             yield _format_sse({"step": "Calling LLM"})
             final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
@@ -958,13 +1016,24 @@ class PlanExecutor:
                 token_data = { "statement_input": statement_input_tokens, "statement_output": statement_output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }
                 yield _format_sse(token_data, "token_update")
             
-            # FIX: Robustly extract JSON from the LLM's response, ignoring markdown wrappers.
-            json_match = re.search(r"\{.*\}", final_llm_response, re.DOTALL)
-            if json_match:
-                llm_response = json_match.group(0)
-            else:
-                # If no JSON is found, pass the raw response and let the formatter handle the error.
-                llm_response = final_llm_response
+            try:
+                # Robustly extract JSON from the LLM's response
+                json_match = re.search(r"\{.*\}", final_llm_response, re.DOTALL)
+                if json_match:
+                    # We have the summary, now create the final structure the formatter expects
+                    summary_json = json.loads(json_match.group(0))
+                    report_data = {
+                        "summary": summary_json.get("summary", "Workflow completed, but no summary was generated."),
+                        "structured_data": self.collected_data # Pass the original full data
+                    }
+                    llm_response = json.dumps(report_data)
+                else:
+                    raise json.JSONDecodeError("No JSON object found in the LLM response.", final_llm_response, 0)
+            except (json.JSONDecodeError, TypeError):
+                llm_response = json.dumps({
+                    "summary": "The agent finished the workflow but failed to generate a structured report. Displaying raw data instead.",
+                    "structured_data": self.collected_data
+                })
 
         else:
             final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response, re.DOTALL | re.IGNORECASE)
@@ -973,18 +1042,21 @@ class PlanExecutor:
             
             if not summary_text:
                 yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
-                collected_data_str = json.dumps(self.collected_data, indent=2)
+                
+                # Use the deterministic pre-summarizer for the LLM prompt
+                summarized_data_str = self._prepare_data_for_final_summary()
+
                 final_prompt = (
                     "You are a data analyst responsible for the final step of a complex task.\n\n"
                     "--- CONTEXT ---\n"
-                    "A multi-step plan was executed to gather data and answer a user's request. All the data has been collected and is provided below.\n\n"
-                    f"--- COLLECTED DATA ---\n{collected_data_str}\n\n"
+                    "A multi-step plan was executed to gather data and answer a user's request. A summary of the key findings is provided below.\n\n"
+                    f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
                     "--- YOUR TASK ---\n"
-                    f"Synthesize the information in the COLLECTED DATA to generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
+                    f"Synthesize the information in the COLLECTED DATA SUMMARY to generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
                     "Your response MUST start with `FINAL_ANSWER:`.\n\n"
                     "**CRITICAL INSTRUCTIONS:**\n"
-                    "1. Your summary MUST be based *only* on the data provided.\n"
-                    "2. Do not describe your internal thought process or mention that you were given JSON."
+                    "1. Your summary MUST be based *only* on the data summary provided.\n"
+                    "2. Do not describe your internal thought process or mention that you were given a summary."
                 )
                 yield _format_sse({"step": "Calling LLM"})
                 final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
