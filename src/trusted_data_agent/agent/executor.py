@@ -294,21 +294,26 @@ class PlanExecutor:
             if get_prompt_result is None: raise ValueError("Prompt retrieval from MCP server returned None.")
             prompt_text = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') else str(get_prompt_result)
 
-            is_workflow_prompt = "phase 1" in prompt_text.lower() and "cycle through" in prompt_text.lower()
-            if is_workflow_prompt:
-                self.is_workflow = True # NEW: Set the workflow flag
-                app_logger.info(f"Workflow prompt '{prompt_name}' detected. Switching to algorithmic execution.")
-                yield _format_sse({
-                    "step": f"Workflow Detected: {prompt_name}",
-                    "details": prompt_text,
-                    "prompt_name": prompt_name
-                }, "prompt_selected")
-                async for event in self._parse_and_execute_workflow(prompt_text, command.get("arguments", {})):
+            is_looping_workflow = "cycle through" in prompt_text.lower()
+            is_linear_workflow = re.search(r"## (?:Phase|Step) 1", prompt_text, re.IGNORECASE) and not is_looping_workflow
+
+            if is_looping_workflow:
+                self.is_workflow = True
+                app_logger.info(f"Looping workflow prompt '{prompt_name}' detected. Switching to iterative execution.")
+                yield _format_sse({"step": f"Workflow Detected: {prompt_name}", "details": prompt_text, "prompt_name": prompt_name}, "prompt_selected")
+                async for event in self._execute_iterative_workflow(prompt_text, command.get("arguments", {})):
+                    yield event
+                self.state = AgentState.SUMMARIZING
+                return
+            
+            if is_linear_workflow:
+                app_logger.info(f"Linear workflow prompt '{prompt_name}' detected. Switching to algorithmic execution.")
+                yield _format_sse({"step": f"Linear Workflow Detected: {prompt_name}", "details": prompt_text, "prompt_name": prompt_name}, "prompt_selected")
+                async for event in self._execute_linear_workflow(prompt_text, command.get("arguments", {})):
                     yield event
                 self.state = AgentState.SUMMARIZING
                 return
 
-            # This block is now only executed for non-workflow prompts
             if self.active_prompt_plan:
                 app_logger.warning(f"LLM attempted a nested prompt call. Forcing summarization.")
                 self.state = AgentState.SUMMARIZING
@@ -341,7 +346,6 @@ class PlanExecutor:
         results = tool_result.get("results")
         if not isinstance(results, list) or not results: return
 
-        # Heuristic: Does this look like column summary data?
         first_row = results[0]
         if 'ColumnName' in first_row and 'NullCount' in first_row:
             app_logger.info(f"Context update: Found column summary data for table {context['table_name']}.")
@@ -361,7 +365,6 @@ class PlanExecutor:
         if not tool_spec:
             return False, ""
 
-        # Heuristic 1: Skip tools related to missing/null values if we know there are none.
         tool_purpose = tool_spec.description.lower()
         is_about_nulls = 'missing' in tool_purpose or 'null' in tool_purpose
         
@@ -371,9 +374,77 @@ class PlanExecutor:
 
         return False, ""
 
-    async def _parse_and_execute_workflow(self, prompt_text: str, args: dict):
+    async def _execute_linear_workflow(self, prompt_text: str, args: dict):
         """
-        Parses a workflow prompt into a deterministic plan and executes it algorithmically.
+        Algorithmically executes simple, non-looping, multi-phase prompts
+        by dynamically parsing the first tool and subsequent instructions. This prevents
+        LLM confusion and makes the execution deterministic and robust.
+        """
+        # Step 1: Dynamically find the first tool to execute from the prompt text.
+        tool_name_match = re.search(r"Use the `?(\w+)`? (?:function|tool)", prompt_text, re.IGNORECASE)
+        if not tool_name_match:
+            raise ValueError("Linear workflow parsing failed: Could not determine the first tool to execute from the prompt text.")
+        
+        tool_to_execute = tool_name_match.group(1)
+        yield _format_sse({"step": f"Linear Workflow - Step 1: Executing tool '{tool_to_execute}'"})
+        
+        self.current_command = { "tool_name": tool_to_execute, "arguments": args }
+        
+        tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+        self.collected_data.append(tool_result)
+        yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_to_execute}, "tool_result")
+
+        if tool_result.get("status") != "success":
+            error_msg = tool_result.get('error', 'an unknown error')
+            self.next_action_str = f"FINAL_ANSWER: I could not retrieve the necessary data using the `{tool_to_execute}` tool, so I cannot complete the request. Error: {error_msg}"
+            return
+
+        # Step 2: Prepare a final, one-shot prompt for the LLM to complete the rest of the plan.
+        yield _format_sse({"step": "Linear Workflow - Step 2: Generating final response"})
+        
+        # We assume the primary data for the next step is the first text-like field in the results.
+        primary_data_for_llm = ""
+        results = tool_result.get("results")
+        if isinstance(results, list) and results:
+            first_row = results[0]
+            if isinstance(first_row, dict):
+                for value in first_row.values():
+                    if isinstance(value, str):
+                        primary_data_for_llm = value
+                        break
+        
+        if not primary_data_for_llm:
+            primary_data_for_llm = json.dumps(tool_result) # Fallback to full JSON
+
+        # This prompt gives the LLM all context needed to finish the plan in one go.
+        final_generation_prompt = (
+            f"You are an expert assistant. Your task is to complete a multi-step plan based on the original user request, the full plan, and the data from the first step which has already been executed for you.\n\n"
+            f"**Original User Request:**\n'{self.original_user_input}'\n\n"
+            f"**Full Plan to Execute:**\n---\n{prompt_text}\n---\n\n"
+            f"**Data from the successfully completed first step:**\n```\n{primary_data_for_llm}\n```\n\n"
+            "**Your Task:**\n"
+            "Now, follow the remaining steps of the **Full Plan** using the provided data to generate the final, complete, user-facing answer. Your response MUST be only the final answer text."
+        )
+
+        yield _format_sse({"step": "Calling LLM for final synthesis"})
+        final_answer, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_generation_prompt, self.session_id)
+        
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            token_data = {
+                "statement_input": statement_input_tokens,
+                "statement_output": statement_output_tokens,
+                "total_input": updated_session.get("input_tokens", 0),
+                "total_output": updated_session.get("output_tokens", 0)
+            }
+            yield _format_sse(token_data, "token_update")
+
+        self.next_action_str = f"FINAL_ANSWER: {final_answer}"
+
+
+    async def _execute_iterative_workflow(self, prompt_text: str, args: dict):
+        """
+        Parses an iterative workflow prompt into a deterministic plan and executes it algorithmically.
         """
         db_name = args.get("db_name") or args.get("database_name")
         if not db_name:
@@ -571,13 +642,9 @@ class PlanExecutor:
         constraints = {}
         
         if tool_definition:
-            # Dynamically modify the prompt to provide more specific guidance for 'col_name'
-            # based on heuristics from tool name/description
             tool_description_lower = tool_definition.description.lower()
             prompt_modifier = ""
             
-            # Heuristic: If the tool name or description suggests statistics, deviation, or negative values,
-            # it very likely operates on numeric data.
             if any(keyword in tool_name.lower() for keyword in ["univariate", "standarddeviation", "negativevalues"]) or \
                any(keyword in tool_description_lower for keyword in ["statistics", "deviation", "negative values", "numerical analysis"]):
                 prompt_modifier = "This tool is intended for quantitative analysis. When `col_name` is an argument, it requires a 'numeric' data type."
@@ -593,7 +660,7 @@ class PlanExecutor:
                 "The tool's capabilities are:\n"
                 f"Tool Name: `{tool_definition.name}`\n"
                 f"Tool Description: \"{tool_definition.description}\"\n\n"
-                f"Contextual Hint: {prompt_modifier}\n\n" # Inject the dynamic hint here
+                f"Contextual Hint: {prompt_modifier}\n\n"
                 "Respond with a single, raw JSON object with one key, 'dataType', and the value 'numeric', 'character', or 'any'.\n"
                 "Example response for a statistical tool: {{\"dataType\": \"numeric\"}}"
             )
@@ -687,8 +754,6 @@ class PlanExecutor:
             all_columns_metadata = [{"ColumnName": col_name, "DataType": "UNKNOWN"} for col_name in column_subset]
             app_logger.info(f"Executing column iteration on a pre-defined subset of {len(column_subset)} columns.")
         else:
-            # Check for existing column summary data in collected_data for the *current table*
-            # This is an an optimization to avoid re-fetching column metadata
             reused_metadata = False
             for item in reversed(self.collected_data):
                 if isinstance(item, dict) and item.get("status") == "success":
@@ -714,40 +779,32 @@ class PlanExecutor:
 
         all_column_results = []
         
-        # Pre-flight check: Try running the tool on the first available column
-        # and mark it globally failed if it consistently errors out.
         first_column_to_try = next((col.get("ColumnName") for col in all_columns_metadata), None)
-        if first_column_to_try and tool_name not in self.globally_failed_tools: # Only run pre-flight if not already marked failed
+        if first_column_to_try and tool_name not in self.globally_failed_tools:
             preflight_args = base_args.copy()
             preflight_args['col_name'] = first_column_to_try
             preflight_command = {"tool_name": tool_name, "arguments": preflight_args}
-            # Temporarily set tool name to prevent double adding to globally_failed_tools if this pre-flight fails
             temp_globally_failed_tools_check = False 
             try:
-                # We do not want to add this preflight result to collected_data, just check for functionality
                 preflight_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], preflight_command)
                 if isinstance(preflight_result, dict) and "error" in preflight_result:
                     error_details = preflight_result.get("data", preflight_result.get("error", ""))
-                    # Check for specific error indicating tool non-functionality (e.g., function not found)
                     if "Function" in str(error_details) and "does not exist" in str(error_details):
                         self.globally_failed_tools.add(tool_name)
                         app_logger.warning(f"Tool '{tool_name}' marked as globally failed by pre-flight check.")
                         yield _format_sse({ "step": f"Halting iteration for globally failed tool: {tool_name}", "details": "Pre-flight check failed.", "type": "error" })
-                        temp_globally_failed_tools_check = True # Mark that we added it to the set
+                        temp_globally_failed_tools_check = True
             except Exception as e:
-                # Catch any unexpected errors during pre-flight and consider the tool problematic
                 self.globally_failed_tools.add(tool_name)
                 app_logger.error(f"Pre-flight check for tool '{tool_name}' failed with unexpected error: {e}")
                 yield _format_sse({ "step": f"Halting iteration for problematic tool: {tool_name}", "details": f"Pre-flight check failed unexpectedly: {e}", "type": "error" })
                 temp_globally_failed_tools_check = True
 
             if temp_globally_failed_tools_check:
-                # If pre-flight failed and marked as globally failed, add a skipped entry for this tool's overall attempt
                 all_column_results.append({ "status": "error", "reason": f"Tool '{tool_name}' is non-functional.", "metadata": {"tool_name": tool_name, "table_name": table_name}})
                 self.collected_data.append(all_column_results)
                 return
 
-        # Request tool constraints from LLM (or cache)
         tool_constraints = None
         async for event in self._get_tool_constraints(tool_name):
             if isinstance(event, dict):
@@ -760,8 +817,6 @@ class PlanExecutor:
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
             
-            # Allow skipping based on workflow_context for higher-level workflow logic
-            # This means if the workflow itself determined this column should be skipped for this tool, do it.
             if workflow_context:
                 skip_in_workflow, workflow_skip_reason = await self._should_skip_in_workflow(tool_name, workflow_context)
                 if skip_in_workflow:
@@ -929,22 +984,19 @@ class PlanExecutor:
         """
         summary_lines = []
         for item in self.collected_data:
-            # Handle list of results, typical for column iterations
             if isinstance(item, list) and item:
-                # Check the first element to guess the content
                 first_sub_item = item[0]
                 if isinstance(first_sub_item, dict):
                     tool_name = first_sub_item.get("metadata", {}).get("tool_name", "Column-based tool")
                     table_name = first_sub_item.get("metadata", {}).get("table_name", "a table")
                     summary_lines.append(f"- Executed `{tool_name}` on table `{table_name}`.")
-                    # Add specific logic for important column-based tools
                     if tool_name == 'qlty_univariateStatistics':
                         for res in item:
                             if isinstance(res, dict) and res.get("status") == "success":
                                 for stat in res.get("results", []):
                                     col = stat.get("ColumnName")
                                     std_dev = stat.get("StdDev")
-                                    if std_dev and float(std_dev) > 1000: # Example heuristic
+                                    if std_dev and float(std_dev) > 1000:
                                         summary_lines.append(f"  - Finding: High standard deviation ({std_dev}) for column `{col}`.")
                     elif tool_name == 'qlty_columnSummary':
                          for res in item:
@@ -1032,17 +1084,13 @@ class PlanExecutor:
                 })
 
         else:
-            # This is the non-workflow, standard summarization path.
             final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
             
             if final_answer_match:
-                # If FINAL_ANSWER is found, we use ONLY the text that follows it.
-                # This is the key change to fix the bug.
                 summary_text = final_answer_match.group(1).strip()
                 llm_response_for_formatter = summary_text
             
             elif not self.is_workflow:
-                # Fallback if FINAL_ANSWER is missing in a non-workflow context.
                 yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
                 
                 summarized_data_str = self._prepare_data_for_final_summary()
