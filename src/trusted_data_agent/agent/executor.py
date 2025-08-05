@@ -402,7 +402,6 @@ class PlanExecutor:
         # Step 2: Prepare a final, one-shot prompt for the LLM to complete the rest of the plan.
         yield _format_sse({"step": "Linear Workflow - Step 2: Generating final response"})
         
-        # We assume the primary data for the next step is the first text-like field in the results.
         primary_data_for_llm = ""
         results = tool_result.get("results")
         if isinstance(results, list) and results:
@@ -414,9 +413,8 @@ class PlanExecutor:
                         break
         
         if not primary_data_for_llm:
-            primary_data_for_llm = json.dumps(tool_result) # Fallback to full JSON
+            primary_data_for_llm = json.dumps(tool_result)
 
-        # This prompt gives the LLM all context needed to finish the plan in one go.
         final_generation_prompt = (
             f"You are an expert assistant. Your task is to complete a multi-step plan based on the original user request, the full plan, and the data from the first step which has already been executed for you.\n\n"
             f"**Original User Request:**\n'{self.original_user_input}'\n\n"
