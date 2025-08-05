@@ -1672,7 +1672,6 @@
             setTimeout(() => configModalOverlay.classList.add('hidden'), 300);
         }
         
-        // --- MODIFIED: getCurrentConfig functions are now separate ---
         function getCurrentCoreConfig() {
             const formData = new FormData(configForm);
             return Object.fromEntries(formData.entries());
@@ -1683,7 +1682,6 @@
             return Object.fromEntries(formData.entries());
         }
 
-        // --- MODIFIED: updateConfigButtonState now uses connection status and checks only the core form ---
         function updateConfigButtonState() {
             const isConnected = teradataStatusDot.classList.contains('connected');
             
@@ -1714,7 +1712,6 @@
             }
         }
         
-        // --- MODIFIED: updateChartConfigButtonState now uses connection status and checks only the chart form ---
         function updateChartConfigButtonState() {
             const isConnected = chartStatusDot.classList.contains('connected');
             const isCoreConnected = teradataStatusDot.classList.contains('connected');
@@ -1914,8 +1911,9 @@
                     pristineConfig = getCurrentCoreConfig();
                     
                     const isChartingEnabledByCLI = chartingFieldset.dataset.cliDisabled !== 'true';
+                    const isChartServerAlreadyConnected = chartStatusDot.classList.contains('connected');
 
-                    if (!isChartingEnabledByCLI) {
+                    if (!isChartingEnabledByCLI || isChartServerAlreadyConnected) {
                          setTimeout(closeConfigModal, 1000);
                     }
                     
@@ -1975,7 +1973,6 @@
                     pristineChartConfig = getCurrentChartConfig();
                     updateChartConfigButtonState();
                     
-                    // --- MODIFIED: Auto-close the modal on success ---
                     setTimeout(closeConfigModal, 1000);
 
                 } else {
@@ -2307,7 +2304,6 @@
                 const res = await fetch('/app-config');
                 const appConfig = await res.json();
                 
-                // --- MODIFIED: Store CLI flag state in a data attribute ---
                 const isChartingCliEnabled = appConfig.charting_enabled;
                 chartingFieldset.dataset.cliDisabled = !isChartingCliEnabled;
 
