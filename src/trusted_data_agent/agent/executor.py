@@ -3,6 +3,7 @@ import re
 import json
 import logging
 from enum import Enum, auto
+from datetime import datetime, timedelta
 
 from trusted_data_agent.agent.formatter import OutputFormatter
 from trusted_data_agent.core import session_manager
@@ -87,7 +88,7 @@ class PlanExecutor:
         self.dependencies = dependencies
         self.tool_constraints_cache = {} # Cache for inferred tool constraints
         self.globally_failed_tools = set() # Cache for tools that are fundamentally broken
-        self.is_workflow = False # NEW: Flag to track if we are in a complex workflow
+        self.is_workflow = False
 
     async def run(self):
         """
@@ -102,11 +103,20 @@ class PlanExecutor:
                     yield _format_sse({"step": "Assistant has decided on an action", "details": self.next_action_str}, "llm_thought")
                     async for event in self._handle_deciding():
                         yield event
+                
                 elif self.state == AgentState.EXECUTING_TOOL:
+                    is_range_candidate, date_param_name = self._is_date_query_candidate()
+                    if is_range_candidate:
+                        query_type, date_phrase = await self._classify_date_query_type()
+                        if query_type == 'range':
+                            async for event in self._execute_date_range_orchestrator(date_param_name, date_phrase):
+                                yield event
+                            continue
+                    
                     async for event in self._intercept_and_correct_command():
                         yield event
-                    tool_name = self.current_command.get("tool_name")
                     
+                    tool_name = self.current_command.get("tool_name")
                     if tool_name in self.globally_failed_tools:
                         yield _format_sse({
                             "step": f"Skipping Globally Failed Tool: {tool_name}",
@@ -138,33 +148,130 @@ class PlanExecutor:
             async for event in self._handle_summarizing():
                 yield event
 
+    def _is_date_query_candidate(self) -> tuple[bool, str]:
+        """
+        Broadly checks if a command is a candidate for any date-related processing.
+        """
+        if not self.current_command:
+            return False, None
+        
+        args = self.current_command.get("arguments", {})
+        date_param_name = next((param for param in args if 'date' in param.lower()), None)
+        
+        return bool(date_param_name), date_param_name
+
+    async def _classify_date_query_type(self) -> tuple[str, str]:
+        """
+        Uses a constrained LLM call to classify a user's query as 'single' or 'range'
+        and to extract the relevant date phrase.
+        """
+        classification_prompt = (
+            f"You are a query classifier. Your only task is to analyze a user's request for date information. "
+            f"Analyze the following query: '{self.original_user_input}'. "
+            "First, determine if it refers to a 'single' date or a 'range' of dates. "
+            "Second, extract the specific phrase that describes the date or range. "
+            "Your response MUST be ONLY a JSON object with two keys: 'type' and 'phrase'. "
+            "Example for 'system utilization yesterday': {\"type\": \"single\", \"phrase\": \"yesterday\"}. "
+            "Example for 'system utilization for the last 3 days': {\"type\": \"range\", \"phrase\": \"the last 3 days\"}."
+        )
+        response_str, _, _ = await llm_handler.call_llm_api(
+            self.dependencies['STATE']['llm'], classification_prompt, raise_on_error=True,
+            system_prompt_override="You are a JSON-only responding assistant."
+        )
+        try:
+            data = json.loads(response_str)
+            return data.get('type', 'single'), data.get('phrase', self.original_user_input)
+        except (json.JSONDecodeError, KeyError):
+            app_logger.error(f"Failed to parse date classification from LLM. Response: {response_str}")
+            return 'single', self.original_user_input
+
+    async def _execute_date_range_orchestrator(self, date_param_name: str, date_phrase: str):
+        """
+        Handles queries over a date range by calling a single-date tool multiple times.
+        """
+        tool_name = self.current_command.get("tool_name")
+        yield _format_sse({
+            "step": "System Orchestration",
+            "details": f"Detected a date range query ('{date_phrase}') for a single-day tool ('{tool_name}'). The system will now orchestrate multiple tool calls to fulfill the request.",
+            "type": "workaround"
+        })
+
+        date_command = {"tool_name": "base_readQuery", "arguments": {"sql": "SELECT CURRENT_DATE"}}
+        date_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], date_command)
+        if not (date_result and date_result.get("status") == "success" and date_result.get("results")):
+            raise RuntimeError("Date Range Orchestrator failed to fetch current date.")
+        current_date_str = date_result["results"][0].get("Date")
+
+        conversion_prompt = (
+            f"You are a date range calculation assistant. Your only task is to identify the start and end dates for a relative date phrase. "
+            f"Given that the current date is {current_date_str}, what are the start and end dates for '{date_phrase}'? "
+            "Your response MUST be ONLY a JSON object with two keys: 'start_date' and 'end_date', both in YYYY-MM-DD format. "
+            "Example: {\"start_date\": \"2025-08-01\", \"end_date\": \"2025-08-07\"}"
+        )
+        range_response_str, _, _ = await llm_handler.call_llm_api(
+            self.dependencies['STATE']['llm'], conversion_prompt, raise_on_error=True,
+            system_prompt_override="You are a JSON-only responding assistant."
+        )
+
+        try:
+            range_data = json.loads(range_response_str)
+            start_date = datetime.strptime(range_data['start_date'], '%Y-%m-%d').date()
+            end_date = datetime.strptime(range_data['end_date'], '%Y-%m-%d').date()
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            raise RuntimeError(f"Date Range Orchestrator failed to parse date range from LLM. Response: {range_response_str}. Error: {e}")
+
+        all_results = []
+        current_date_in_loop = start_date
+        while current_date_in_loop <= end_date:
+            date_str = current_date_in_loop.strftime('%Y-%m-%d')
+            yield _format_sse({"step": f"Processing data for: {date_str}"})
+            
+            command_for_day = self.current_command.copy()
+            command_for_day['arguments'] = self.current_command['arguments'].copy()
+            command_for_day['arguments'][date_param_name] = date_str
+            
+            day_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], command_for_day)
+            
+            if isinstance(day_result, dict) and day_result.get("status") == "success" and day_result.get("results"):
+                all_results.extend(day_result["results"])
+            
+            current_date_in_loop += timedelta(days=1)
+        
+        final_tool_output = {
+            "status": "success",
+            "metadata": {"tool_name": tool_name, "comment": f"Consolidated results for date range: {start_date} to {end_date}"},
+            "results": all_results
+        }
+        self.collected_data.append(final_tool_output)
+        self.state = AgentState.SUMMARIZING
+        self.next_action_str = "FINAL_ANSWER: "
+
     async def _intercept_and_correct_command(self):
         """
         Intercepts specific tool calls before execution and replaces them with
         a corrected, reliable alternative. This acts as a client-side patch
-        for known faulty tools on the MCP server.
+        for known faulty tools or predictable LLM errors.
         """
         if not self.current_command: return
 
         tool_name = self.current_command.get("tool_name")
+        args = self.current_command.get("arguments", {})
 
         if tool_name == "base_tableList":
             app_logger.warning("INTERCEPTED: Faulty tool 'base_tableList'. Replacing with 'base_readQuery'.")
             
-            db_name = self.current_command.get("arguments", {}).get("db_name")
+            db_name = args.get("db_name")
             if not db_name:
                 raise ValueError("Cannot execute 'base_tableList' replacement: 'db_name' parameter is missing.")
 
             corrected_sql = f"SELECT TableName FROM DBC.TablesV WHERE DatabaseName = '{db_name}'"
             
-            self.current_command = {
-                "tool_name": "base_readQuery",
-                "arguments": {"sql": corrected_sql}
-            }
+            self.current_command['tool_name'] = "base_readQuery"
+            self.current_command['arguments'] = {"sql": corrected_sql}
             
             yield _format_sse({
                 "step": "System Correction",
-                "details": f"Intercepted faulty 'base_tableList' tool. Replacing with a direct SQL query to ensure correct table filtering for database '{db_name}'.",
+                "details": f"Intercepted faulty 'base_tableList' tool. Replacing with a direct SQL query for '{db_name}'.",
                 "type": "workaround"
             })
 
@@ -172,7 +279,6 @@ class PlanExecutor:
         """
         Enriches a given set of arguments with context from the conversation history
         to fill in any missing placeholders required by the prompt text.
-        Returns the enriched arguments and a list of any SSE events to be yielded.
         """
         events_to_yield = []
         required_placeholders = re.findall(r'{(\w+)}', prompt_text)
@@ -377,10 +483,8 @@ class PlanExecutor:
     async def _execute_linear_workflow(self, prompt_text: str, args: dict):
         """
         Algorithmically executes simple, non-looping, multi-phase prompts
-        by dynamically parsing the first tool and subsequent instructions. This prevents
-        LLM confusion and makes the execution deterministic and robust.
+        by dynamically parsing the first tool and subsequent instructions.
         """
-        # Step 1: Dynamically find the first tool to execute from the prompt text.
         tool_name_match = re.search(r"Use the `?(\w+)`? (?:function|tool)", prompt_text, re.IGNORECASE)
         if not tool_name_match:
             raise ValueError("Linear workflow parsing failed: Could not determine the first tool to execute from the prompt text.")
@@ -396,24 +500,12 @@ class PlanExecutor:
 
         if tool_result.get("status") != "success":
             error_msg = tool_result.get('error', 'an unknown error')
-            self.next_action_str = f"FINAL_ANSWER: I could not retrieve the necessary data using the `{tool_to_execute}` tool, so I cannot complete the request. Error: {error_msg}"
+            self.next_action_str = f"FINAL_ANSWER: I could not retrieve the necessary data using the `{tool_to_execute}` tool. Error: {error_msg}"
             return
 
-        # Step 2: Prepare a final, one-shot prompt for the LLM to complete the rest of the plan.
         yield _format_sse({"step": "Linear Workflow - Step 2: Generating final response"})
         
-        primary_data_for_llm = ""
-        results = tool_result.get("results")
-        if isinstance(results, list) and results:
-            first_row = results[0]
-            if isinstance(first_row, dict):
-                for value in first_row.values():
-                    if isinstance(value, str):
-                        primary_data_for_llm = value
-                        break
-        
-        if not primary_data_for_llm:
-            primary_data_for_llm = json.dumps(tool_result)
+        primary_data_for_llm = json.dumps(tool_result.get("results", ""))
 
         final_generation_prompt = (
             f"You are an expert assistant. Your task is to complete a multi-step plan based on the original user request, the full plan, and the data from the first step which has already been executed for you.\n\n"
@@ -448,7 +540,6 @@ class PlanExecutor:
         if not db_name:
             raise ValueError("Workflow requires a database name.")
 
-        # Phase 1: Get tables
         yield _format_sse({"step": "Workflow - Phase 1: Get Database Tables"})
         self.current_command = {"tool_name": "base_tableList", "arguments": {"db_name": db_name}}
         async for event in self._intercept_and_correct_command(): yield event
@@ -495,7 +586,6 @@ class PlanExecutor:
         
         app_logger.info(f"Dynamically parsed and resolved workflow sequence: {resolved_tool_sequence}")
 
-        # Phase 2: Iterate through tables
         yield _format_sse({"step": f"Workflow - Phase 2: Collect Table Information for {len(tables)} tables"})
         for table_name in tables:
             yield _format_sse({"step": f"Processing Table: {table_name}"})
@@ -535,18 +625,8 @@ class PlanExecutor:
                             f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
                         )
                         yield _format_sse({"step": "Calling LLM"})
-                        description, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
+                        description, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
                         
-                        updated_session = session_manager.get_session(self.session_id)
-                        if updated_session:
-                            token_data = {
-                                "statement_input": statement_input_tokens,
-                                "statement_output": statement_output_tokens,
-                                "total_input": updated_session.get("input_tokens", 0),
-                                "total_output": updated_session.get("output_tokens", 0)
-                            }
-                            yield _format_sse(token_data, "token_update")
-
                         desc_result = {"type": "business_description", "table_name": table_name, "description": description, "metadata": {"tool_name": "llm_description_generation"}}
                         self.collected_data.append(desc_result)
                         yield _format_sse({"step": "Generated Business Description", "details": desc_result}, "tool_result")
@@ -559,8 +639,6 @@ class PlanExecutor:
                         workflow_context=table_workflow_context
                     ):
                         yield event
-                    if self.collected_data and isinstance(self.collected_data[-1], list):
-                        pass
                 else: 
                     tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
                     self.collected_data.append(tool_result)
@@ -594,7 +672,13 @@ class PlanExecutor:
                 self.globally_failed_tools.add(tool_name)
                 app_logger.warning(f"Tool '{tool_name}' marked as globally failed for this session.")
             
-            tool_result_str = json.dumps({ "tool_name": self.current_command.get("tool_name"), "tool_output": { "status": "error", "error_message": error_details } })
+            tool_result_str = json.dumps({
+                "tool_input": self.current_command,
+                "tool_output": {
+                    "status": "error",
+                    "error_message": error_details
+                }
+            })
         else:
             tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
             if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
@@ -604,7 +688,7 @@ class PlanExecutor:
             self.collected_data.append(tool_result)
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
-            yield _format_sse({"details": col_result}, "request_user_input")
+            yield _format_sse({"details": tool_result}, "request_user_input")
             self.state = AgentState.ERROR
             return
 
@@ -627,8 +711,7 @@ class PlanExecutor:
     async def _get_tool_constraints(self, tool_name: str):
         """
         Infers and caches the operational constraints of a tool (e.g., data type)
-        by using the LLM. This is a generator function that yields status updates
-        and finally yields the constraint dictionary.
+        by using the LLM.
         """
         if tool_name in self.tool_constraints_cache:
             yield self.tool_constraints_cache[tool_name]
@@ -670,22 +753,12 @@ class PlanExecutor:
             })
             
             yield _format_sse({"step": "Calling LLM"})
-            response_text, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
+            response_text, _, _ = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], 
                 prompt, 
                 raise_on_error=True,
                 system_prompt_override="You are a JSON-only responding assistant."
             )
-            
-            updated_session = session_manager.get_session(self.session_id)
-            if updated_session:
-                token_data = {
-                    "statement_input": statement_input_tokens,
-                    "statement_output": statement_output_tokens,
-                    "total_input": updated_session.get("input_tokens", 0),
-                    "total_output": updated_session.get("output_tokens", 0)
-                }
-                yield _format_sse(token_data, "token_update")
 
             try:
                 match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -704,10 +777,6 @@ class PlanExecutor:
     async def _execute_column_iteration(self, column_subset: list = None, callback_llm: bool = True, workflow_context: dict = None):
         """
         Handles the execution of tools that operate on a per-column basis.
-        This version is adaptive: it fetches column metadata first (or uses cached data)
-        and only runs tools on columns with a compatible data type based on LLM-inferred constraints.
-        If `column_subset` is provided, it will only iterate over those columns.
-        Added workflow_context to allow more granular skipping.
         """
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
@@ -937,15 +1006,18 @@ class PlanExecutor:
                 "1. **Analyze the ORIGINAL PLAN.** Determine the *very next* instruction in the sequence.\n"
                 "2. **Execute that instruction.**\n"
                 "   - If the next step is to call another tool, your response **MUST** be a single JSON block for that tool call.\n"
-                "   - If the next step is the final text-generation phase of the plan (e.g., writing the final description), your response **MUST** start with `FINAL_ANSWER:`.\n\n"
+                "   - If the next step is the final text-generation phase of the plan, your response **MUST** start with `FINAL_ANSWER:`.\n\n"
                 "**CRITICAL RULE on `FINAL_ANSWER`:** The `FINAL_ANSWER` keyword is reserved **exclusively** for the final, complete, user-facing response at the very end of the entire plan. "
                 "Do **NOT** use `FINAL_ANSWER` for intermediate thoughts, status updates, or summaries of completed phases. If you are not delivering the final product to the user, your response must be a tool call."
             )
         else:
             prompt_for_next_step = (
                 "You have just received data from a tool call. Review the data and your instructions to decide the next step.\n\n"
-                "1.  **Consider a Chart:** Review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?\n\n"
-                "2.  **Choose Your Action:**\n"
+                "1.  **Analyze the Result:**\n"
+                "    -   If the `tool_output` shows `\"status\": \"error\"`, you MUST attempt to recover. The `tool_input` field shows the exact command that failed. Formulate a new tool call that corrects the error. For example, if the error is 'Column not found', remove the failing column from the `dimensions` list.\n"
+                "    -   If the status is `success`, proceed to the next steps.\n\n"
+                "2.  **Consider a Chart:** Review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?\n\n"
+                "3.  **Choose Your Action:**\n"
                 "    -   If a chart is appropriate, your next action is to call the correct chart-generation tool. Respond with only a `Thought:` and a ```json...``` block for that tool.\n"
                 "    -   If you still need more information from other tools, call the next appropriate tool by responding with a `Thought:` and a ```json...``` block.\n"
                 "    -   If a chart is **not** appropriate and you have all the information needed to answer the user's request, you **MUST** provide the final answer. Your response **MUST** be plain text that starts with `FINAL_ANSWER:`. **DO NOT** use a JSON block for the final answer."
@@ -958,17 +1030,7 @@ class PlanExecutor:
         
         yield _format_sse({"step": "Calling LLM"})
 
-        self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
-        
-        updated_session = session_manager.get_session(self.session_id)
-        if updated_session:
-            token_data = {
-                "statement_input": statement_input_tokens,
-                "statement_output": statement_output_tokens,
-                "total_input": updated_session.get("input_tokens", 0),
-                "total_output": updated_session.get("output_tokens", 0)
-            }
-            yield _format_sse(token_data, "token_update")
+        self.next_action_str, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
         
         if not self.next_action_str:
             raise ValueError("LLM failed to provide a response.")
@@ -978,7 +1040,6 @@ class PlanExecutor:
         """
         Deterministically condenses the collected data into a concise string
         to prevent exceeding LLM context limits in the final summarization prompt.
-        This version is enhanced to extract key findings from important tools.
         """
         summary_lines = []
         for item in self.collected_data:
@@ -1057,12 +1118,7 @@ class PlanExecutor:
                 "Example response: {\"summary\": \"The data quality assessment for the database is complete. DDL was retrieved for three tables, and various quality checks were performed...\"}"
             )
             yield _format_sse({"step": "Calling LLM"})
-            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
-            
-            updated_session = session_manager.get_session(self.session_id)
-            if updated_session:
-                token_data = { "statement_input": statement_input_tokens, "statement_output": statement_output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }
-                yield _format_sse(token_data, "token_update")
+            final_llm_response, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             
             try:
                 json_match = re.search(r"\{.*\}", final_llm_response, re.DOTALL)
@@ -1106,13 +1162,8 @@ class PlanExecutor:
                     "2. Do not describe your internal thought process or mention that you were given a summary."
                 )
                 yield _format_sse({"step": "Calling LLM"})
-                final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+                final_llm_response, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
                 
-                updated_session = session_manager.get_session(self.session_id)
-                if updated_session:
-                    token_data = { "statement_input": statement_input_tokens, "statement_output": statement_output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }
-                    yield _format_sse(token_data, "token_update")
-
                 final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
                 summary_text = final_answer_match_inner.group(1).strip() if final_answer_match_inner else (final_llm_response or "The agent finished its plan but did not provide a final summary.")
                 llm_response_for_formatter = summary_text
