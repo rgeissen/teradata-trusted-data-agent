@@ -462,7 +462,7 @@ class PlanExecutor:
                     if ddl_text:
                         desc_prompt = (
                             "You are a data analyst. Your task is to provide a natural language business description based on a table's DDL.\n\n"
-                            "**CRITICAL INSTRUCTIONS:**\n1. Your entire response MUST be plain text.\n2. DO NOT generate JSON, tool calls, or any code.\n3. Describe the likely business purpose of the table and each column.\n\n"
+                            "**CRITICAL INSTRUCTIONS:**\n1. Your entire response MUST be plain text.\n2. DO NOT generate JSON, tool calls, or any code.\n\n"
                             f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
                         )
                         yield _format_sse({"step": "Calling LLM"})
@@ -983,14 +983,12 @@ class PlanExecutor:
         Generates the final summary answer. For complex workflows, it instructs the LLM
         to return a structured report. For simple queries, it generates a standard summary.
         """
-        llm_response = self.next_action_str
-        summary_text = ""
+        llm_response_for_formatter = self.next_action_str
         final_collected_data = self.collected_data
 
         if self.is_workflow:
             yield _format_sse({"step": "Workflow finished, generating structured report...", "details": "The agent is synthesizing all collected data into a report format."})
             
-            # Use the deterministic pre-summarizer for the LLM prompt
             summarized_data_str = self._prepare_data_for_final_summary()
 
             final_prompt = (
@@ -1017,33 +1015,36 @@ class PlanExecutor:
                 yield _format_sse(token_data, "token_update")
             
             try:
-                # Robustly extract JSON from the LLM's response
                 json_match = re.search(r"\{.*\}", final_llm_response, re.DOTALL)
                 if json_match:
-                    # We have the summary, now create the final structure the formatter expects
                     summary_json = json.loads(json_match.group(0))
                     report_data = {
                         "summary": summary_json.get("summary", "Workflow completed, but no summary was generated."),
-                        "structured_data": self.collected_data # Pass the original full data
+                        "structured_data": self.collected_data
                     }
-                    llm_response = json.dumps(report_data)
+                    llm_response_for_formatter = json.dumps(report_data)
                 else:
                     raise json.JSONDecodeError("No JSON object found in the LLM response.", final_llm_response, 0)
             except (json.JSONDecodeError, TypeError):
-                llm_response = json.dumps({
+                llm_response_for_formatter = json.dumps({
                     "summary": "The agent finished the workflow but failed to generate a structured report. Displaying raw data instead.",
                     "structured_data": self.collected_data
                 })
 
         else:
-            final_answer_match = re.search(r'FINAL_ANSWER:(.*)', llm_response, re.DOTALL | re.IGNORECASE)
-            if final_answer_match:
-                summary_text = final_answer_match.group(1).strip()
+            # This is the non-workflow, standard summarization path.
+            final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
             
-            if not summary_text:
+            if final_answer_match:
+                # If FINAL_ANSWER is found, we use ONLY the text that follows it.
+                # This is the key change to fix the bug.
+                summary_text = final_answer_match.group(1).strip()
+                llm_response_for_formatter = summary_text
+            
+            elif not self.is_workflow:
+                # Fallback if FINAL_ANSWER is missing in a non-workflow context.
                 yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
                 
-                # Use the deterministic pre-summarizer for the LLM prompt
                 summarized_data_str = self._prepare_data_for_final_summary()
 
                 final_prompt = (
@@ -1068,9 +1069,9 @@ class PlanExecutor:
 
                 final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
                 summary_text = final_answer_match_inner.group(1).strip() if final_answer_match_inner else (final_llm_response or "The agent finished its plan but did not provide a final summary.")
-                llm_response = summary_text
+                llm_response_for_formatter = summary_text
 
-        formatter = OutputFormatter(llm_response_text=llm_response, collected_data=final_collected_data, is_workflow=self.is_workflow)
+        formatter = OutputFormatter(llm_response_text=llm_response_for_formatter, collected_data=final_collected_data, is_workflow=self.is_workflow)
         final_html = formatter.render()
         
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
