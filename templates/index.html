@@ -298,18 +298,28 @@
         }
 
         /* Connection status dot styling */
+        @keyframes blink {
+            50% { background-color: #facc15; box-shadow: 0 0 8px #facc15; } /* yellow-400 */
+        }
         .connection-dot {
             width: 10px;
             height: 10px;
             border-radius: 50%;
-            transition: background-color 0.3s ease;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
         }
         .connection-dot.disconnected {
-            background-color: #6b7280; /* gray-500 */
+            background-color: #ef4444; /* red-500 */
         }
         .connection-dot.connected {
             background-color: #10b981; /* green-500 */
             box-shadow: 0 0 8px #10b981;
+        }
+        .connection-dot.idle {
+            background-color: #6b7280; /* gray-500 */
+            box-shadow: none;
+        }
+        .connection-dot.busy {
+            animation: blink 1s infinite;
         }
 
     </style>
@@ -326,9 +336,10 @@
                     <div id="teradata-status-dot" class="connection-dot disconnected"></div>
                     <span class="text-sm text-gray-300">Database</span>
                 </div>
-                <div class="flex items-center gap-x-2" title="Chart MCP Server Status">
-                    <div id="chart-status-dot" class="connection-dot disconnected"></div>
-                    <span class="text-sm text-gray-300">Chart</span>
+                <!-- --- MODIFIED: Repurposed for LLM Status --- -->
+                <div class="flex items-center gap-x-2" title="LLM Status">
+                    <div id="llm-status-dot" class="connection-dot disconnected"></div>
+                    <span class="text-sm text-gray-300">LLM</span>
                 </div>
             </div>
             
@@ -794,7 +805,7 @@
         const chartingIntensitySelect = document.getElementById('charting-intensity');
 
         const teradataStatusDot = document.getElementById('teradata-status-dot');
-        const chartStatusDot = document.getElementById('chart-status-dot');
+        const llmStatusDot = document.getElementById('llm-status-dot');
 
         const windowMenuButton = document.getElementById('window-menu-button');
         const windowDropdownMenu = document.getElementById('window-dropdown-menu');
@@ -1084,10 +1095,14 @@
                 promptNameDisplay.classList.add('hidden');
                 thinkingIndicator.classList.remove('hidden');
                 thinkingIndicator.classList.add('flex');
+                llmStatusDot.classList.add('busy');
+                llmStatusDot.classList.remove('idle', 'connected');
             } else {
                 thinkingIndicator.classList.add('hidden');
                 thinkingIndicator.classList.remove('flex');
                 promptNameDisplay.classList.remove('hidden');
+                llmStatusDot.classList.remove('busy');
+                llmStatusDot.classList.add('connected');
             }
         }
 
@@ -1163,7 +1178,23 @@
                                 setThinkingIndicator(false);
                             }
 
-                            if (eventName === 'token_update') {
+                            if (eventName === 'status_indicator_update') {
+                                const { target, state } = eventData;
+                                const dot = target === 'db' ? teradataStatusDot : llmStatusDot;
+                                if (dot) {
+                                    if (state === 'busy') {
+                                        dot.classList.add('busy');
+                                        dot.classList.remove('idle', 'connected', 'disconnected');
+                                    } else { // idle
+                                        dot.classList.remove('busy');
+                                        if (target === 'db') {
+                                            dot.classList.add('connected');
+                                        } else {
+                                            dot.classList.add('idle');
+                                        }
+                                    }
+                                }
+                            } else if (eventName === 'token_update') {
                                 updateTokenDisplay(eventData);
                                 const lastStep = document.getElementById(`status-step-${currentStatusId}`);
                                 if (lastStep && currentProvider !== 'Amazon') {
@@ -1794,8 +1825,8 @@
                     configStatus.className = 'text-sm text-green-400 text-center';
                     teradataStatusDot.classList.remove('disconnected');
                     teradataStatusDot.classList.add('connected');
-                    chartStatusDot.classList.remove('disconnected');
-                    chartStatusDot.classList.add('connected');
+                    llmStatusDot.classList.remove('disconnected', 'busy');
+                    llmStatusDot.classList.add('connected');
                     
                     localStorage.setItem('lastSelectedProvider', config.provider);
                     
@@ -1835,8 +1866,8 @@
                 chatModalButton.disabled = true;
                 teradataStatusDot.classList.add('disconnected');
                 teradataStatusDot.classList.remove('connected');
-                chartStatusDot.classList.add('disconnected');
-                chartStatusDot.classList.remove('connected');
+                llmStatusDot.classList.add('disconnected');
+                llmStatusDot.classList.remove('connected', 'idle');
             } finally {
                 configLoadingSpinner.classList.add('hidden');
                 configActionButton.disabled = false;

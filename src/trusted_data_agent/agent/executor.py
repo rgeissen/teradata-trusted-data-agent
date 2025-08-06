@@ -178,6 +178,8 @@ class PlanExecutor:
 
         all_results = []
         current_date_in_loop = start_date
+        
+        yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
         while current_date_in_loop <= end_date:
             date_str = current_date_in_loop.strftime('%Y-%m-%d')
             yield _format_sse({"step": f"Processing data for: {date_str}"})
@@ -192,6 +194,7 @@ class PlanExecutor:
                 all_results.extend(day_result["results"])
             
             current_date_in_loop += timedelta(days=1)
+        yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
         
         final_tool_output = {
             "status": "success",
@@ -292,8 +295,16 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
             return
 
-        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", self.next_action_str, re.DOTALL)
-        if not json_match:
+        command_str = None
+        markdown_match = re.search(r"```json\s*\n(.*?)\n\s*```", self.next_action_str, re.DOTALL)
+        if markdown_match:
+            command_str = markdown_match.group(1).strip()
+        else:
+            json_like_match = re.search(r'\{.*\}', self.next_action_str, re.DOTALL)
+            if json_like_match:
+                command_str = json_like_match.group(0)
+
+        if not command_str:
             if self.iteration_context:
                 ctx = self.iteration_context
                 current_item_name = ctx["items"][ctx["item_index"]]
@@ -306,11 +317,11 @@ class PlanExecutor:
             app_logger.warning(f"LLM response not a tool command or FINAL_ANSWER. Summarizing. Response: {self.next_action_str}")
             self.state = AgentState.SUMMARIZING
             return
-
-        command_str = json_match.group(1).strip()
         
         try:
-            command = json.loads(command_str)
+            # --- MODIFIED: Use raw_decode to find the first valid JSON object ---
+            decoder = json.JSONDecoder()
+            command, _ = decoder.raw_decode(command_str)
         except (json.JSONDecodeError, KeyError) as e:
             app_logger.error(f"JSON parsing failed. Error: {e}. Original string was: {command_str}")
             raise e
@@ -427,7 +438,10 @@ class PlanExecutor:
         
         self.current_command = { "tool_name": tool_to_execute, "arguments": args }
         
+        yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
         tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+        yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
+
         self.collected_data.append(tool_result)
         yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_to_execute}, "tool_result")
 
@@ -474,7 +488,10 @@ class PlanExecutor:
         self.current_command = {"tool_name": "base_tableList", "arguments": {"db_name": db_name}}
         async for event in self._intercept_and_correct_command(): yield event
         
+        yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
         table_list_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+        yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
+
         self.collected_data.append(table_list_result)
         yield _format_sse({"step": "Tool Execution Result", "details": table_list_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
         
@@ -544,7 +561,10 @@ class PlanExecutor:
                 }
 
                 if tool_name == "base_tableDDL":
+                    yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
                     ddl_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+                    yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
+
                     self.collected_data.append(ddl_result)
                     yield _format_sse({"step": "Tool Execution Result", "details": ddl_result, "tool_name": tool_name}, "tool_result")
                     ddl_text = ddl_result.get("results", [{}])[0].get("Request Text", "")
@@ -570,7 +590,10 @@ class PlanExecutor:
                     ):
                         yield event
                 else: 
+                    yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
                     tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
+                    yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
+                    
                     self.collected_data.append(tool_result)
                     yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
                     self._update_workflow_context(table_workflow_context, tool_result)
@@ -579,8 +602,16 @@ class PlanExecutor:
     
     async def _execute_standard_tool(self):
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
+        
+        tool_name = self.current_command.get("tool_name")
+        is_chart_tool = tool_name == "viz_createChart"
+        status_target = "chart" if is_chart_tool else "db"
+        yield _format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
+        
         tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         
+        yield _format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
+
         if 'notification' in self.current_command:
             yield _format_sse({
                 "step": "System Notification", 
@@ -594,7 +625,6 @@ class PlanExecutor:
             error_details = tool_result.get("data", tool_result.get("error", ""))
             
             if "Function" in str(error_details) and "does not exist" in str(error_details):
-                tool_name = self.current_command.get("tool_name")
                 self.globally_failed_tools.add(tool_name)
                 app_logger.warning(f"Tool '{tool_name}' marked as globally failed for this session.")
             
@@ -707,7 +737,10 @@ class PlanExecutor:
         specific_column = base_args.get("col_name") or base_args.get("column_name")
         if specific_column:
             yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
+            
+            yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], base_command)
+            yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
             
             if 'notification' in self.current_command:
                 yield _format_sse({
@@ -753,7 +786,10 @@ class PlanExecutor:
                     "type": "workaround"
                 })
                 cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
+                
+                yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
                 cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
+                yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
 
                 if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
                     raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
@@ -768,7 +804,10 @@ class PlanExecutor:
             preflight_command = {"tool_name": tool_name, "arguments": preflight_args}
             temp_globally_failed_tools_check = False 
             try:
+                yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
                 preflight_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], preflight_command)
+                yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
+                
                 if isinstance(preflight_result, dict) and "error" in preflight_result:
                     error_details = preflight_result.get("data", preflight_result.get("error", ""))
                     if "Function" in str(error_details) and "does not exist" in str(error_details):
@@ -796,6 +835,7 @@ class PlanExecutor:
         
         required_type = tool_constraints.get("dataType") if tool_constraints else None
 
+        yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
             
@@ -885,6 +925,7 @@ class PlanExecutor:
 
             yield _format_sse({"step": f"Tool Execution Result for column: {col_name}", "details": col_result, "tool_name": tool_name}, "tool_result")
             all_column_results.append(col_result)
+        yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
 
         if self.iteration_context:
             ctx = self.iteration_context
@@ -943,7 +984,6 @@ class PlanExecutor:
 
         self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
         
-        # --- ADDED: Yield token update for this call ---
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
             token_data = {
@@ -1034,7 +1074,6 @@ class PlanExecutor:
             yield _format_sse({"step": "Calling LLM"})
             final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             
-            # --- ADDED: Yield token update for this call ---
             updated_session = session_manager.get_session(self.session_id)
             if updated_session:
                 token_data = {
@@ -1094,7 +1133,6 @@ class PlanExecutor:
                 yield _format_sse({"step": "Calling LLM"})
                 final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
                 
-                # --- ADDED: Yield token update for this call ---
                 updated_session = session_manager.get_session(self.session_id)
                 if updated_session:
                     token_data = {

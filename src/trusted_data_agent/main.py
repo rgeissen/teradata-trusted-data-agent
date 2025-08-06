@@ -92,15 +92,14 @@ async def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the Trusted Data Agent web client.")
     parser.add_argument("--all-models", action="store_true", help="Allow selection of all available models.")
-    parser.add_argument("--charting", action="store_true", help="Enable the charting engine.")
     args = parser.parse_args()
 
     if args.all_models:
         APP_CONFIG.ALL_MODELS_UNLOCKED = True
         print("\n--- DEV MODE: All models will be selectable. ---")
-    if args.charting:
-        APP_CONFIG.CHARTING_ENABLED = True
-        print("\n--- CHARTING ENABLED: Charting configuration is active. ---")
+    
+    # Charting is now enabled by default in config.py
+    print("\n--- CHARTING ENABLED: Charting configuration is active. ---")
 
     try:
         asyncio.run(main())
