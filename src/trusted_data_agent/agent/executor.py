@@ -54,7 +54,6 @@ class PlanExecutor:
         self.active_prompt_plan = None
         self.active_prompt_name = None
         self.current_command = None
-        self.iteration_context = None
         self.dependencies = dependencies
         self.tool_constraints_cache = {}
         self.globally_failed_tools = set()
@@ -305,21 +304,11 @@ class PlanExecutor:
                 command_str = json_like_match.group(0)
 
         if not command_str:
-            if self.iteration_context:
-                ctx = self.iteration_context
-                current_item_name = ctx["items"][ctx["item_index"]]
-                ctx["results_per_item"][current_item_name].append(self.next_action_str)
-                ctx["action_count_for_item"] += 1
-                async for event in self._get_next_action_from_llm():
-                    yield event
-                return
-
             app_logger.warning(f"LLM response not a tool command or FINAL_ANSWER. Summarizing. Response: {self.next_action_str}")
             self.state = AgentState.SUMMARIZING
             return
         
         try:
-            # --- MODIFIED: Use raw_decode to find the first valid JSON object ---
             decoder = json.JSONDecoder()
             command, _ = decoder.raw_decode(command_str)
         except (json.JSONDecodeError, KeyError) as e:
@@ -343,6 +332,8 @@ class PlanExecutor:
         
         if "prompt_name" in command:
             prompt_name = command.get("prompt_name")
+            self.active_prompt_name = prompt_name
+            self.is_workflow = True
             
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
@@ -351,44 +342,22 @@ class PlanExecutor:
             async with mcp_client.session("teradata_mcp_server") as temp_session:
                 get_prompt_result = await temp_session.get_prompt(name=prompt_name)
             
-            if get_prompt_result is None: raise ValueError("Prompt retrieval from MCP server returned None.")
+            if get_prompt_result is None: raise ValueError(f"Prompt '{prompt_name}' could not be retrieved from MCP server.")
             prompt_text = get_prompt_result.content.text if hasattr(get_prompt_result, 'content') else str(get_prompt_result)
 
-            is_looping_workflow = "cycle through" in prompt_text.lower()
-            is_linear_workflow = re.search(r"## (?:Phase|Step) 1", prompt_text, re.IGNORECASE) and not is_looping_workflow
-
-            if is_looping_workflow:
-                self.is_workflow = True
-                app_logger.info(f"Looping workflow prompt '{prompt_name}' detected. Switching to iterative execution.")
-                yield _format_sse({"step": f"Workflow Detected: {prompt_name}", "details": prompt_text, "prompt_name": prompt_name}, "prompt_selected")
-                async for event in self._execute_iterative_workflow(prompt_text, command.get("arguments", {})):
-                    yield event
-                self.state = AgentState.SUMMARIZING
-                return
-            
-            if is_linear_workflow:
-                app_logger.info(f"Linear workflow prompt '{prompt_name}' detected. Switching to algorithmic execution.")
-                yield _format_sse({"step": f"Linear Workflow Detected: {prompt_name}", "details": prompt_text, "prompt_name": prompt_name}, "prompt_selected")
-                async for event in self._execute_linear_workflow(prompt_text, command.get("arguments", {})):
-                    yield event
-                self.state = AgentState.SUMMARIZING
-                return
-
-            if self.active_prompt_plan:
-                app_logger.warning(f"LLM attempted a nested prompt call. Forcing summarization.")
-                self.state = AgentState.SUMMARIZING
-                return
-
-            self.active_prompt_name = prompt_name
-            
             arguments = command.get("arguments", command.get("parameters", {}))
-            
             enriched_arguments, events_to_yield = self._enrich_arguments_from_history(prompt_text, arguments)
             for event in events_to_yield:
                 yield event
 
             self.active_prompt_plan = prompt_text.format(**enriched_arguments)
-            yield _format_sse({"step": f"Executing Prompt: {prompt_name}", "details": self.active_prompt_plan, "prompt_name": prompt_name}, "prompt_selected")
+
+            yield _format_sse({
+                "step": f"Executing Prompt as a Plan: {prompt_name}",
+                "details": self.active_prompt_plan,
+                "prompt_name": prompt_name
+            }, "prompt_selected")
+            
             async for event in self._get_next_action_from_llm():
                 yield event
 
@@ -397,209 +366,6 @@ class PlanExecutor:
         else:
             self.state = AgentState.SUMMARIZING
 
-    def _update_workflow_context(self, context: dict, tool_result: dict):
-        if not isinstance(tool_result, dict): return
-        
-        results = tool_result.get("results")
-        if not isinstance(results, list) or not results: return
-
-        first_row = results[0]
-        if 'ColumnName' in first_row and 'NullCount' in first_row:
-            app_logger.info(f"Context update: Found column summary data for table {context['table_name']}.")
-            try:
-                total_nulls = sum(int(row.get('NullCount', 1)) for row in results)
-                context['total_nulls'] = total_nulls
-                app_logger.info(f"Context update: Total nulls for table is {total_nulls}.")
-            except (ValueError, TypeError):
-                app_logger.warning("Could not calculate total nulls from summary data.")
-
-    async def _should_skip_in_workflow(self, tool_name: str, context: dict) -> tuple[bool, str]:
-        mcp_tools = self.dependencies['STATE'].get('mcp_tools', {})
-        tool_spec = mcp_tools.get(tool_name)
-        if not tool_spec:
-            return False, ""
-
-        tool_purpose = tool_spec.description.lower()
-        is_about_nulls = 'missing' in tool_purpose or 'null' in tool_purpose
-        
-        if is_about_nulls and context.get('total_nulls') == 0:
-            reason = f"Skipping because a previous step established that table '{context['table_name']}' has no null values."
-            return True, reason
-
-        return False, ""
-
-    async def _execute_linear_workflow(self, prompt_text: str, args: dict):
-        tool_name_match = re.search(r"Use the `?(\w+)`? (?:function|tool)", prompt_text, re.IGNORECASE)
-        if not tool_name_match:
-            raise ValueError("Linear workflow parsing failed: Could not determine the first tool to execute from the prompt text.")
-        
-        tool_to_execute = tool_name_match.group(1)
-        yield _format_sse({"step": f"Linear Workflow - Step 1: Executing tool '{tool_to_execute}'"})
-        
-        self.current_command = { "tool_name": tool_to_execute, "arguments": args }
-        
-        yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-        tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
-        yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-
-        self.collected_data.append(tool_result)
-        yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_to_execute}, "tool_result")
-
-        if tool_result.get("status") != "success":
-            error_msg = tool_result.get('error', 'an unknown error')
-            self.next_action_str = f"FINAL_ANSWER: I could not retrieve the necessary data using the `{tool_to_execute}` tool. Error: {error_msg}"
-            return
-
-        yield _format_sse({"step": "Linear Workflow - Step 2: Generating final response"})
-        
-        primary_data_for_llm = json.dumps(tool_result.get("results", ""))
-
-        final_generation_prompt = (
-            f"You are an expert assistant. Your task is to complete a multi-step plan based on the original user request, the full plan, and the data from the first step which has already been executed for you.\n\n"
-            f"**Original User Request:**\n'{self.original_user_input}'\n\n"
-            f"**Full Plan to Execute:**\n---\n{prompt_text}\n---\n\n"
-            f"**Data from the successfully completed first step:**\n```\n{primary_data_for_llm}\n```\n\n"
-            "**Your Task:**\n"
-            "Now, follow the remaining steps of the **Full Plan** using the provided data to generate the final, complete, user-facing answer. Your response MUST be only the final answer text."
-        )
-
-        yield _format_sse({"step": "Calling LLM for final synthesis"})
-        final_answer, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_generation_prompt, self.session_id)
-        
-        updated_session = session_manager.get_session(self.session_id)
-        if updated_session:
-            token_data = {
-                "statement_input": statement_input_tokens,
-                "statement_output": statement_output_tokens,
-                "total_input": updated_session.get("input_tokens", 0),
-                "total_output": updated_session.get("output_tokens", 0)
-            }
-            yield _format_sse(token_data, "token_update")
-
-        self.next_action_str = f"FINAL_ANSWER: {final_answer}"
-
-
-    async def _execute_iterative_workflow(self, prompt_text: str, args: dict):
-        db_name = args.get("db_name") or args.get("database_name")
-        if not db_name:
-            raise ValueError("Workflow requires a database name.")
-
-        yield _format_sse({"step": "Workflow - Phase 1: Get Database Tables"})
-        self.current_command = {"tool_name": "base_tableList", "arguments": {"db_name": db_name}}
-        async for event in self._intercept_and_correct_command(): yield event
-        
-        yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-        table_list_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
-        yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-
-        self.collected_data.append(table_list_result)
-        yield _format_sse({"step": "Tool Execution Result", "details": table_list_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
-        
-        tables = [item['TableName'] for item in table_list_result.get('results', []) if item.get('TableName')]
-        if not tables:
-            yield _format_sse({"step": "Workflow Halted", "details": "No tables found in the database."})
-            return
-
-        tool_sequence_pattern = re.compile(r"using the `?(\w+)`? tool", re.IGNORECASE)
-        phase_2_match = re.search(r"## Phase 2(.*?)## Phase 3", prompt_text, re.DOTALL | re.IGNORECASE)
-        
-        parsed_tool_sequence = []
-        if phase_2_match:
-            phase_2_text = phase_2_match.group(1)
-            parsed_tool_sequence = tool_sequence_pattern.findall(phase_2_text)
-
-        if not parsed_tool_sequence:
-            raise ValueError("Workflow parsing failed: Could not determine tool sequence from prompt text.")
-        
-        resolved_tool_sequence = []
-        all_valid_tools = self.dependencies['STATE'].get('mcp_tools', {}).keys()
-        for parsed_name in parsed_tool_sequence:
-            if parsed_name in all_valid_tools:
-                resolved_tool_sequence.append(parsed_name)
-                continue
-            
-            possible_matches = [valid_name for valid_name in all_valid_tools if parsed_name.endswith(valid_name)]
-            
-            if len(possible_matches) == 1:
-                resolved_name = possible_matches[0]
-                resolved_tool_sequence.append(resolved_name)
-                yield _format_sse({
-                    "step": "System Correction",
-                    "details": f"Resolved ambiguous tool name '{parsed_name}' to '{resolved_name}' based on server capabilities.",
-                    "type": "workaround"
-                })
-            else:
-                raise ValueError(f"Workflow parsing failed: Tool name '{parsed_name}' from prompt is ambiguous or unknown.")
-        
-        app_logger.info(f"Dynamically parsed and resolved workflow sequence: {resolved_tool_sequence}")
-
-        yield _format_sse({"step": f"Workflow - Phase 2: Collect Table Information for {len(tables)} tables"})
-        for table_name in tables:
-            yield _format_sse({"step": f"Processing Table: {table_name}"})
-            
-            table_workflow_context = {"table_name": table_name}
-
-            for tool_name in resolved_tool_sequence:
-                
-                should_skip, reason = await self._should_skip_in_workflow(tool_name, table_workflow_context)
-                if should_skip:
-                    yield _format_sse({
-                        "step": f"Workflow Step Skipped: {tool_name}",
-                        "details": reason,
-                        "type": "workaround"
-                    })
-                    self.collected_data.append({
-                        "status": "skipped",
-                        "reason": reason,
-                        "metadata": {"tool_name": tool_name, "table_name": table_name}
-                    })
-                    continue
-
-                self.current_command = {
-                    "tool_name": tool_name,
-                    "arguments": {"database_name": db_name, "table_name": table_name, "db_name": db_name}
-                }
-
-                if tool_name == "base_tableDDL":
-                    yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-                    ddl_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
-                    yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-
-                    self.collected_data.append(ddl_result)
-                    yield _format_sse({"step": "Tool Execution Result", "details": ddl_result, "tool_name": tool_name}, "tool_result")
-                    ddl_text = ddl_result.get("results", [{}])[0].get("Request Text", "")
-                    if ddl_text:
-                        desc_prompt = (
-                            "You are a data analyst. Your task is to provide a natural language business description based on a table's DDL.\n\n"
-                            "**CRITICAL INSTRUCTIONS:**\n1. Your entire response MUST be plain text.\n2. DO NOT generate JSON, tool calls, or any code.\n\n"
-                            f"--- DDL to Analyze ---\n```sql\n{ddl_text}\n```"
-                        )
-                        yield _format_sse({"step": "Calling LLM"})
-                        description, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], desc_prompt, self.session_id)
-                        
-                        desc_result = {"type": "business_description", "table_name": table_name, "description": description, "metadata": {"tool_name": "llm_description_generation"}}
-                        self.collected_data.append(desc_result)
-                        yield _format_sse({"step": "Generated Business Description", "details": desc_result}, "tool_result")
-                    continue
-
-                tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
-                if tool_scopes.get(tool_name) == 'column':
-                    async for event in self._execute_column_iteration(
-                        callback_llm=False,
-                        workflow_context=table_workflow_context
-                    ):
-                        yield event
-                else: 
-                    yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-                    tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
-                    yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-                    
-                    self.collected_data.append(tool_result)
-                    yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
-                    self._update_workflow_context(table_workflow_context, tool_result)
-        
-        self.next_action_str = "FINAL_ANSWER:"
-    
     async def _execute_standard_tool(self):
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
         
@@ -645,16 +411,6 @@ class PlanExecutor:
             return
 
         yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": self.current_command.get("tool_name")}, "tool_result")
-
-        if self.active_prompt_plan and not self.iteration_context:
-            plan_text = self.active_prompt_plan.lower()
-            is_iterative_plan = any(keyword in plan_text for keyword in ["cycle through", "for each", "iterate"])
-            
-            if is_iterative_plan and self.current_command.get("tool_name") == "base_readQuery" and isinstance(tool_result, dict) and tool_result.get("status") == "success":
-                items_to_iterate = [res.get("TableName") for res in tool_result.get("results", []) if res.get("TableName")]
-                if items_to_iterate:
-                    self.iteration_context = { "items": items_to_iterate, "item_index": 0, "action_count_for_item": 0, "results_per_item": {item: [] for item in items_to_iterate} }
-                    yield _format_sse({"step": "Starting Multi-Step Iteration", "details": f"Plan requires processing {len(items_to_iterate)} items."})
         
         yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
         async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
@@ -722,7 +478,7 @@ class PlanExecutor:
         self.tool_constraints_cache[tool_name] = constraints
         yield constraints
 
-    async def _execute_column_iteration(self, column_subset: list = None, callback_llm: bool = True, workflow_context: dict = None):
+    async def _execute_column_iteration(self, column_subset: list = None):
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
         base_args = base_command.get("arguments", base_command.get("parameters", {}))
@@ -759,9 +515,8 @@ class PlanExecutor:
             self.collected_data.append(col_result)
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
             yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
-            if callback_llm:
-                async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
-                    yield event
+            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                yield event
             return
 
         all_columns_metadata = []
@@ -838,22 +593,6 @@ class PlanExecutor:
         yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
         for column_info in all_columns_metadata:
             col_name = column_info.get("ColumnName")
-            
-            if workflow_context:
-                skip_in_workflow, workflow_skip_reason = await self._should_skip_in_workflow(tool_name, workflow_context)
-                if skip_in_workflow:
-                    yield _format_sse({
-                        "step": f"Workflow Skipped Tool for Column: {col_name}",
-                        "details": f"{workflow_skip_reason} (Tool: {tool_name})",
-                        "type": "workaround"
-                    })
-                    all_column_results.append({
-                        "status": "skipped",
-                        "reason": workflow_skip_reason,
-                        "metadata": {"tool_name": tool_name, "table_name": table_name, "col_name": col_name}
-                    })
-                    continue
-
 
             col_type = ""
             for key, value in column_info.items():
@@ -927,20 +666,13 @@ class PlanExecutor:
             all_column_results.append(col_result)
         yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
 
-        if self.iteration_context:
-            ctx = self.iteration_context
-            current_item_name = ctx["items"][ctx["item_index"]]
-            ctx["results_per_item"][current_item_name].append(all_column_results)
-            ctx["action_count_for_item"] += 1
-        else:
-            self.collected_data.append(all_column_results)
+        self.collected_data.append(all_column_results)
         
         tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": all_column_results})
 
         yield _format_sse({"step": "Thinking about the next action...", "details": "Adaptive column iteration complete. Resuming main plan."})
-        if callback_llm:
-            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
-                yield event
+        async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+            yield event
 
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
         prompt_for_next_step = "" 
@@ -952,8 +684,7 @@ class PlanExecutor:
                 "You are in the middle of executing a multi-step plan. Your primary goal is to follow this plan to completion.\n\n"
                 f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
                 "--- CURRENT STATE ---\n"
-                f"- You have just completed a step by executing the tool `{last_tool_name}`.\n"
-                "- The result of this tool call is now in the conversation history.\n\n"
+                f"- You have just completed a step. The result of the last action is in the conversation history below.\n\n"
                 "--- YOUR TASK: EXECUTE THE NEXT STEP ---\n"
                 "1. **Analyze the ORIGINAL PLAN.** Determine the *very next* instruction in the sequence.\n"
                 "2. **Execute that instruction.**\n"
@@ -1033,9 +764,15 @@ class PlanExecutor:
             
             if item.get("type") == "business_description":
                 summary_lines.append(f"- Generated business description for table `{item.get('table_name')}`: \"{item.get('description', 'N/A')[:100]}...\"")
+            
             elif tool_name == "base_tableDDL":
                 table_name = item.get("metadata", {}).get("table", "a table")
-                summary_lines.append(f"- Retrieved DDL for table `{table_name}`.")
+                ddl_text = item.get("results", [{}])[0].get("Request Text", "")
+                if ddl_text:
+                    summary_lines.append(f"- Retrieved DDL for table `{table_name}`:\n```sql\n{ddl_text}\n```")
+                else:
+                    summary_lines.append(f"- Retrieved DDL for table `{table_name}`, but the content was empty.")
+            
             elif status == "success" and "results" in item:
                 result_count = len(item["results"])
                 summary_lines.append(f"- Tool `{tool_name}` executed successfully, returning {result_count} rows of data.")
@@ -1046,12 +783,34 @@ class PlanExecutor:
 
         return "\n".join(summary_lines)
 
-
+    # --- MODIFIED: This function is now the final arbiter of how to summarize a completed run. ---
     async def _handle_summarizing(self):
         llm_response_for_formatter = self.next_action_str
         final_collected_data = self.collected_data
+        use_workflow_formatter = self.is_workflow
 
-        if self.is_workflow:
+        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
+
+        # CASE 1: The LLM's plan produced a definitive FINAL_ANSWER. We must prioritize it.
+        if final_answer_match:
+            summary_text = final_answer_match.group(1).strip()
+            
+            # If this was a workflow, we structure the output for the workflow formatter
+            # to get the collapsible UI, but we inject our high-quality summary text.
+            if self.is_workflow:
+                report_data = {
+                    "summary": summary_text,
+                    "structured_data": self.collected_data
+                }
+                llm_response_for_formatter = json.dumps(report_data)
+            # If it wasn't a workflow, we just use the text directly.
+            else:
+                llm_response_for_formatter = summary_text
+                use_workflow_formatter = False
+        
+        # CASE 2: The plan finished without a FINAL_ANSWER, and it was a workflow.
+        # This becomes the fallback to generate a summary from scratch.
+        elif self.is_workflow:
             yield _format_sse({"step": "Workflow finished, generating structured report...", "details": "The agent is synthesizing all collected data into a report format."})
             
             summarized_data_str = self._prepare_data_for_final_summary()
@@ -1101,53 +860,50 @@ class PlanExecutor:
                     "structured_data": self.collected_data
                 })
 
+        # CASE 3: The plan finished, it was NOT a workflow, and there was no FINAL_ANSWER.
+        # This is the fallback for simple, single-tool calls.
         else:
-            final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
+            yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
             
-            if final_answer_match:
-                summary_text = final_answer_match.group(1).strip()
-                llm_response_for_formatter = summary_text
+            summarized_data_str = self._prepare_data_for_final_summary()
+
+            final_prompt = (
+                "You are a data analyst responsible for generating the final, user-facing summary of a complex task.\n\n"
+                "--- CONTEXT ---\n"
+                "A plan was executed to answer the user's request. A summary of the collected data is below.\n\n"
+                f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
+                "--- YOUR TASK ---\n"
+                f"Generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
+                "Your response MUST start with `FINAL_ANSWER:` and follow this exact structure:\n"
+                "1. **Conclusion First**: Start with a paragraph summarizing the key findings and insights from the data. This should be a direct answer to the user's question.\n"
+                "2. **Chart Introduction (if applicable)**: If a chart was generated, add a new paragraph that introduces the chart, explaining what it visualizes.\n\n"
+                "**CRITICAL INSTRUCTIONS:**\n"
+                "- Do not describe your internal process or the tools used. Focus on the data's meaning.\n"
+                "- Your entire response should be a single block of text. The UI will handle rendering the chart and data tables separately.\n"
+                "- Example of a good response:\n"
+                "FINAL_ANSWER: The system experienced peak usage on Tuesday, primarily driven by ETL/ELT workloads. Usage was minimal during early morning hours across all workload types.\n\n"
+                "The line chart below visualizes the number of requests over time, broken down by workload type, to illustrate these trends."
+            )
+            yield _format_sse({"step": "Calling LLM"})
+            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             
-            elif not self.is_workflow:
-                yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
-                
-                summarized_data_str = self._prepare_data_for_final_summary()
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                token_data = {
+                    "statement_input": statement_input_tokens,
+                    "statement_output": statement_output_tokens,
+                    "total_input": updated_session.get("input_tokens", 0),
+                    "total_output": updated_session.get("output_tokens", 0)
+                }
+                yield _format_sse(token_data, "token_update")
 
-                final_prompt = (
-                    "You are a data analyst responsible for generating the final, user-facing summary of a complex task.\n\n"
-                    "--- CONTEXT ---\n"
-                    "A plan was executed to answer the user's request. A summary of the collected data is below.\n\n"
-                    f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
-                    "--- YOUR TASK ---\n"
-                    f"Generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
-                    "Your response MUST start with `FINAL_ANSWER:` and follow this exact structure:\n"
-                    "1. **Conclusion First**: Start with a paragraph summarizing the key findings and insights from the data. This should be a direct answer to the user's question.\n"
-                    "2. **Chart Introduction (if applicable)**: If a chart was generated, add a new paragraph that introduces the chart, explaining what it visualizes.\n\n"
-                    "**CRITICAL INSTRUCTIONS:**\n"
-                    "- Do not describe your internal process or the tools used. Focus on the data's meaning.\n"
-                    "- Your entire response should be a single block of text. The UI will handle rendering the chart and data tables separately.\n"
-                    "- Example of a good response:\n"
-                    "FINAL_ANSWER: The system experienced peak usage on Tuesday, primarily driven by ETL/ELT workloads. Usage was minimal during early morning hours across all workload types.\n\n"
-                    "The line chart below visualizes the number of requests over time, broken down by workload type, to illustrate these trends."
-                )
-                yield _format_sse({"step": "Calling LLM"})
-                final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
-                
-                updated_session = session_manager.get_session(self.session_id)
-                if updated_session:
-                    token_data = {
-                        "statement_input": statement_input_tokens,
-                        "statement_output": statement_output_tokens,
-                        "total_input": updated_session.get("input_tokens", 0),
-                        "total_output": updated_session.get("output_tokens", 0)
-                    }
-                    yield _format_sse(token_data, "token_update")
+            final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
+            summary_text = final_answer_match_inner.group(1).strip() if final_answer_match_inner else (final_llm_response or "The agent finished its plan but did not provide a final summary.")
+            llm_response_for_formatter = summary_text
+            use_workflow_formatter = False
 
-                final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
-                summary_text = final_answer_match_inner.group(1).strip() if final_answer_match_inner else (final_llm_response or "The agent finished its plan but did not provide a final summary.")
-                llm_response_for_formatter = summary_text
-
-        formatter = OutputFormatter(llm_response_text=llm_response_for_formatter, collected_data=final_collected_data, is_workflow=self.is_workflow)
+        # This final block is now universal for all cases.
+        formatter = OutputFormatter(llm_response_text=llm_response_for_formatter, collected_data=final_collected_data, is_workflow=use_workflow_formatter)
         final_html = formatter.render()
         
         session_manager.add_to_history(self.session_id, 'assistant', final_html)

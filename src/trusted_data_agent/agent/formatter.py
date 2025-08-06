@@ -127,16 +127,28 @@ class OutputFormatter:
         </div>
         """
 
+    # --- MODIFIED: Added a header with a copy button to generic tables ---
     def _render_table(self, tool_result: dict, index: int, default_title: str) -> str:
         if not isinstance(tool_result, dict) or "results" not in tool_result: return ""
         results = tool_result.get("results")
         if not isinstance(results, list) or not results or not all(isinstance(item, dict) for item in results): return ""
+        
         metadata = tool_result.get("metadata", {})
         title = metadata.get("tool_name", default_title)
         headers = results[0].keys()
+        
+        # Embed the raw results as a JSON string in a data attribute for the copy function
+        table_data_json = json.dumps(results)
+
         html = f"""
         <div class="response-card">
-            <h4 class="text-lg font-semibold text-white mb-2">Data: Result for <code>{title}</code></h4>
+            <div class="flex justify-between items-center mb-2">
+                <h4 class="text-lg font-semibold text-white">Data: Result for <code>{title}</code></h4>
+                <button class="copy-button" onclick="copyTableToClipboard(this)" data-table='{table_data_json}'>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
+                    Copy Table
+                </button>
+            </div>
             <div class='table-container'>
                 <table class='assistant-table'>
                     <thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead>
@@ -153,6 +165,7 @@ class OutputFormatter:
         self.processed_data_indices.add(index)
         return html
         
+    # --- MODIFIED: Added a header with a copy button to the table within chart details ---
     def _render_chart_with_details(self, chart_data: dict, table_data: dict, chart_index: int, table_index: int) -> str:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
@@ -161,7 +174,19 @@ class OutputFormatter:
         results = table_data.get("results")
         if isinstance(results, list) and results and all(isinstance(item, dict) for item in results):
             headers = results[0].keys()
-            table_html += "<div class='table-container mt-4'><table class='assistant-table'><thead><tr>"
+            table_data_json = json.dumps(results)
+            
+            table_html += f"""
+            <div class="flex justify-between items-center mt-4 mb-2">
+                <h5 class="text-md font-semibold text-white">Chart Data</h5>
+                <button class="copy-button" onclick="copyTableToClipboard(this)" data-table='{table_data_json}'>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
+                    Copy Table
+                </button>
+            </div>
+            """
+            
+            table_html += "<div class='table-container'><table class='assistant-table'><thead><tr>"
             table_html += ''.join(f'<th>{h}</th>' for h in headers)
             table_html += "</tr></thead><tbody>"
             for row in results:
@@ -253,7 +278,6 @@ class OutputFormatter:
         if self.is_workflow:
             return self._format_workflow_summary()
 
-        # --- MODIFIED: Enforce strict rendering order: Summary -> Charts -> Tables ---
         final_html = ""
 
         # 1. Always render the summary first.
@@ -267,7 +291,6 @@ class OutputFormatter:
         for i, tool_result in enumerate(self.collected_data):
             if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
                 charts.append((i, tool_result))
-                # Assume the data source is the immediately preceding result
                 if i > 0:
                     chart_source_indices.add(i - 1)
         
@@ -276,7 +299,6 @@ class OutputFormatter:
             if table_data_result and isinstance(table_data_result, dict) and "results" in table_data_result:
                 final_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
             else:
-                # Fallback for chart without preceding data
                 chart_id = f"chart-render-target-{uuid.uuid4()}"
                 chart_spec_json = json.dumps(chart_result.get("spec", {}))
                 final_html += f"""
@@ -288,7 +310,6 @@ class OutputFormatter:
 
         # 3. Render all remaining data tables and DDLs last.
         for i, tool_result in enumerate(self.collected_data):
-            # Skip if already processed as part of a chart or if it's not a dictionary
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
             
