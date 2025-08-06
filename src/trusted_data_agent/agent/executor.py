@@ -941,7 +941,18 @@ class PlanExecutor:
         
         yield _format_sse({"step": "Calling LLM"})
 
-        self.next_action_str, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
+        self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
+        
+        # --- ADDED: Yield token update for this call ---
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            token_data = {
+                "statement_input": statement_input_tokens,
+                "statement_output": statement_output_tokens,
+                "total_input": updated_session.get("input_tokens", 0),
+                "total_output": updated_session.get("output_tokens", 0)
+            }
+            yield _format_sse(token_data, "token_update")
         
         if not self.next_action_str:
             raise ValueError("LLM failed to provide a response.")
@@ -1021,8 +1032,19 @@ class PlanExecutor:
                 "Example response: {\"summary\": \"The data quality assessment for the database is complete. DDL was retrieved for three tables, and various quality checks were performed...\"}"
             )
             yield _format_sse({"step": "Calling LLM"})
-            final_llm_response, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
             
+            # --- ADDED: Yield token update for this call ---
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                token_data = {
+                    "statement_input": statement_input_tokens,
+                    "statement_output": statement_output_tokens,
+                    "total_input": updated_session.get("input_tokens", 0),
+                    "total_output": updated_session.get("output_tokens", 0)
+                }
+                yield _format_sse(token_data, "token_update")
+
             try:
                 json_match = re.search(r"\{.*\}", final_llm_response, re.DOTALL)
                 if json_match:
@@ -1052,23 +1074,37 @@ class PlanExecutor:
                 
                 summarized_data_str = self._prepare_data_for_final_summary()
 
-                # --- MODIFIED: Updated final prompt for better summaries ---
                 final_prompt = (
-                    "You are a data analyst responsible for the final step of a complex task.\n\n"
+                    "You are a data analyst responsible for generating the final, user-facing summary of a complex task.\n\n"
                     "--- CONTEXT ---\n"
-                    "A multi-step plan was executed to gather data and answer a user's request. A summary of the key findings from all tool calls is provided below.\n\n"
+                    "A plan was executed to answer the user's request. A summary of the collected data is below.\n\n"
                     f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
                     "--- YOUR TASK ---\n"
-                    f"Synthesize the key findings and insights from the COLLECTED DATA SUMMARY to generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
-                    "Your response MUST start with `FINAL_ANSWER:`.\n\n"
+                    f"Generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
+                    "Your response MUST start with `FINAL_ANSWER:` and follow this exact structure:\n"
+                    "1. **Conclusion First**: Start with a paragraph summarizing the key findings and insights from the data. This should be a direct answer to the user's question.\n"
+                    "2. **Chart Introduction (if applicable)**: If a chart was generated, add a new paragraph that introduces the chart, explaining what it visualizes.\n\n"
                     "**CRITICAL INSTRUCTIONS:**\n"
-                    "1. Your summary MUST be based *only* on the data summary provided.\n"
-                    "2. Do not describe your internal thought process, the tools you used, or mention that you were given a summary. Focus on the insights from the data.\n"
-                    "3. If the data was visualized in a chart, your summary should interpret the chart and state the main conclusions."
+                    "- Do not describe your internal process or the tools used. Focus on the data's meaning.\n"
+                    "- Your entire response should be a single block of text. The UI will handle rendering the chart and data tables separately.\n"
+                    "- Example of a good response:\n"
+                    "FINAL_ANSWER: The system experienced peak usage on Tuesday, primarily driven by ETL/ELT workloads. Usage was minimal during early morning hours across all workload types.\n\n"
+                    "The line chart below visualizes the number of requests over time, broken down by workload type, to illustrate these trends."
                 )
                 yield _format_sse({"step": "Calling LLM"})
-                final_llm_response, _, _ = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+                final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
                 
+                # --- ADDED: Yield token update for this call ---
+                updated_session = session_manager.get_session(self.session_id)
+                if updated_session:
+                    token_data = {
+                        "statement_input": statement_input_tokens,
+                        "statement_output": statement_output_tokens,
+                        "total_input": updated_session.get("input_tokens", 0),
+                        "total_output": updated_session.get("output_tokens", 0)
+                    }
+                    yield _format_sse(token_data, "token_update")
+
                 final_answer_match_inner = re.search(r'FINAL_ANSWER:(.*)', final_llm_response or "", re.DOTALL | re.IGNORECASE)
                 summary_text = final_answer_match_inner.group(1).strip() if final_answer_match_inner else (final_llm_response or "The agent finished its plan but did not provide a final summary.")
                 llm_response_for_formatter = summary_text

@@ -132,11 +132,11 @@ class OutputFormatter:
         results = tool_result.get("results")
         if not isinstance(results, list) or not results or not all(isinstance(item, dict) for item in results): return ""
         metadata = tool_result.get("metadata", {})
-        title = metadata.get("table_name", default_title)
+        title = metadata.get("tool_name", default_title)
         headers = results[0].keys()
         html = f"""
         <div class="response-card">
-            <h4 class="text-lg font-semibold text-white mb-2">Data: <code>{title}</code></h4>
+            <h4 class="text-lg font-semibold text-white mb-2">Data: Result for <code>{title}</code></h4>
             <div class='table-container'>
                 <table class='assistant-table'>
                     <thead><tr>{''.join(f'<th>{h}</th>' for h in headers)}</tr></thead>
@@ -157,7 +157,6 @@ class OutputFormatter:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
         
-        # --- NEW: Generate the table HTML for the collapsible section ---
         table_html = ""
         results = table_data.get("results")
         if isinstance(results, list) and results and all(isinstance(item, dict) for item in results):
@@ -194,7 +193,6 @@ class OutputFormatter:
         """
         data_by_table = {}
         for item in self.collected_data:
-            # Handle lists of results from column iteration
             if isinstance(item, list):
                 for sub_item in item:
                     if isinstance(sub_item, dict):
@@ -255,42 +253,54 @@ class OutputFormatter:
         if self.is_workflow:
             return self._format_workflow_summary()
 
-        # Standard rendering for non-workflow responses
+        # --- MODIFIED: Enforce strict rendering order: Summary -> Charts -> Tables ---
         final_html = ""
+
+        # 1. Always render the summary first.
         clean_summary_html = self._sanitize_summary()
         if clean_summary_html:
             final_html += f'<div class="response-card summary-card">{clean_summary_html}</div>'
 
+        # 2. Identify and render all charts next.
+        charts = []
+        chart_source_indices = set()
         for i, tool_result in enumerate(self.collected_data):
+            if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
+                charts.append((i, tool_result))
+                # Assume the data source is the immediately preceding result
+                if i > 0:
+                    chart_source_indices.add(i - 1)
+        
+        for i, chart_result in charts:
+            table_data_result = self.collected_data[i-1] if i > 0 else None
+            if table_data_result and isinstance(table_data_result, dict) and "results" in table_data_result:
+                final_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
+            else:
+                # Fallback for chart without preceding data
+                chart_id = f"chart-render-target-{uuid.uuid4()}"
+                chart_spec_json = json.dumps(chart_result.get("spec", {}))
+                final_html += f"""
+                <div class="response-card">
+                    <div id="{chart_id}" class="chart-render-target" data-spec='{chart_spec_json}'></div>
+                </div>
+                """
+                self.processed_data_indices.add(i)
+
+        # 3. Render all remaining data tables and DDLs last.
+        for i, tool_result in enumerate(self.collected_data):
+            # Skip if already processed as part of a chart or if it's not a dictionary
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
             
-            # --- MODIFIED: Look for a chart and its preceding data table ---
-            if tool_result.get("type") == "chart":
-                # Check if the previous result was a data table
-                if i > 0 and isinstance(self.collected_data[i-1], dict) and "results" in self.collected_data[i-1]:
-                    table_data = self.collected_data[i-1]
-                    final_html += self._render_chart_with_details(tool_result, table_data, i, i-1)
-                else:
-                    # Fallback to rendering just the chart if no preceding data is found
-                    chart_id = f"chart-render-target-{uuid.uuid4()}"
-                    chart_spec_json = json.dumps(tool_result.get("spec", {}))
-                    final_html += f"""
-                    <div class="response-card">
-                        <div id="{chart_id}" class="chart-render-target" data-spec='{chart_spec_json}'></div>
-                    </div>
-                    """
-                    self.processed_data_indices.add(i)
-                continue
-
             metadata = tool_result.get("metadata", {})
             tool_name = metadata.get("tool_name")
 
             if tool_name == 'base_tableDDL':
                 final_html += self._render_ddl(tool_result, i)
-            elif tool_name and "results" in tool_result:
-                 final_html += self._render_table(tool_result, i, f"Result for {tool_name}")
+            elif "results" in tool_result:
+                 final_html += self._render_table(tool_result, i, tool_name or "Result")
 
         if not final_html.strip():
             return "<p>The agent completed its work but did not produce a visible output.</p>"
+            
         return final_html

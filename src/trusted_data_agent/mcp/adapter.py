@@ -206,7 +206,7 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
     """
     Constructs the G2Plot JSON specification from the LLM's request.
     """
-    chart_type = args.get("chart_type")
+    chart_type = args.get("chart_type", "").lower()
     mapping = args.get("mapping", {})
     
     alias_map = {
@@ -220,14 +220,19 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
     options = {"title": {"text": args.get("title", "Generated Chart")}}
     
     source_columns = {}
-    x_field_name = None # --- NEW: Variable to store the x-axis column name
+    x_field_name = None
     for llm_key, data_col in mapping.items():
         canonical_key = reverse_alias_map.get(llm_key.lower())
         if canonical_key:
             options[canonical_key] = data_col
             source_columns[canonical_key] = data_col
-            if canonical_key == 'xField': # --- NEW: Capture the x-axis column name
+            if canonical_key == 'xField':
                 x_field_name = data_col
+
+    # --- MODIFIED: Correct the color mapping property for pie charts ---
+    if chart_type == 'pie' and 'seriesField' in options:
+        app_logger.info("Correcting chart property: Renaming 'seriesField' to 'colorField' for pie chart.")
+        options['colorField'] = options.pop('seriesField')
 
     first_row_keys = {k.lower(): k for k in data[0].keys()}
     final_data = []
@@ -247,7 +252,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
                     raise TypeError(f"Column '{actual_col_name}' for y-axis/angle must be numeric.")
         final_data.append(new_row)
     
-    # --- NEW: Sort the data by the x-axis field before passing it to the chart ---
     if x_field_name:
         try:
             final_data.sort(key=lambda x: x[x_field_name])
@@ -262,7 +266,7 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
         "pie": "Pie", "scatter": "Scatter", "histogram": "Histogram", 
         "heatmap": "Heatmap", "boxplot": "Box", "wordcloud": "WordCloud"
     }
-    g2plot_type = g2plot_type_map.get(chart_type.lower(), chart_type.capitalize())
+    g2plot_type = g2plot_type_map.get(chart_type, chart_type.capitalize())
 
     return {"type": g2plot_type, "options": options}
 
