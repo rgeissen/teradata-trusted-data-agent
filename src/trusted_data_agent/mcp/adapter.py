@@ -8,29 +8,41 @@ from trusted_data_agent.llm import handler as llm_handler
 
 app_logger = logging.getLogger("quart.app")
 
-# --- NEW: Formalized Parameter Alias Map ---
-# This map acts as a translation layer to correct common parameter name variations
-# from the LLM, enhancing agent robustness without LLM intervention.
-# It maps a canonical parameter name to a list of its common aliases.
 PARAMETER_ALIASES = {
     "database_name": ["db_name", "database"],
     "table_name": ["tbl_name", "object_name", "obj_name"],
     "column_name": ["col_name", "column"]
 }
 
+VIZ_TOOL_DEFINITION = {
+    "name": "viz_createChart",
+    "description": "Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.",
+    "args": {
+        "chart_type": {
+            "type": "string",
+            "description": "The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.",
+            "required": True
+        },
+        "data": {
+            "type": "list[dict]",
+            "description": "The data to be visualized, passed directly from the output of another tool.",
+            "required": True
+        },
+        "title": {
+            "type": "string",
+            "description": "A descriptive title for the chart.",
+            "required": True
+        },
+        "mapping": {
+            "type": "dict",
+            "description": "A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.",
+            "required": True
+        }
+    }
+}
+
 
 def _patch_legacy_tool_definitions(tools: list):
-    """
-    Patches the definitions of legacy tools in-place.
-
-    This function is a temporary shim to address inconsistencies in the tool
-    definitions provided by the MCP server. It adds the 'db_name' argument
-    to older 'qlty_' tools that do not explicitly define it, ensuring that
-    the LLM is aware of this parameter.
-
-    Once the MCP tool definitions are permanently corrected on the server,
-    this function can be safely removed.
-    """
     LEGACY_QUALITY_TOOLS = [
         "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
         "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
@@ -48,10 +60,6 @@ def _patch_legacy_tool_definitions(tools: list):
                 }
 
 async def load_and_categorize_teradata_resources(STATE: dict):
-    """
-    Loads all tools and prompts from the Teradata MCP server,
-    categorizes them using an LLM, and stores them in the application state.
-    """
     mcp_client = STATE.get('mcp_client')
     llm_instance = STATE.get('llm')
     if not mcp_client or not llm_instance:
@@ -59,23 +67,34 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
     async with mcp_client.session("teradata_mcp_server") as temp_session:
         app_logger.info("--- Loading Teradata tools and prompts... ---")
-
-        # Load Tools from MCP
         loaded_tools = await load_mcp_tools(temp_session)
-
-        # Apply the patch for legacy tool definitions.
-        # This can be removed once the MCP definitions are updated.
         _patch_legacy_tool_definitions(loaded_tools)
+
+        class SimpleTool:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+        
+        viz_tool_obj = SimpleTool(**VIZ_TOOL_DEFINITION)
+        loaded_tools.append(viz_tool_obj)
 
         STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         STATE['tool_scopes'] = classify_tool_scopes(loaded_tools)
         
-        tool_strings = []
+        tool_details_list = []
         for tool in loaded_tools:
-            arg_list = ", ".join(tool.args.keys())
-            tool_strings.append(f"- `{tool.name}({arg_list})`: {tool.description}")
+            tool_str = f"- `{tool.name}`: {tool.description}"
+            args_dict = tool.args if isinstance(tool.args, dict) else {}
+            if args_dict:
+                tool_str += "\n  - Arguments:"
+                for arg_name, arg_details in args_dict.items():
+                    arg_type = arg_details.get('type', 'any')
+                    is_required = arg_details.get('required', False)
+                    req_str = "required" if is_required else "optional"
+                    arg_desc = arg_details.get('description', 'No description.')
+                    tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+            tool_details_list.append(tool_str)
         
-        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_strings)
+        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
         
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
         categorization_prompt = (
@@ -142,53 +161,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             STATE['prompts_context'] = "--- No Prompts Available ---"
             STATE['structured_prompts'] = {}
 
-async def load_and_categorize_chart_resources(STATE: dict):
-    """
-    Loads all chart generation tools from the Chart MCP server,
-    categorizes them using an LLM, and stores them in the application state.
-    """
-    mcp_client = STATE.get('mcp_client')
-    llm_instance = STATE.get('llm')
-    if not mcp_client or not llm_instance:
-        raise Exception("MCP or LLM client not initialized for chart loading.")
-
-    async with mcp_client.session("chart_mcp_server") as temp_session:
-        app_logger.info("--- Loading Chart tools... ---")
-        loaded_charts = await load_mcp_tools(temp_session)
-        
-        STATE['mcp_charts'] = {tool.name: tool for tool in loaded_charts}
-        
-        chart_strings = [f"- `{tool.name}`: {tool.description}" for tool in loaded_charts]
-        STATE['charts_context'] = "--- Available Charting Tools ---\n" + "\n".join(chart_strings)
-        
-        chart_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_charts])
-        categorization_prompt = (
-            "You are a helpful assistant that organizes a list of data visualization tools into logical categories for a user interface. "
-            "Your response MUST be a single, valid JSON object. The keys should be the category names (e.g., 'Bar & Column', 'Pie & Donut', 'Line & Area'), "
-            f"and the values should be an array of tool names belonging to that category.\n\n"
-            f"--- Chart Tool List ---\n{chart_list_for_prompt}"
-        )
-        categorization_system_prompt = "You are a helpful assistant that organizes lists into JSON format."
-        
-        categorized_charts_str, _, _ = await llm_handler.call_llm_api(
-            llm_instance, categorization_prompt, raise_on_error=True,
-            system_prompt_override=categorization_system_prompt
-        )
-        
-        match = re.search(r'\{.*\}', categorized_charts_str, re.DOTALL)
-        if match is None:
-            raise ValueError(f"LLM failed to return a valid JSON for chart categorization. Response: '{categorized_charts_str}'")
-        
-        cleaned_str = match.group(0)
-        categorized_charts = json.loads(cleaned_str)
-        STATE['structured_charts'] = {category: [{"name": name, "description": STATE['mcp_charts'][name].description} for name in tool_names if name in STATE['mcp_charts']] for category, tool_names in categorized_charts.items()}
-
-
 async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
-    """
-    Validates tool parameters, applies shims for common aliases, and attempts
-    to correct mismatches using an LLM before finally asking the user for input.
-    """
     mcp_tools = STATE.get('mcp_tools', {})
     llm_instance = STATE.get('llm')
     tool_name = command.get("tool_name")
@@ -197,9 +170,10 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
 
     args = command.get("arguments", {})
     tool_spec = mcp_tools[tool_name]
-    spec_arg_names = set(tool_spec.args.keys())
+    
+    spec_args_dict = tool_spec.args if isinstance(tool_spec.args, dict) else {}
+    spec_arg_names = set(spec_args_dict.keys())
 
-    # --- REFACTORED: Use the module-level alias map ---
     corrected_args = args.copy()
     for canonical_name, aliases in PARAMETER_ALIASES.items():
         if canonical_name in spec_arg_names and canonical_name not in corrected_args:
@@ -210,159 +184,140 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
                     break 
     
     command['arguments'] = corrected_args
-    args = corrected_args
-    # --- END REFACTOR ---
+    return command
 
-    llm_arg_names = set(args.keys())
-    required_params = {name for name, field in tool_spec.args.items() if field.get("required", False)}
-
-    if required_params.issubset(llm_arg_names):
-        return command
-
-    app_logger.info(f"Parameter mismatch for tool '{tool_name}'. Attempting correction with LLM.")
-    correction_prompt = f"""
-        You are a parameter-mapping specialist. Your task is to map the 'LLM-Generated Parameters' to the 'Official Tool Parameters'.
-        The user wants to call the tool '{tool_name}', which is described as: '{tool_spec.description}'.
-
-        Official Tool Parameters: {list(spec_arg_names)}
-        LLM-Generated Parameters: {list(llm_arg_names)}
-
-        Respond with a single JSON object that maps each generated parameter name to its correct official name.
-        If a generated parameter does not sensibly map to any official parameter, use `null` as the value.
-        Example response: {{"database": "db_name", "table": "table_name", "extra_param": null}}
+def _transform_chart_data(data: any) -> list[dict]:
     """
+    Checks for and corrects common LLM data format hallucinations for charts.
+    """
+    if isinstance(data, dict) and 'labels' in data and 'values' in data:
+        app_logger.warning("Correcting hallucinated chart data format from labels/values to list of dicts.")
+        labels = data.get('labels', [])
+        values = data.get('values', [])
+        if isinstance(labels, list) and isinstance(values, list) and len(labels) == len(values):
+            return [{"label": l, "value": v} for l, v in zip(labels, values)]
+    if isinstance(data, dict) and 'columns' in data and 'rows' in data:
+        app_logger.warning("Correcting hallucinated chart data format from columns/rows to list of dicts.")
+        if isinstance(data.get('rows'), list):
+            return data['rows']
+    return data
+
+def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
+    """
+    Constructs the G2Plot JSON specification from the LLM's request.
+    """
+    chart_type = args.get("chart_type")
+    mapping = args.get("mapping", {})
     
-    correction_response_text, _, _ = await llm_handler.call_llm_api(llm_instance, prompt=correction_prompt, chat_history=[])
+    alias_map = {
+        'xField': ['x', 'x_axis', 'category', 'categories', 'label'],
+        'yField': ['y', 'y_axis', 'value', 'values', 'metric'],
+        'seriesField': ['color', 'series', 'group', 'color_by'],
+        'angleField': ['angle', 'size']
+    }
+    reverse_alias_map = {alias: canonical for canonical, aliases in alias_map.items() for alias in aliases}
     
-    try:
-        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", correction_response_text, re.DOTALL)
-        if not json_match:
-            json_match = re.search(r'\{.*\}', correction_response_text, re.DOTALL)
-        
-        if not json_match:
-             raise ValueError("LLM did not return a valid JSON object for parameter mapping.")
+    options = {"title": {"text": args.get("title", "Generated Chart")}}
+    
+    source_columns = {}
+    x_field_name = None # --- NEW: Variable to store the x-axis column name
+    for llm_key, data_col in mapping.items():
+        canonical_key = reverse_alias_map.get(llm_key.lower())
+        if canonical_key:
+            options[canonical_key] = data_col
+            source_columns[canonical_key] = data_col
+            if canonical_key == 'xField': # --- NEW: Capture the x-axis column name
+                x_field_name = data_col
 
-        name_mapping = json.loads(json_match.group(0).strip())
+    first_row_keys = {k.lower(): k for k in data[0].keys()}
+    final_data = []
 
-        if any(v is None for v in name_mapping.values()):
-            raise ValueError("LLM could not confidently map all parameters.")
+    for row in data:
+        new_row = {}
+        for key, col in source_columns.items():
+            actual_col_name = first_row_keys.get(col.lower())
+            if not actual_col_name:
+                raise KeyError(f"The mapped column '{col}' was not found in the data.")
+            
+            new_row[actual_col_name] = row[actual_col_name]
+            if key in ['yField', 'angleField']:
+                try:
+                    new_row[actual_col_name] = float(new_row[actual_col_name])
+                except (ValueError, TypeError):
+                    raise TypeError(f"Column '{actual_col_name}' for y-axis/angle must be numeric.")
+        final_data.append(new_row)
+    
+    # --- NEW: Sort the data by the x-axis field before passing it to the chart ---
+    if x_field_name:
+        try:
+            final_data.sort(key=lambda x: x[x_field_name])
+            app_logger.info(f"Chart data successfully sorted by x-axis field: '{x_field_name}'.")
+        except (KeyError, TypeError) as e:
+            app_logger.warning(f"Could not sort chart data by x-axis field '{x_field_name}': {e}. Chart may appear unordered.")
 
-        final_corrected_args = {}
-        for llm_name, spec_name in name_mapping.items():
-            if llm_name in args and spec_name in spec_arg_names:
-                final_corrected_args[spec_name] = args[llm_name]
-        
-        if not required_params.issubset(set(final_corrected_args.keys())):
-             raise ValueError(f"Corrected parameters are still missing required arguments. Missing: {required_params - set(final_corrected_args.keys())}")
+    options["data"] = final_data
+    
+    g2plot_type_map = {
+        "bar": "Column", "column": "Column", "line": "Line", "area": "Area",
+        "pie": "Pie", "scatter": "Scatter", "histogram": "Histogram", 
+        "heatmap": "Heatmap", "boxplot": "Box", "wordcloud": "WordCloud"
+    }
+    g2plot_type = g2plot_type_map.get(chart_type.lower(), chart_type.capitalize())
 
-        app_logger.info(f"Successfully corrected parameters for tool '{tool_name}'. New args: {final_corrected_args}")
-        command['arguments'] = final_corrected_args
-        return command
-
-    except (ValueError, json.JSONDecodeError, AttributeError) as e:
-        app_logger.warning(f"Parameter correction failed for '{tool_name}': {e}. Requesting user input.")
-        spec_arguments = [{k: v for k, v in arg.items() if k != 'default'} for arg in tool_spec.args.values()]
-        return {
-            "error": "parameter_mismatch",
-            "tool_name": tool_name,
-            "message": "The agent could not determine the correct parameters for the tool. Please provide them below.",
-            "specification": {
-                "name": tool_name,
-                "description": tool_spec.description,
-                "arguments": spec_arguments
-            }
-        }
+    return {"type": g2plot_type, "options": options}
 
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
-    """
-    Invokes a tool, either by calling the MCP client or by handling it
-    locally (e.g., for chart generation). It validates and corrects parameters first.
-    """
     mcp_client = STATE.get('mcp_client')
-    mcp_charts = STATE.get('mcp_charts', {})
+    
+    if command.get("tool_name") == "viz_createChart":
+        app_logger.info(f"Handling abstract chart generation for: {command}")
+        
+        try:
+            args = command.get("arguments", {})
+            data = args.get("data")
 
-    if command.get("tool_name") not in mcp_charts:
-        validated_command = await validate_and_correct_parameters(STATE, command)
-        if "error" in validated_command:
-            return validated_command
-    else:
-        validated_command = command
+            data = _transform_chart_data(data)
+            
+            if not isinstance(data, list) or not data:
+                return {"error": "Validation failed", "data": "The 'data' argument must be a non-empty list of dictionaries."}
+            
+            chart_spec = _build_g2plot_spec(args, data)
+            
+            return {"type": "chart", "spec": chart_spec, "metadata": {"tool_name": "viz_createChart"}}
+        except Exception as e:
+            app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
+            return {"error": "Chart Generation Failed", "data": str(e)}
 
-    if not mcp_client:
-        return {"error": "MCP client is not connected."}
+    validated_command = await validate_and_correct_parameters(STATE, command)
+    if "error" in validated_command:
+        return validated_command
 
     tool_name = validated_command.get("tool_name")
     args = validated_command.get("arguments", validated_command.get("parameters", {}))
-
-    if tool_name in mcp_charts:
-        app_logger.info(f"Locally handling chart generation for tool: {tool_name}")
-        try:
-            is_bar_chart = "generate_bar_chart" in tool_name
-            data = args.get("data", [])
-            
-            x_field = args.get("x_axis") or args.get("x_field")
-            y_field = args.get("y_axis") or args.get("y_field")
-            angle_field = args.get("angle_field")
-            color_field = args.get("color_field")
-
-            if not x_field or not y_field:
-                if data:
-                    first_row = data[0]
-                    x_field = next((k for k, v in first_row.items() if isinstance(v, str)), None)
-                    y_field = next((k for k, v in first_row.items() if isinstance(v, (int, float)) or (isinstance(v, str) and v.replace('.', '', 1).isdigit())), None)
-
-            if y_field and data:
-                for row in data:
-                    try:
-                        row[y_field] = float(row[y_field])
-                    except (ValueError, TypeError):
-                        row[y_field] = 0
-
-            spec_options = {
-                "data": data,
-                "xField": y_field if is_bar_chart else x_field,
-                "yField": x_field if is_bar_chart else y_field,
-                "angleField": angle_field,
-                "colorField": color_field,
-                "seriesField": args.get("series_field", args.get("series")),
-                "title": { "visible": True, "text": args.get("title", "Generated Chart") }
-            }
-            chart_type_mapping = { "generate_bar_chart": "Bar", "generate_column_chart": "Column", "generate_pie_chart": "Pie", "generate_line_chart": "Line", "generate_area_chart": "Area", "generate_scatter_chart": "Scatter", "generate_histogram_chart": "Histogram", "generate_boxplot_chart": "Box", "generate_dual_axes_chart": "DualAxes", }
-            plot_type = next((v for k, v in chart_type_mapping.items() if k in tool_name), "Column")
-            final_spec_options = {k: v for k, v in spec_options.items() if v is not None}
-            chart_spec = { "type": plot_type, "options": final_spec_options }
-            return {"type": "chart", "spec": chart_spec, "metadata": {"tool_name": tool_name}}
-        except Exception as e:
-            app_logger.error(f"Error during local chart generation: {e}", exc_info=True)
-            return {"error": f"Failed to generate chart spec locally: {e}"}
-
+    
+    app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
     try:
-        app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
         async with mcp_client.session("teradata_mcp_server") as temp_session:
             call_tool_result = await temp_session.call_tool(tool_name, args)
-        
-        if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
-            text_content = call_tool_result.content[0]
-            if hasattr(text_content, 'text') and isinstance(text_content.text, str):
-                try:
-                    return json.loads(text_content.text)
-                except json.JSONDecodeError:
-                    app_logger.warning(f"Tool '{tool_name}' returned a non-JSON string: '{text_content.text}'")
-                    return {"error": "Tool returned non-JSON string", "data": text_content.text}
-        
-        raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
     except Exception as e:
         app_logger.error(f"Error during tool invocation for '{tool_name}': {e}", exc_info=True)
-        return {"error": f"An exception occurred while invoking tool '{tool_name}'."}
+        return {"error": f"An exception occurred while invoking tool '{tool_name}'.", "data": str(e)}
+    
+    if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
+        text_content = call_tool_result.content[0]
+        if hasattr(text_content, 'text') and isinstance(text_content.text, str):
+            try:
+                return json.loads(text_content.text)
+            except json.JSONDecodeError:
+                app_logger.warning(f"Tool '{tool_name}' returned a non-JSON string: '{text_content.text}'")
+                return {"error": "Tool returned non-JSON string", "data": text_content.text}
+    
+    raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
 
 def classify_tool_scopes(tools: list) -> dict:
-    """
-    Classifies tools based on their argument names to determine if they
-    operate at a database, table, or column level.
-    """
     scopes = {}
     for tool in tools:
-        arg_names = set(tool.args.keys())
+        arg_names = set(tool.args.keys()) if isinstance(tool.args, dict) else set()
         if 'col_name' in arg_names or 'column_name' in arg_names:
             scopes[tool.name] = 'column'
         elif 'table_name' in arg_names or 'obj_name' in arg_names:

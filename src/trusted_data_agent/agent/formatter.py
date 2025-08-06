@@ -153,13 +153,37 @@ class OutputFormatter:
         self.processed_data_indices.add(index)
         return html
         
-    def _render_chart(self, chart_data: dict, index: int) -> str:
+    def _render_chart_with_details(self, chart_data: dict, table_data: dict, chart_index: int, table_index: int) -> str:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
-        self.processed_data_indices.add(index)
+        
+        # --- NEW: Generate the table HTML for the collapsible section ---
+        table_html = ""
+        results = table_data.get("results")
+        if isinstance(results, list) and results and all(isinstance(item, dict) for item in results):
+            headers = results[0].keys()
+            table_html += "<div class='table-container mt-4'><table class='assistant-table'><thead><tr>"
+            table_html += ''.join(f'<th>{h}</th>' for h in headers)
+            table_html += "</tr></thead><tbody>"
+            for row in results:
+                table_html += "<tr>"
+                for header in headers:
+                    cell_data = str(row.get(header, ''))
+                    sanitized_cell = cell_data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    table_html += f"<td>{sanitized_cell}</td>"
+                table_html += "</tr>"
+            table_html += "</tbody></table></div>"
+
+        self.processed_data_indices.add(chart_index)
+        self.processed_data_indices.add(table_index)
+
         return f"""
         <div class="response-card">
             <div id="{chart_id}" class="chart-render-target" data-spec='{chart_spec_json}'></div>
+            <details class="mt-4">
+                <summary class="text-sm font-semibold text-gray-400 cursor-pointer hover:text-white">Show Details</summary>
+                {table_html}
+            </details>
         </div>
         """
 
@@ -241,8 +265,22 @@ class OutputFormatter:
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
             
+            # --- MODIFIED: Look for a chart and its preceding data table ---
             if tool_result.get("type") == "chart":
-                final_html += self._render_chart(tool_result, i)
+                # Check if the previous result was a data table
+                if i > 0 and isinstance(self.collected_data[i-1], dict) and "results" in self.collected_data[i-1]:
+                    table_data = self.collected_data[i-1]
+                    final_html += self._render_chart_with_details(tool_result, table_data, i, i-1)
+                else:
+                    # Fallback to rendering just the chart if no preceding data is found
+                    chart_id = f"chart-render-target-{uuid.uuid4()}"
+                    chart_spec_json = json.dumps(tool_result.get("spec", {}))
+                    final_html += f"""
+                    <div class="response-card">
+                        <div id="{chart_id}" class="chart-render-target" data-spec='{chart_spec_json}'></div>
+                    </div>
+                    """
+                    self.processed_data_indices.add(i)
                 continue
 
             metadata = tool_result.get("metadata", {})

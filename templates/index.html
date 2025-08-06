@@ -411,7 +411,6 @@
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white active" data-type="tools">Tools</button>
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="prompts">Prompts</button>
                     <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="resources">Resources</button>
-                    <button class="resource-tab px-4 py-2 font-semibold text-sm text-gray-300 transition-colors hover:text-white" data-type="charts" style="display: none;">Charts</button>
                 </nav>
                 <div id="panels-container" class="flex-1 min-h-0">
                     <div id="tools-panel" class="resource-panel flex flex-col h-full">
@@ -425,10 +424,6 @@
                     <div id="resources-panel" class="resource-panel flex-col h-full" style="display: none;">
                         <nav id="resources-categories" class="flex justify-center items-center gap-x-2 p-3 border-b border-white/10"></nav>
                         <div id="resources-panels-container" class="flex-1 min-h-0 overflow-y-auto p-2"></div>
-                    </div>
-                    <div id="charts-panel" class="resource-panel flex-col h-full" style="display: none;">
-                        <nav id="charts-categories" class="flex justify-center items-center gap-x-2 p-3 border-b border-white/10"></nav>
-                        <div id="charts-panels-container" class="flex-1 min-h-0 overflow-y-auto p-2"></div>
                     </div>
                 </div>
             </header>
@@ -545,7 +540,7 @@
     </div>
 
     <div id="config-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
-        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-6xl p-8 transform scale-95 opacity-0">
+        <div id="config-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-2xl p-8 transform scale-95 opacity-0">
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-2xl font-bold header-title text-white">Application Configuration</h3>
                 <button type="button" id="config-modal-close" class="p-2 rounded-full text-gray-400 hover:bg-white/10 hover:text-white transition-colors">
@@ -555,146 +550,111 @@
                 </button>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-                <div class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
-                    <div class="flex-grow">
-                        <div class="flex items-center mb-4">
-                            <div class="bg-teradata-orange/20 text-teradata-orange rounded-lg p-2 mr-4">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                            </div>
-                            <h4 class="font-bold text-lg text-white">Core Services</h4>
+            <div class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
+                <div class="flex-grow">
+                    <div class="flex items-center mb-4">
+                        <div class="bg-teradata-orange/20 text-teradata-orange rounded-lg p-2 mr-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                         </div>
-                        <p class="text-sm text-gray-400 mb-6">Connect to the Teradata MCP Server and configure the Language Model. This is required for basic functionality.</p>
-                        <form id="config-form" class="space-y-4">
+                        <h4 class="font-bold text-lg text-white">Core Services</h4>
+                    </div>
+                    <p class="text-sm text-gray-400 mb-6">Connect to the Teradata MCP Server and configure the Language Model. This is required for basic functionality.</p>
+                    <form id="config-form" class="space-y-4">
+                        <div>
+                            <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">MCP Host</label>
+                            <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                        </div>
+                        <div>
+                            <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">MCP Port</label>
+                            <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                        </div>
+                        <div>
+                            <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">MCP Path</label>
+                            <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                        </div>
+                        <div class="border-t border-white/10 my-4"></div>
+                        <div>
+                            <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">LLM Provider</label>
+                            <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                <option value="Google">Google</option>
+                                <option value="Anthropic">Anthropic</option>
+                                <option value="Amazon">Amazon</option>
+                                <option value="Ollama">Ollama (Local)</option>
+                                <option value="OpenAI" disabled>OpenAI (coming soon)</option>
+                                <option value="Cohere" disabled>Cohere (coming soon)</option>
+                                <option value="Mistral" disabled>Mistral (coming soon)</option>
+                            </select>
+                        </div>
+                        
+                        <div id="api-key-container">
+                            <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">LLM API Key</label>
+                            <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
+                        </div>
+
+                        <div id="ollama-host-container" class="hidden">
+                            <label for="ollama-host" class="block text-sm font-medium text-gray-300 mb-1">Ollama Host</label>
+                            <input type="text" id="ollama-host" name="ollama_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="e.g., http://localhost:11434">
+                        </div>
+
+                        <div id="aws-credentials-container" class="hidden space-y-4">
                             <div>
-                                <label for="mcp-host" class="block text-sm font-medium text-gray-300 mb-1">MCP Host</label>
-                                <input type="text" id="mcp-host" name="host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                <label for="aws-access-key-id" class="block text-sm font-medium text-gray-300 mb-1">AWS Access Key ID</label>
+                                <input type="password" id="aws-access-key-id" name="aws_access_key_id" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your AWS Access Key ID">
                             </div>
                             <div>
-                                <label for="mcp-port" class="block text-sm font-medium text-gray-300 mb-1">MCP Port</label>
-                                <input type="text" id="mcp-port" name="port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                <label for="aws-secret-access-key" class="block text-sm font-medium text-gray-300 mb-1">AWS Secret Access Key</label>
+                                <input type="password" id="aws-secret-access-key" name="aws_secret_access_key" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your AWS Secret Access Key">
                             </div>
                             <div>
-                                <label for="mcp-path" class="block text-sm font-medium text-gray-300 mb-1">MCP Path</label>
-                                <input type="text" id="mcp-path" name="path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                <label for="aws-region" class="block text-sm font-medium text-gray-300 mb-1">AWS Region</label>
+                                <input type="text" id="aws-region" name="aws_region" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="e.g., us-east-1">
                             </div>
-                            <div class="border-t border-white/10 my-4"></div>
-                            <div>
-                                <label for="llm-provider" class="block text-sm font-medium text-gray-300 mb-1">LLM Provider</label>
-                                <select id="llm-provider" name="provider" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                                    <option value="Google">Google</option>
-                                    <option value="Anthropic">Anthropic</option>
-                                    <option value="Amazon">Amazon</option>
-                                    <option value="Ollama">Ollama (Local)</option>
-                                    <option value="OpenAI" disabled>OpenAI (coming soon)</option>
-                                    <option value="Cohere" disabled>Cohere (coming soon)</option>
-                                    <option value="Mistral" disabled>Mistral (coming soon)</option>
+                        </div>
+
+                        <div id="aws-listing-method-container" class="hidden">
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Model Listing Method</label>
+                            <div class="flex items-center gap-x-6">
+                                <div class="flex items-center">
+                                    <input id="foundation_models" name="listing_method" type="radio" value="foundation_models" class="h-4 w-4 border-gray-300 text-teradata-orange focus:ring-teradata-orange" checked>
+                                    <label for="foundation_models" class="ml-3 block text-sm font-medium leading-6 text-gray-300">Foundation Models</label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input id="inference_profiles" name="listing_method" type="radio" value="inference_profiles" class="h-4 w-4 border-gray-300 text-teradata-orange focus:ring-teradata-orange">
+                                    <label for="inference_profiles" class="ml-3 block text-sm font-medium leading-6 text-gray-300">Inference Profiles</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
+                            <div class="flex items-center gap-2">
+                                <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                    <option value="">-- Select Provider & Enter Credentials --</option>
                                 </select>
+                                <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
+                                    <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
+                                    <svg id="refresh-spinner" class="w-5 h-5 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                </button>
                             </div>
-                            
-                            <div id="api-key-container">
-                                <label for="llm-api-key" class="block text-sm font-medium text-gray-300 mb-1">LLM API Key</label>
-                                <input type="password" id="llm-api-key" name="apiKey" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your API Key">
-                            </div>
-
-                            <div id="ollama-host-container" class="hidden">
-                                <label for="ollama-host" class="block text-sm font-medium text-gray-300 mb-1">Ollama Host</label>
-                                <input type="text" id="ollama-host" name="ollama_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="e.g., http://localhost:11434">
-                            </div>
-
-                            <div id="aws-credentials-container" class="hidden space-y-4">
-                                <div>
-                                    <label for="aws-access-key-id" class="block text-sm font-medium text-gray-300 mb-1">AWS Access Key ID</label>
-                                    <input type="password" id="aws-access-key-id" name="aws_access_key_id" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your AWS Access Key ID">
-                                </div>
-                                <div>
-                                    <label for="aws-secret-access-key" class="block text-sm font-medium text-gray-300 mb-1">AWS Secret Access Key</label>
-                                    <input type="password" id="aws-secret-access-key" name="aws_secret_access_key" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="Enter your AWS Secret Access Key">
-                                </div>
-                                <div>
-                                    <label for="aws-region" class="block text-sm font-medium text-gray-300 mb-1">AWS Region</label>
-                                    <input type="text" id="aws-region" name="aws_region" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none" placeholder="e.g., us-east-1">
-                                </div>
-                            </div>
-
-                            <div id="aws-listing-method-container" class="hidden">
-                                <label class="block text-sm font-medium text-gray-300 mb-2">Model Listing Method</label>
-                                <div class="flex items-center gap-x-6">
-                                    <div class="flex items-center">
-                                        <input id="foundation_models" name="listing_method" type="radio" value="foundation_models" class="h-4 w-4 border-gray-300 text-teradata-orange focus:ring-teradata-orange" checked>
-                                        <label for="foundation_models" class="ml-3 block text-sm font-medium leading-6 text-gray-300">Foundation Models</label>
-                                    </div>
-                                    <div class="flex items-center">
-                                        <input id="inference_profiles" name="listing_method" type="radio" value="inference_profiles" class="h-4 w-4 border-gray-300 text-teradata-orange focus:ring-teradata-orange">
-                                        <label for="inference_profiles" class="ml-3 block text-sm font-medium leading-6 text-gray-300">Inference Profiles</label>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label for="llm-model" class="block text-sm font-medium text-gray-300 mb-1">LLM Model</label>
-                                <div class="flex items-center gap-2">
-                                    <select id="llm-model" name="model" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
-                                        <option value="">-- Select Provider & Enter Credentials --</option>
-                                    </select>
-                                    <button type="button" id="refresh-models-button" title="Refresh Model List" class="p-2 bg-gray-600 hover:bg-gray-500 rounded-md transition-colors">
-                                        <svg id="refresh-icon" class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.667 0l3.181-3.183m-4.991-2.691L7.985 5.356m0 0v4.992m0 0h4.992m0 0l3.181-3.183a8.25 8.25 0 0111.667 0l3.181 3.183" /></svg>
-                                        <svg id="refresh-spinner" class="w-5 h-5 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="pt-2">
-                        <button id="config-action-button" form="config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
-                            <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            <span id="config-action-button-text">Connect & Load</span>
-                        </button>
-                    </div>
+                        </div>
+                        
+                        <div class="border-t border-white/10 my-4"></div>
+                        
+                        <div id="charting-intensity-container">
+                            <label for="charting-intensity" class="block text-sm font-medium text-gray-300 mb-1">Charting Intensity</label>
+                            <select id="charting-intensity" name="charting_intensity" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-teradata-orange focus:border-teradata-orange outline-none">
+                                <option value="none">No Charting</option>
+                                <option value="medium" selected>Medium Charting</option>
+                                <option value="heavy">Heavy Charting</option>
+                            </select>
+                        </div>
+                    </form>
                 </div>
-
-                <div id="charting-engine-card" class="bg-white/5 border border-white/10 rounded-lg p-6 flex flex-col">
-                    <fieldset id="charting-fieldset">
-                        <div class="flex-grow">
-                            <div class="flex items-center mb-4">
-                                <div class="bg-blue-500/20 text-blue-400 rounded-lg p-2 mr-4">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
-                                </div>
-                                <h4 class="font-bold text-lg text-white">Charting Engine</h4>
-                            </div>
-                            <p class="text-sm text-gray-400 mb-6">Optionally, connect to a Chart Server to enable data visualization capabilities within the agent's responses.</p>
-                            <form id="chart-config-form" class="space-y-4">
-                                <div>
-                                    <label for="chart-mcp-host" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Host</label>
-                                    <input type="text" id="chart-mcp-host" name="chart_host" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                                </div>
-                                <div>
-                                    <label for="chart-mcp-port" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Port</label>
-                                    <input type="text" id="chart-mcp-port" name="chart_port" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                                </div>
-                                <div>
-                                    <label for="chart-mcp-path" class="block text-sm font-medium text-gray-300 mb-1">Chart MCP Path</label>
-                                    <input type="text" id="chart-mcp-path" name="chart_path" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                                </div>
-                                <div class="border-t border-white/10 my-4"></div>
-                                 <div>
-                                    <label for="charting-intensity" class="block text-sm font-medium text-gray-300 mb-1">Charting Intensity</label>
-                                    <select id="charting-intensity" name="charting_intensity" class="w-full p-2 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                                        <option value="none">No Charting</option>
-                                        <option value="medium" selected>Medium Charting</option>
-                                        <option value="heavy">Heavy Charting</option>
-                                    </select>
-                                </div>
-                            </form>
-                        </div>
-                        <div class="pt-2">
-                            <button id="chart-config-action-button" form="chart-config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
-                                <svg id="chart-config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                <span id="chart-config-action-button-text">Connect & Load</span>
-                            </button>
-                        </div>
-                    </fieldset>
+                <div class="pt-6">
+                    <button id="config-action-button" form="config-form" type="submit" class="w-full px-4 py-3 rounded-md bg-blue-600 hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center text-white">
+                        <svg id="config-loading-spinner" class="w-5 h-5 mr-2 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <span id="config-action-button-text">Connect & Load</span>
+                    </button>
                 </div>
             </div>
             <div id="config-status" class="text-sm min-h-[1.25rem] mt-6 text-center"></div>
@@ -831,13 +791,7 @@
         const ollamaHostContainer = document.getElementById('ollama-host-container');
         const ollamaHostInput = document.getElementById('ollama-host');
         
-        const chartConfigForm = document.getElementById('chart-config-form');
-        const chartConfigLoadingSpinner = document.getElementById('chart-config-loading-spinner');
-        const chartActionButton = document.getElementById('chart-config-action-button');
-        const chartActionButtonText = document.getElementById('chart-config-action-button-text');
         const chartingIntensitySelect = document.getElementById('charting-intensity');
-        const chartingEngineCard = document.getElementById('charting-engine-card');
-        const chartingFieldset = document.getElementById('charting-fieldset');
 
         const teradataStatusDot = document.getElementById('teradata-status-dot');
         const chartStatusDot = document.getElementById('chart-status-dot');
@@ -888,10 +842,8 @@
         let countdownValue = 5;
         let mouseMoveHandler = null;
         let pristineConfig = {};
-        let pristineChartConfig = {};
         let isMouseOverStatus = false; 
         
-        // --- NEW: Cache for default system prompts ---
         let defaultPromptsCache = {};
 
         const thinkingIndicator = document.getElementById('thinking-indicator');
@@ -944,7 +896,6 @@
             return prompts[key]?.isCustom || false;
         }
 
-        // --- NEW: Helper function to get and cache default system prompts ---
         async function getDefaultSystemPrompt(provider, model) {
             const key = getPromptStorageKey(provider, model);
             if (defaultPromptsCache[key]) {
@@ -966,7 +917,7 @@
                 console.error(`Error getting default system prompt for ${key}:`, e);
                 promptEditorStatus.textContent = 'Error fetching default prompt.';
                 promptEditorStatus.className = 'text-sm text-red-400';
-                return null; // Return null on failure
+                return null;
             }
         }
 
@@ -1265,7 +1216,7 @@
                 updateStatusWindow({ step: "Error", details: error.stack, type: 'error' }, true);
             } finally {
                 toggleLoading(false);
-                setThinkingIndicator(false); // Ensure it's off when stream ends
+                setThinkingIndicator(false);
             }
         }
 
@@ -1303,15 +1254,12 @@
                 const res = await fetch(`/${type}`);
                 const data = await res.json();
 
-                tabButton.style.display = 'inline-block';
-
                 if (!res.ok || data.error || Object.keys(data).length === 0) {
-                    tabButton.textContent = `${typeCapitalized} (0)`;
-                    categoriesContainer.innerHTML = '';
-                    panelsContainer.innerHTML = `<div class="p-4 text-center text-gray-400">No ${type} available.</div>`;
+                    if(tabButton) tabButton.style.display = 'none';
                     return;
                 }
                 
+                tabButton.style.display = 'inline-block';
                 const totalCount = Object.values(data).reduce((acc, items) => acc + items.length, 0);
                 tabButton.textContent = `${typeCapitalized} (${totalCount})`;
 
@@ -1356,8 +1304,10 @@
 
             } catch (error) {
                 console.error(`Failed to load ${type}: ${error.message}`);
-                tabButton.textContent = `${typeCapitalized} (Error)`;
-                tabButton.style.display = 'inline-block';
+                if(tabButton) {
+                    tabButton.textContent = `${typeCapitalized} (Error)`;
+                    tabButton.style.display = 'inline-block';
+                }
                 categoriesContainer.innerHTML = '';
                 panelsContainer.innerHTML = `<div class="p-4 text-center text-red-400">Failed to load ${type}.</div>`;
             }
@@ -1411,7 +1361,8 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        system_prompt: activePrompt
+                        system_prompt: activePrompt,
+                        charting_intensity: chartingIntensitySelect.value
                     })
                 });
                 const data = await res.json();
@@ -1677,11 +1628,6 @@
             return Object.fromEntries(formData.entries());
         }
 
-        function getCurrentChartConfig() {
-            const formData = new FormData(chartConfigForm);
-            return Object.fromEntries(formData.entries());
-        }
-
         function updateConfigButtonState() {
             const isConnected = teradataStatusDot.classList.contains('connected');
             
@@ -1711,56 +1657,18 @@
                 configActionButton.onclick = closeConfigModal;
             }
         }
-        
-        function updateChartConfigButtonState() {
-            const isConnected = chartStatusDot.classList.contains('connected');
-            const isCoreConnected = teradataStatusDot.classList.contains('connected');
-            
-            chartingFieldset.disabled = !isCoreConnected || chartingFieldset.dataset.cliDisabled === 'true';
-
-            if (!isConnected) {
-                chartActionButtonText.textContent = 'Connect & Load';
-                chartActionButton.type = 'submit';
-                chartActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500', 'bg-green-600', 'hover:bg-green-500', 'cursor-default');
-                chartActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
-                chartActionButton.onclick = null;
-                return;
-            }
-            
-            const currentConfig = getCurrentChartConfig();
-            const hasChanged = JSON.stringify(currentConfig) !== JSON.stringify(pristineChartConfig);
-
-            if (hasChanged) {
-                chartActionButtonText.textContent = 'Reconnect & Load';
-                chartActionButton.type = 'submit';
-                chartActionButton.classList.remove('bg-gray-600', 'hover:bg-gray-500', 'bg-green-600', 'hover:bg-green-500', 'cursor-default');
-                chartActionButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
-                chartActionButton.onclick = null;
-            } else {
-                chartActionButtonText.textContent = 'Connected';
-                chartActionButton.type = 'button';
-                chartActionButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
-                chartActionButton.classList.add('bg-green-600', 'hover:bg-green-500', 'cursor-default');
-                chartActionButton.onclick = null;
-            }
-        }
 
         configMenuButton.addEventListener('click', () => {
             configModalOverlay.classList.remove('hidden', 'opacity-0');
             configModalContent.classList.remove('scale-95', 'opacity-0');
             
             pristineConfig = getCurrentCoreConfig();
-            pristineChartConfig = getCurrentChartConfig();
-            
             updateConfigButtonState();
-            updateChartConfigButtonState();
         });
         
         configModalClose.addEventListener('click', () => {
             const coreChanged = JSON.stringify(getCurrentCoreConfig()) !== JSON.stringify(pristineConfig);
-            const chartChanged = JSON.stringify(getCurrentChartConfig()) !== JSON.stringify(pristineChartConfig);
-
-            if (coreChanged || chartChanged) {
+            if (coreChanged) {
                 showConfirmation('Discard Changes?', 'You have unsaved changes in your configuration. Are you sure you want to close?', closeConfigModal);
             } else {
                 closeConfigModal();
@@ -1886,6 +1794,8 @@
                     configStatus.className = 'text-sm text-green-400 text-center';
                     teradataStatusDot.classList.remove('disconnected');
                     teradataStatusDot.classList.add('connected');
+                    chartStatusDot.classList.remove('disconnected');
+                    chartStatusDot.classList.add('connected');
                     
                     localStorage.setItem('lastSelectedProvider', config.provider);
                     
@@ -1910,15 +1820,9 @@
                     
                     pristineConfig = getCurrentCoreConfig();
                     
-                    const isChartingEnabledByCLI = chartingFieldset.dataset.cliDisabled !== 'true';
-                    const isChartServerAlreadyConnected = chartStatusDot.classList.contains('connected');
-
-                    if (!isChartingEnabledByCLI || isChartServerAlreadyConnected) {
-                         setTimeout(closeConfigModal, 1000);
-                    }
+                    setTimeout(closeConfigModal, 1000);
                     
                     updateConfigButtonState();
-                    updateChartConfigButtonState();
                     openSystemPromptPopup();
 
                 } else {
@@ -1931,6 +1835,8 @@
                 chatModalButton.disabled = true;
                 teradataStatusDot.classList.add('disconnected');
                 teradataStatusDot.classList.remove('connected');
+                chartStatusDot.classList.add('disconnected');
+                chartStatusDot.classList.remove('connected');
             } finally {
                 configLoadingSpinner.classList.add('hidden');
                 configActionButton.disabled = false;
@@ -1938,58 +1844,6 @@
             }
         });
         
-        chartConfigForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            chartConfigLoadingSpinner.classList.remove('hidden');
-            chartActionButton.disabled = true;
-            configStatus.textContent = 'Connecting & Classifying Charts...';
-            configStatus.className = 'text-sm text-yellow-400 text-center';
-            
-            const formData = new FormData(e.target);
-            const config = Object.fromEntries(formData.entries());
-            
-            localStorage.setItem('chartMcpConfig', JSON.stringify(config));
-
-            try {
-                const res = await fetch('/configure_chart', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
-                });
-                const result = await res.json();
-                if (res.ok) {
-                    configStatus.textContent = 'Success! Chart server connected and resources classified.';
-                    configStatus.className = 'text-sm text-green-400 text-center';
-                    chartStatusDot.classList.remove('disconnected');
-                    chartStatusDot.classList.add('connected');
-                    await loadResources('charts');
-                    
-                    await loadResources('tools');
-                    await loadResources('prompts');
-                    await loadResources('resources');
-                    
-                    await handleIntensityChange();
-
-                    pristineChartConfig = getCurrentChartConfig();
-                    updateChartConfigButtonState();
-                    
-                    setTimeout(closeConfigModal, 1000);
-
-                } else {
-                    throw new Error(result.message || 'Chart server configuration failed.');
-                }
-            } catch (error) {
-                configStatus.textContent = `Error: ${error.message}`;
-                configStatus.className = 'text-sm text-red-400 text-center';
-                chartStatusDot.classList.add('disconnected');
-                chartStatusDot.classList.remove('connected');
-            } finally {
-                chartConfigLoadingSpinner.classList.add('hidden');
-                chartActionButton.disabled = false;
-                updateChartConfigButtonState();
-            }
-        });
-
         async function fetchModels() {
             const provider = llmProviderSelect.value;
             let body = { provider };
@@ -2148,13 +2002,11 @@
             setTimeout(() => promptEditorOverlay.classList.add('hidden'), 300);
         }
 
-        // --- MODIFIED: `saveSystemPromptChanges` is now async and uses comparison ---
         async function saveSystemPromptChanges() {
             const newPromptText = promptEditorTextarea.value;
             const defaultPromptText = await getDefaultSystemPrompt(currentProvider, currentModel);
 
             if (defaultPromptText === null) {
-                // Error already handled in getDefaultSystemPrompt
                 return;
             }
 
@@ -2168,7 +2020,6 @@
             setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
         }
 
-        // --- MODIFIED: `resetSystemPrompt` is now async ---
         async function resetSystemPrompt(force = false) {
             const defaultPrompt = await getDefaultSystemPrompt(currentProvider, currentModel);
             if (defaultPrompt) {
@@ -2304,18 +2155,13 @@
                 const res = await fetch('/app-config');
                 const appConfig = await res.json();
                 
-                const isChartingCliEnabled = appConfig.charting_enabled;
-                chartingFieldset.dataset.cliDisabled = !isChartingCliEnabled;
-
-                if (!isChartingCliEnabled) {
-                    chartingEngineCard.classList.add('opacity-50');
-                    chartingEngineCard.title = "Charting is disabled. Start the server with the --charting flag to enable it.";
+                const chartingIntensityContainer = document.getElementById('charting-intensity-container');
+                if (!appConfig.charting_enabled) {
+                    chartingIntensityContainer.style.display = 'none';
                 }
 
             } catch (e) {
                 console.error("Could not fetch app config", e);
-                chartingFieldset.dataset.cliDisabled = 'true';
-                chartingEngineCard.classList.add('opacity-50');
             }
 
             const savedMcpConfig = JSON.parse(localStorage.getItem('mcpConfig'));
@@ -2329,23 +2175,11 @@
                 document.getElementById('mcp-path').value = '/mcp/';
             }
             
-            const savedChartConfig = JSON.parse(localStorage.getItem('chartMcpConfig'));
-            if (savedChartConfig) {
-                document.getElementById('chart-mcp-host').value = savedChartConfig.chart_host || '127.0.0.1';
-                document.getElementById('chart-mcp-port').value = savedChartConfig.chart_port || '1122';
-                document.getElementById('chart-mcp-path').value = savedChartConfig.chart_path || '/sse';
-            } else {
-                document.getElementById('chart-mcp-host').value = '127.0.0.1';
-                document.getElementById('chart-mcp-port').value = '1122';
-                document.getElementById('chart-mcp-path').value = '/sse';
-            }
-            
             const lastProvider = localStorage.getItem('lastSelectedProvider');
             if (lastProvider) {
                 llmProviderSelect.value = lastProvider;
             }
             llmProviderSelect.dispatchEvent(new Event('change'));
-
 
             toggleHistoryCheckbox.checked = !sessionHistoryPanel.classList.contains('collapsed');
             setupPanelToggle(toggleHistoryButton, sessionHistoryPanel, toggleHistoryCheckbox, historyCollapseIcon, historyExpandIcon);
@@ -2362,13 +2196,7 @@
                 await fetchModels();
             }
             
-            const configInputs = [...configForm.elements, ...chartConfigForm.elements];
-            configInputs.forEach(input => {
-                input.addEventListener('input', () => {
-                    updateConfigButtonState();
-                    updateChartConfigButtonState();
-                });
-            });
+            configForm.addEventListener('input', updateConfigButtonState);
         });
     </script>
 </body>

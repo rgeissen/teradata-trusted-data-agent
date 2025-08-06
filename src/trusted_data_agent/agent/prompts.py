@@ -11,6 +11,8 @@ PROVIDER_SYSTEM_PROMPTS = {
         "    -   If your chosen capability is from the `--- Available Prompts ---` list, you **MUST** use the key `\"prompt_name\"`.\n"
         "    -   If your chosen capability is from the `--- Available Tools ---` list, you **MUST** use the key `\"tool_name\"`.\n\n"
         "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
+        "--- **NEW CRITICAL RULE: ONE ACTION AT A TIME** ---\n"
+        "You **MUST** generate only one tool or prompt call in a single turn. Do not chain multiple JSON blocks together. After you receive the result from your action, you can then decide on the next step. This is a strict instruction.\n\n"
         "**Example for a Prompt:**\n"
         "```json\n"
         "{{\n"
@@ -64,6 +66,8 @@ PROVIDER_SYSTEM_PROMPTS = {
         "    -   If your chosen capability is from the `--- Available Prompts ---` list, you **MUST** use the key `\"prompt_name\"`.\n"
         "    -   If your chosen capability is from the `--- Available Tools ---` list, you **MUST** use the key `\"tool_name\"`.\n\n"
         "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
+        "--- **NEW CRITICAL RULE: ONE ACTION AT A TIME** ---\n"
+        "You **MUST** generate only one tool or prompt call in a single turn. Do not chain multiple JSON blocks together. After you receive the result from your action, you can then decide on the next step. This is a strict instruction.\n\n"
         "**Example for a Prompt:**\n"
         "```json\n"
         "{{\n"
@@ -117,6 +121,8 @@ PROVIDER_SYSTEM_PROMPTS = {
         "    -   If your chosen capability is from the `--- Available Prompts ---` list, you **MUST** use the key `\"prompt_name\"`.\n"
         "    -   If your chosen capability is from the `--- Available Tools ---` list, you **MUST** use the key `\"tool_name\"`.\n\n"
         "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
+        "--- **NEW CRITICAL RULE: ONE ACTION AT A TIME** ---\n"
+        "You **MUST** generate only one tool or prompt call in a single turn. Do not chain multiple JSON blocks together. After you receive the result from your action, you can then decide on the next step. This is a strict instruction.\n\n"
         "**Example for a Prompt:**\n"
         "```json\n"
         "{{\n"
@@ -163,21 +169,84 @@ PROVIDER_SYSTEM_PROMPTS = {
     "OpenAI": "Placeholder prompt for OpenAI models."
 }
 
+G2PLOT_GUIDELINES = """
+--- **G2Plot Charting Guidelines** ---
+- **Core Concept**: You create charts by mapping columns from the data you have received to visual properties.
+- **CRITICAL CHARTING RULE**: When you call the `viz_createChart` tool, you **MUST** provide the `data` argument. The value for this argument **MUST BE THE EXACT `results` ARRAY** from the previous successful tool call. Do not modify or re-create it.
+- **Your Task**: You must provide the `chart_type`, a `title`, the `data` from the previous step, and the `mapping` argument.
+- **The `mapping` Argument**: This is the most important part. It tells the system how to draw the chart.
+  - The `mapping` dictionary keys are the visual roles (e.g., `x_axis`, `y_axis`, `color`).
+  - The `mapping` dictionary values **MUST BE THE EXACT COLUMN NAMES** from the data you are passing.
+
+- **Example Interaction (Single Series)**:
+  1. You receive data: `{"results": [{"Category": "A", "Value": 20}, {"Category": "B", "Value": 30}]}`
+  2. Your call to `viz_createChart` **MUST** look like this:
+     ```json
+     {{
+       "tool_name": "viz_createChart",
+       "arguments": {{
+         "chart_type": "bar",
+         "title": "Category Values",
+         "data": [{"Category": "A", "Value": 20}, {"Category": "B", "Value": 30}],
+         "mapping": {{"x_axis": "Category", "y_axis": "Value"}}
+       }}
+     }}
+     ```
+
+- **Example Interaction (Multi-Series Line Chart)**:
+  1. You receive data with a categorical column to group by (e.g., `workloadType`).
+  2. To create a line chart with a separate colored line for each `workloadType`, you **MUST** include the `color` key in your mapping.
+  3. Your call to `viz_createChart` **MUST** look like this:
+     ```json
+     {{
+       "tool_name": "viz_createChart",
+       "arguments": {{
+         "chart_type": "line",
+         "title": "Usage by Workload",
+         "data": [...],
+         "mapping": {{
+           "x_axis": "LogDate",
+           "y_axis": "Request Count",
+           "color": "workloadType"
+         }}
+       }}
+     }}
+     ```
+
+- **Common Chart Types & Their Mappings**:
+  - **`bar` or `column`**: Best for comparing numerical values across different categories.
+    - Required `mapping` keys: `x_axis`, `y_axis`.
+    - Use `color` to create grouped or stacked bars.
+  - **`line` or `area`**: Best for showing trends over a continuous variable, like time.
+    - Required `mapping` keys: `x_axis`, `y_axis`.
+    - Use `color` to plot multiple lines on the same chart.
+  - **`pie`**: Best for showing the proportion of parts to a whole.
+    - Required `mapping` keys: `angle` (the numerical value), `color` (the category).
+  - **`scatter`**: Best for showing the relationship between two numerical variables.
+    - Required `mapping` keys: `x_axis`, `y_axis`.
+    - Use `color` to group points by category.
+    - Use `size` to represent a third numerical variable.
+"""
 
 CHARTING_INSTRUCTIONS = {
     "none": "--- **Charting Rules** ---\n- Charting is disabled. Do NOT use any charting tools.",
     "medium": (
-        "--- **Charting Rules** ---\n"
-        "- After successfully gathering data with Teradata tools, consider if a visualization would enhance the answer.\n"
-        "- Use a chart tool if it provides a clear summary (e.g., bar chart for space usage, pie chart for distributions).\n"
+        "--- **Charting Rules & Capabilities** ---\n"
+        "- After gathering data, you can visualize it using the `viz_createChart` tool.\n"
+        "- To use it, you must select the best `chart_type` and provide the correct data `mapping`.\n"
+        "- First, analyze the data and the user's goal. Then, choose a chart type from the guidelines below that best represents the information.\n"
         "- Do not generate charts for simple data retrievals that are easily readable in a table.\n"
-        "- When you use a chart tool, tell the user in your final answer what the chart represents."
+        "- When you use a chart tool, tell the user in your final answer what the chart represents.\n"
+        f"{G2PLOT_GUIDELINES}"
     ),
     "heavy": (
-        "--- **Charting Rules** ---\n"
-        "- You should actively look for opportunities to visualize data.\n"
-        "- After nearly every successful data-gathering operation, your next step should be to call an appropriate chart tool to visualize the results.\n"
+        "--- **Charting Rules & Capabilities** ---\n"
+        "- You should actively look for opportunities to visualize data using the `viz_createChart` tool.\n"
+        "- After nearly every successful data-gathering operation, your next step should be to call `viz_createChart`.\n"
+        "- To use it, you must select the best `chart_type` and provide the correct data `mapping`.\n"
+        "- Analyze the data and the user's goal, then choose a chart type from the guidelines below.\n"
         "- Prefer visual answers over text-based tables whenever possible.\n"
-        "- When you use a chart tool, tell the user in your final answer what the chart represents."
+        "- When you use a chart tool, tell the user in your final answer what the chart represents.\n"
+        f"{G2PLOT_GUIDELINES}"
     )
 }

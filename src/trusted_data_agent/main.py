@@ -24,6 +24,19 @@ APP_STATE = {
     "tools_context": "--- No Tools Available ---", "prompts_context": "--- No Prompts Available ---", "charts_context": "--- No Charts Available ---",
 }
 
+# --- Custom log filter to suppress benign SSE connection warnings ---
+class SseConnectionFilter(logging.Filter):
+    """
+    Filters out benign validation warnings from the MCP client related to
+    the initial SSE connection handshake message from the chart server.
+    """
+    def filter(self, record):
+        # The specific message to filter out
+        is_validation_error = "Failed to validate notification" in record.getMessage()
+        is_sse_connection_method = "sse/connection" in record.getMessage()
+        # Return False to suppress the log record if both conditions are met
+        return not (is_validation_error and is_sse_connection_method)
+
 def create_app():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
@@ -43,11 +56,24 @@ async def main():
     if os.path.exists(LOG_DIR): shutil.rmtree(LOG_DIR)
     os.makedirs(LOG_DIR)
     
+    # --- MODIFIED: Configure the root logger to catch all logs ---
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-    app.logger.addHandler(handler)
+    
+    # Apply the custom filter to the handler
+    handler.addFilter(SseConnectionFilter())
+    
+    # Get the root logger, clear any pre-existing handlers, and add our new one.
+    # This ensures all logs from any library go through our filter.
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(logging.INFO)
+
+    # The app's logger will propagate to the root, so we just set its level.
     app.logger.setLevel(logging.INFO)
 
+    # Configure the separate logger for LLM conversations
     llm_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversations.log"))
     llm_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
     llm_logger = logging.getLogger("llm_conversation")

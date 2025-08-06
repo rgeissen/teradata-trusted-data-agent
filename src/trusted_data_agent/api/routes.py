@@ -2,6 +2,8 @@
 import json
 import os
 import logging
+import asyncio
+import sys
 
 from quart import Blueprint, request, jsonify, render_template, Response
 from google.api_core import exceptions as google_exceptions
@@ -37,7 +39,6 @@ async def index():
     """Serves the main HTML page."""
     return await render_template("index.html")
 
-# --- NEW: Simple Chat Endpoint ---
 @api_bp.route("/simple_chat", methods=["POST"])
 async def simple_chat():
     """
@@ -71,7 +72,6 @@ async def simple_chat():
     except Exception as e:
         app_logger.error(f"Error in simple_chat: {e}", exc_info=True)
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-# --- END NEW ---
 
 @api_bp.route("/app-config")
 async def get_app_config():
@@ -124,8 +124,9 @@ async def get_resources_route():
 @api_bp.route("/charts")
 async def get_charts():
     """Returns the categorized list of chart tools."""
-    if not APP_CONFIG.CHART_MCP_CONNECTED: return jsonify({"error": "Chart server not connected"}), 400
-    return jsonify(STATE.get("structured_charts", {}))
+    # This endpoint is now obsolete as charts are internal, but we keep it
+    # to avoid breaking the UI during transition, returning an empty object.
+    return jsonify({})
 
 @api_bp.route("/sessions", methods=["GET"])
 async def get_sessions():
@@ -148,13 +149,13 @@ async def get_session_history(session_id):
 def get_full_system_prompt(base_prompt_text, charting_intensity_val):
     """Constructs the final system prompt by injecting context."""
     chart_instructions = CHARTING_INSTRUCTIONS.get(charting_intensity_val, CHARTING_INSTRUCTIONS['none'])
-    final_charts_context = STATE.get('charts_context') if APP_CONFIG.CHART_MCP_CONNECTED else CHARTING_INSTRUCTIONS['none']
     
     final_system_prompt = base_prompt_text
     final_system_prompt = final_system_prompt.replace("{charting_instructions}", chart_instructions)
     final_system_prompt = final_system_prompt.replace("{tools_context}", STATE.get('tools_context'))
     final_system_prompt = final_system_prompt.replace("{prompts_context}", STATE.get('prompts_context'))
-    final_system_prompt = final_system_prompt.replace("{charts_context}", final_charts_context)
+    final_system_prompt = final_system_prompt.replace("{charts_context}", "")
+    
     return final_system_prompt
 
 @api_bp.route("/session", methods=["POST"])
@@ -174,9 +175,9 @@ async def new_session():
     
     data = await request.get_json()
     system_prompt_from_client = data.get("system_prompt")
-    
+    charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
+
     try:
-        charting_intensity = "medium" if APP_CONFIG.CHARTING_ENABLED else "none"
         final_system_prompt = get_full_system_prompt(system_prompt_from_client, charting_intensity)
         
         chat_object = None
@@ -229,8 +230,6 @@ async def get_default_system_prompt(provider, model_name):
 async def configure_services():
     """
     Configures and validates the core LLM and MCP services.
-    This function now performs a pre-flight check to validate credentials
-    before committing any changes to the application's state.
     """
     data = await request.get_json()
     provider = data.get("provider")
@@ -292,6 +291,9 @@ async def configure_services():
         await mcp_adapter.load_and_categorize_teradata_resources(STATE)
         APP_CONFIG.TERADATA_MCP_CONNECTED = True
         
+        # Since charting is now internal, it's always "connected" if the main server is.
+        APP_CONFIG.CHART_MCP_CONNECTED = True
+
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
 
     except (APIError, google_exceptions.PermissionDenied, ClientError, RuntimeError, Exception) as e:
@@ -299,6 +301,7 @@ async def configure_services():
         STATE['llm'] = None
         STATE['mcp_client'] = None
         APP_CONFIG.TERADATA_MCP_CONNECTED = False
+        APP_CONFIG.CHART_MCP_CONNECTED = False
         
         root_exception = unwrap_exception(e)
         error_message = getattr(root_exception, 'message', str(root_exception))
@@ -312,40 +315,6 @@ async def configure_services():
              error_message = "Authentication failed. Please check your Anthropic API key."
 
         return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
-
-@api_bp.route("/configure_chart", methods=["POST"])
-async def configure_chart_service():
-    """Configures and classifies resources from the optional charting engine service."""
-    if not APP_CONFIG.TERADATA_MCP_CONNECTED:
-        return jsonify({"status": "error", "message": "Main MCP client not configured."}), 400
-    
-    data = await request.get_json()
-    original_server_configs = STATE['server_configs'].copy()
-
-    try:
-        chart_server_url = f"http://{data.get('chart_host')}:{data.get('chart_port')}{data.get('chart_path')}"
-        STATE['server_configs']['chart_mcp_server'] = {"url": chart_server_url, "transport": "sse"}
-        
-        # Re-initialize the client with the new chart server config
-        STATE['mcp_client'] = MultiServerMCPClient(STATE['server_configs'])
-        
-        # Call the new adapter function to load and classify chart tools
-        await mcp_adapter.load_and_categorize_chart_resources(STATE)
-        
-        APP_CONFIG.CHART_MCP_CONNECTED = True
-        
-        return jsonify({"status": "success", "message": "Chart MCP server configured and resources classified successfully."})
-    except Exception as e:
-        # Rollback configuration on failure
-        STATE['server_configs'] = original_server_configs
-        STATE['mcp_client'] = MultiServerMCPClient(STATE['server_configs'])
-        APP_CONFIG.CHART_MCP_CONNECTED = False
-        STATE['structured_charts'] = {}
-        STATE['charts_context'] = "--- No Charts Available ---"
-        
-        app_logger.error(f"Chart configuration and classification failed: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Chart server connection or classification failed: {e}"}), 500
-
 
 @api_bp.route("/ask_stream", methods=["POST"])
 async def ask_stream():
@@ -370,9 +339,7 @@ async def ask_stream():
 
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
-            # --- MODIFICATION: Add a dedicated event before the LLM call ---
             yield _format_sse({"step": "Calling LLM"})
-            # --- END MODIFICATION ---
 
             llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
             
