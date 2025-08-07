@@ -2057,17 +2057,53 @@
 
         refreshModelsButton.addEventListener('click', fetchModels);
 
+        function updatePromptEditorState() {
+            const hasChanged = promptEditorTextarea.value.trim() !== promptEditorTextarea.dataset.initialValue.trim();
+            promptEditorSave.disabled = !hasChanged;
+
+            let statusText = isPromptCustomForModel(currentProvider, currentModel) ? 'Custom' : 'Default';
+            let statusClass = 'text-sm text-gray-400';
+
+            if (hasChanged) {
+                statusText = 'Unsaved Changes';
+                statusClass = 'text-sm text-yellow-400';
+            }
+            
+            promptEditorStatus.textContent = statusText;
+            promptEditorStatus.className = statusClass;
+        }
+
         function openPromptEditor() {
             promptEditorTitle.innerHTML = `System Prompt Editor for: <code class="text-teradata-orange font-normal">${currentProvider} / ${getNormalizedModelId(currentModel)}</code>`;
-            promptEditorTextarea.value = getSystemPromptForModel(currentProvider, currentModel);
+            const promptText = getSystemPromptForModel(currentProvider, currentModel);
+            promptEditorTextarea.value = promptText;
+            promptEditorTextarea.dataset.initialValue = promptText;
+            
             promptEditorOverlay.classList.remove('hidden', 'opacity-0');
             promptEditorContent.classList.remove('scale-95', 'opacity-0');
+            updatePromptEditorState();
+        }
+
+        function forceClosePromptEditor() {
+            promptEditorOverlay.classList.add('opacity-0');
+            promptEditorContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                promptEditorOverlay.classList.add('hidden');
+                promptEditorStatus.textContent = '';
+            }, 300);
         }
 
         function closePromptEditor() {
-            promptEditorOverlay.classList.add('opacity-0');
-            promptEditorContent.classList.add('scale-95', 'opacity-0');
-            setTimeout(() => promptEditorOverlay.classList.add('hidden'), 300);
+            const hasChanged = promptEditorTextarea.value.trim() !== promptEditorTextarea.dataset.initialValue.trim();
+            if (hasChanged) {
+                showConfirmation(
+                    'Discard Changes?',
+                    'You have unsaved changes that will be lost. Are you sure you want to close the editor?',
+                    forceClosePromptEditor
+                );
+            } else {
+                forceClosePromptEditor();
+            }
         }
 
         async function saveSystemPromptChanges() {
@@ -2083,21 +2119,25 @@
             saveSystemPromptForModel(currentProvider, currentModel, newPromptText, isCustom);
             updateStatusPromptName();
             
+            promptEditorTextarea.dataset.initialValue = newPromptText;
+            
             promptEditorStatus.textContent = 'Saved!';
             promptEditorStatus.className = 'text-sm text-green-400';
-            setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
+            setTimeout(() => {
+                updatePromptEditorState();
+            }, 2000);
         }
 
         async function resetSystemPrompt(force = false) {
             const defaultPrompt = await getDefaultSystemPrompt(currentProvider, currentModel);
             if (defaultPrompt) {
-                saveSystemPromptForModel(currentProvider, currentModel, defaultPrompt, false);
-                promptEditorTextarea.value = defaultPrompt;
-                updateStatusPromptName();
                 if (!force) {
-                    promptEditorStatus.textContent = 'Reset to default and saved!';
-                    promptEditorStatus.className = 'text-sm text-yellow-400';
-                    setTimeout(() => { promptEditorStatus.textContent = ''; }, 2000);
+                    promptEditorTextarea.value = defaultPrompt;
+                    updatePromptEditorState();
+                } else {
+                    saveSystemPromptForModel(currentProvider, currentModel, defaultPrompt, false);
+                    promptEditorTextarea.value = defaultPrompt;
+                    updateStatusPromptName();
                 }
             }
         }
@@ -2154,6 +2194,7 @@
         promptEditorClose.addEventListener('click', closePromptEditor);
         promptEditorSave.addEventListener('click', saveSystemPromptChanges);
         promptEditorReset.addEventListener('click', () => resetSystemPrompt(false));
+        promptEditorTextarea.addEventListener('input', updatePromptEditorState);
 
         function openChatModal() {
             chatModalOverlay.classList.remove('hidden', 'opacity-0');
