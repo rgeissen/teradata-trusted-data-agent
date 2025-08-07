@@ -17,7 +17,6 @@ This solution provides unparalleled, real-time insight into the complete convers
 * [Overview: A Superior Approach](#overview-a-superior-approach)
 * [How It Works: Architecture](#how-it-works-architecture)
 * [Key Features](#key-features)
-* [Deterministic vs. Non-Deterministic Execution: A Best Practice](#deterministic-vs-non-deterministic-execution-a-best-practice)
 * [Installation and Setup Guide](#installation-and-setup-guide)
   * [Prerequisites](#prerequisites)
   * [Step 1: Clone the Repository](#step-1-clone-the-repository)
@@ -28,7 +27,6 @@ This solution provides unparalleled, real-time insight into the complete convers
 * [Running the Application](#running-the-application)
   * [Standard Mode](#standard-mode)
   * [Developer Mode: Unlocking Models](#developer-mode-unlocking-models)
-  * [Developer Mode: Enabling Charting](#developer-mode-enabling-charting)
 * [User Guide](#user-guide)
 * [Troubleshooting](#troubleshooting)
 * [License](#license)
@@ -45,8 +43,6 @@ Its core superiority lies in its **unmatched transparency and dynamic configurab
 2. **Unprecedented Flexibility:** Unlike static applications, the Trusted Data Agent allows you to dynamically configure your LLM provider, select specific models, and even edit the core **System Prompt** that dictates the agent's behavior—all from within the UI.
 
 3. **Comparative LLM Analysis:** The ability to instantly switch between different LLM providers (e.g., Google, Anthropic, and AWS Bedrock) and their models is a critical feature for developers. It allows for direct, real-time testing of how different reasoning engines interpret the same MCP tools and prompts. This is invaluable for validating the robustness of MCP capabilities and understanding the nuances of various LLMs in an enterprise context.
-
-4. **Intelligent Workflow Routing:** The agent intelligently distinguishes between novel requests requiring creative LLM reasoning and structured, multi-step tasks. For the latter, it switches to a faster, more reliable, and token-efficient deterministic execution algorithm, enhancing stability and performance.
 
 ## How It Works: Architecture
 
@@ -123,55 +119,9 @@ This structure separates concerns, making it easier to navigate and extend the a
 
 * **Rich Data Rendering:** Intelligently formats and displays various data types, including query results in interactive tables and SQL DDL in highlighted code blocks.
 
-* **Optional Charting Engine:** Enable data visualization capabilities to render charts based on query results by using a runtime parameter.
+* **Integrated Charting Engine:** Data visualization capabilities are enabled by default, allowing the agent to render charts based on query results.
 
 * **Token Usage Tracking:** The application tracks and displays the number of input and output tokens used for each LLM call, providing clear insight into the cost and efficiency of each interaction.
-
-* **Intelligent Workflow Routing (Deterministic vs. Non-Deterministic):** The agent can distinguish between open-ended user requests that require non-deterministic, LLM-driven reasoning and structured tasks that can be executed via a faster, more reliable, and token-efficient deterministic algorithm.
-
-## Deterministic vs. Non-Deterministic Execution: A Best Practice
-
-This agent implements a powerful, best-practice design pattern: the ability to dynamically choose between **non-deterministic (LLM-driven)** and **deterministic (algorithmic)** execution paths. This intelligent routing is key to building robust, efficient, and reliable AI agents.
-
-### 1. Overview
-
-* **Non-Deterministic (LLM-driven) Path:** This is the standard "ReAct" (Reason and Act) loop. The LLM is given a goal and a set of tools. It *reasons* about the next best step, selects a tool, receives the output, and repeats the cycle until it has enough information to answer the user's request. This path is essential for handling novel, ambiguous, or complex queries that require creative problem-solving.
-
-* **Deterministic (Algorithmic) Path:** When the agent recognizes a user's request maps to a predefined, multi-step task (a "workflow"), it bypasses the LLM's step-by-step reasoning. Instead, it executes a hard-coded sequence of tool calls algorithmically. This is like a traditional program running a script. It's predictable, fast, and reliable.
-
-### 2. Positive Impact
-
-Switching to a deterministic path for known workflows has significant advantages:
-
-* **Massive Token Savings:** The biggest benefit is cost and performance. A deterministic workflow makes a handful of direct tool calls. A non-deterministic approach requires multiple "thought" loops with the LLM, where the entire conversation history and tool outputs are sent back and forth. This can consume thousands of tokens for a task that an algorithm can complete with zero additional LLM calls after the initial recognition.
-
-* **Enhanced Stability and Reliability:** LLMs can be unpredictable. They might hallucinate tool calls, get stuck in loops, or fail to follow instructions perfectly. A deterministic algorithm, by contrast, is 100% reliable and will execute the same way every time.
-
-* **Improved Performance with Weaker Models:** This stability is especially critical when using smaller, less powerful models (e.g., via Ollama with on-premise models). These models may struggle with complex, multi-step reasoning. Offloading structured tasks to a deterministic path ensures that even these models can perform complex workflows reliably, making the agent more versatile and accessible.
-
-* **Predictable Execution Time:** Algorithmic execution is significantly faster than waiting for multiple LLM API calls, leading to a much better user experience.
-
-### 3. Implementation Approach
-
-The agent's `PlanExecutor` implements this logic as follows:
-
-1. **Prompt Recognition:** The LLM's first task is to map the user's request to either a one-off tool call or a "workflow prompt."
-
-2. **Workflow Detection:** When the `PlanExecutor` receives a command to execute a prompt, it inspects the prompt's text. If it contains specific keywords (e.g., "phase 1," "cycle through"), it flags it as a deterministic workflow.
-
-3. **Algorithmic Execution:** Instead of feeding the prompt's steps to the LLM one by one, the `PlanExecutor`'s `_parse_and_execute_workflow` function takes over. It parses the tool sequence directly from the prompt text and executes the tool calls in a hard-coded loop, gathering all the data.
-
-4. **Final Summarization:** Once the deterministic data gathering is complete, all the collected results are passed back to the LLM *one final time* for a comprehensive summary.
-
-### 4. Prerequisites for a Deterministic Workflow
-
-For the agent to recognize and execute a deterministic workflow, the corresponding prompt on the MCP server must be structured in a specific way:
-
-* **Keyword Trigger:** The prompt's text **must** contain keywords that signal a multi-phase process. The current implementation looks for phrases like **`## Phase 1`** and **`cycle through`**.
-
-* **Clear Tool Sequence:** The prompt should explicitly name the tools to be used in sequence (e.g., "...first by using the `base_tableList` tool, and then for each table, cycle through `qlty_columnSummary` and `qlty_univariateStatistics`..."). The executor parses these tool names to build its algorithmic plan.
-
-By adhering to this convention, new complex workflows can be added to the MCP server, and the agent will automatically be able to execute them deterministically without any changes to the agent's core code.
 
 ## Installation and Setup Guide
 
@@ -291,20 +241,6 @@ python -m trusted_data_agent.main --all-models
 ```
 
 **Note:** **No Ollama models are currently certified.** For testing purposes, Ollama models can be evaluated by starting the server with the `--all-models` developer flag.
-
-### Developer Mode: Enabling Charting
-
-To enable data visualization capabilities, start the server with the `--charting` flag.
-
-```
-python -m trusted_data_agent.main --charting
-```
-
-You can also combine flags for a full development environment:
-
-```
-python -m trusted_data_agent.main --all-models --charting
-```
 
 ## User Guide
 
