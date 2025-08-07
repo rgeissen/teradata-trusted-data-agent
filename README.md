@@ -244,7 +244,71 @@ python -m trusted_data_agent.main --all-models
 
 ## User Guide
 
-*(This* section remains the same *as the original)*
+This guide provides a walkthrough of the main features of the Trusted Data Agent UI.
+
+### 1. Initial Configuration
+
+Before you can interact with the agent, you must configure the connection to your services.
+
+1.  **Open the App:** After running the application, navigate to `http://127.0.0.1:5000` in your browser. The **Configuration** modal will appear automatically.
+2.  **MCP Server:** Enter the **Host**, **Port**, and **Path** for your running Teradata MCP Server.
+3.  **LLM Provider:** Select your desired LLM Provider (e.g., Google, Anthropic, Ollama).
+4.  **Credentials:**
+    * For cloud providers, enter your **API Key**.
+    * For AWS, provide your **Access Key ID**, **Secret Access Key**, and **Region**.
+    * For Ollama, provide the **Host URL** (e.g., `http://localhost:11434`).
+5.  **Fetch Models:** Click the refresh icon next to the model dropdown to fetch a list of available models from your provider.
+6.  **Select a Model:** Choose a specific model from the dropdown list.
+7.  **Connect:** Click the **"Connect & Load"** button. The application will validate the connections and, if successful, load the agent's capabilities.
+
+### 2. The Main Interface
+
+The UI is divided into several key areas:
+
+* **History Panel (Left):** Lists all your conversation sessions. You can click to switch between them or start a new chat with the "+" button.
+* **Capabilities Panel (Top):** This is your library of available actions, organized into tabs:
+    * **Tools:** Single-action functions the agent can call (e.g., `base_tableList`).
+    * **Prompts:** Pre-defined, multi-step workflows the agent can execute (e.g., `qlty_tableQualityReport`).
+    * **Resources:** Other available assets from the MCP server.
+* **Chat Window (Center):** This is where your conversation with the agent appears.
+* **Chat Input (Bottom):** Type your questions in natural language here.
+* **Live Status Panel (Right):** This is the transparency window. It shows a real-time log of the agent's internal monologue, the tools it decides to run, and the raw data it gets back.
+
+### 3. Asking a Question
+
+Simply type your request into the chat input at the bottom and press Enter.
+
+* **Example:** `"What tables are in the DEMO_DB database?"`
+
+The agent will analyze your request, display its thought process in the **Live Status** panel, execute the necessary tool (e.g., `base_tableList`), and then present the final answer in the chat window.
+
+### 4. Using Prompts Manually
+
+You can directly trigger a multi-step workflow without typing a complex request.
+
+1.  Go to the **Capabilities Panel** and click the **"Prompts"** tab.
+2.  Browse the categories and find the prompt you want to run (e.g., `base_tableBusinessDesc`).
+3.  Click on the prompt. A modal will appear asking for the required arguments (e.g., `db_name`, `table_name`).
+4.  Fill in the arguments and click **"Run Prompt"**.
+
+The agent will execute the entire workflow and present a structured report.
+
+### 5. Customizing the Agent's Behavior
+
+You can change how the agent thinks and behaves by editing its core instructions.
+
+1.  Click the **"System Prompt"** button in the top navigation bar.
+2.  The editor modal will appear, showing the current set of instructions for the selected model.
+3.  You can make any changes you want to the text.
+4.  Click **"Save"** to apply your changes. The agent will use your new instructions for all subsequent requests in the session.
+5.  Click **"Reset to Default"** to revert to the original, certified prompt for that model.
+
+### 6. Direct Chat with the LLM
+
+To test the raw intelligence of a model without the agent's tool-using logic, you can use the direct chat feature.
+
+1.  Click the **"Chat"** button in the top navigation bar.
+2.  A modal will appear, allowing you to have a direct, tool-less conversation with the currently configured LLM. This is useful for evaluating a model's baseline knowledge or creative capabilities.
 
 ## Troubleshooting
 
