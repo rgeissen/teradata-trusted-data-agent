@@ -3,17 +3,259 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teradata Trusted Data Agent</title>
+    <title>Trusted Data Agent for Teradata</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: sans-serif; line-height: 1.6; padding: 2em; }
-        h1 { color: #2d3748; }
+        :root {
+            --teradata-orange: #F15F22;
+            --teradata-orange-dark: #D9501A;
+            --dark-bg: #111827;
+            --medium-bg: #1F2937;
+            --light-text: #F3F4F6;
+            --medium-text: #9CA3AF;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--dark-bg);
+            color: var(--light-text);
+        }
+        .header-title {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        .gradient-text {
+            background: linear-gradient(to right, var(--teradata-orange), #FFB79A);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .feature-card {
+            background: rgba(31, 41, 55, 0.5);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(241, 95, 34, 0.1);
+        }
+        .section-title {
+            border-bottom: 2px solid var(--teradata-orange);
+            padding-bottom: 0.5rem;
+            display: inline-block;
+        }
+        .btn-primary {
+            background-color: var(--teradata-orange);
+            transition: background-color 0.3s ease;
+        }
+        .btn-primary:hover {
+            background-color: var(--teradata-orange-dark);
+        }
+        .btn-secondary {
+            background-color: transparent;
+            border: 2px solid var(--teradata-orange);
+            color: var(--teradata-orange);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .btn-secondary:hover {
+            background-color: var(--teradata-orange);
+            color: white;
+        }
+        .architecture-box {
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background-color: var(--medium-bg);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            text-align: center;
+        }
+        .architecture-arrow {
+            color: var(--teradata-orange);
+            font-size: 2rem;
+            line-height: 1;
+        }
+        /* Scroll reveal animation */
+        .reveal {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+        }
+        .reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
     </style>
 </head>
-<body>
-    <h1>Welcome to the Trusted Data Agent for Teradata</h1>
-    <p>This is the official webpage for the Trusted Data Agent application. Here you can find information about the project, how to use it, and how to contribute.</p>
-    <p>
-        <a href="https://github.com/rgeissen/teradata-trusted-data-agent">View on GitHub</a>
-    </p>
+<body class="antialiased">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-gray-900/70 backdrop-blur-lg border-b border-white/10">
+        <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="header-title text-2xl font-bold text-white">Trusted Data Agent</h1>
+            <div class="space-x-4">
+                <a href="#features" class="text-gray-300 hover:text-teradata-orange transition-colors">Features</a>
+                <a href="#architecture" class="text-gray-300 hover:text-teradata-orange transition-colors">Architecture</a>
+                <a href="https://github.com/rgeissen/teradata-trusted-data-agent.git" target="_blank" class="bg-gray-800 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">
+                    GitHub
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <main class="container mx-auto px-6 py-20 text-center">
+        <section class="reveal">
+            <h2 class="header-title text-5xl md:text-7xl font-bold mb-4">
+                An <span class="gradient-text">AI Conversational Interface</span> for Enterprise Data
+            </h2>
+            <p class="text-lg md:text-xl text-medium-text max-w-3xl mx-auto mb-8">
+                A sophisticated agent that provides a transparent, dynamic, and powerful natural language interface for interacting with your Teradata ecosystem.
+            </p>
+            <div class="flex justify-center gap-4">
+                <a href="https://github.com/rgeissen/teradata-trusted-data-agent.git" target="_blank" class="btn-primary text-white font-bold py-3 px-8 rounded-lg text-lg">
+                    View on GitHub
+                </a>
+                <a href="#features" class="btn-secondary font-bold py-3 px-8 rounded-lg text-lg">
+                    Learn More
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 bg-gray-900/50">
+        <div class="container mx-auto px-6">
+            <div class="text-center mb-12 reveal">
+                <h3 class="header-title text-4xl font-bold section-title">Key Features</h3>
+                <p class="text-medium-text mt-4">A powerful toolkit for AI-driven data exploration and analysis.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Feature 1 -->
+                <div class="feature-card p-8 rounded-xl reveal">
+                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-teradata-orange/20 mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-teradata-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a2 2 0 01-2-2V4a2 2 0 012-2h8z" /></svg>
+                    </div>
+                    <h4 class="header-title text-2xl font-bold mb-3">Multi-Provider LLM Support</h4>
+                    <p class="text-medium-text">Dynamically switch between Google, Anthropic, AWS Bedrock, and local Ollama models to compare reasoning and performance in real-time.</p>
+                </div>
+                <!-- Feature 2 -->
+                <div class="feature-card p-8 rounded-xl reveal" style="transition-delay: 100ms;">
+                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-teradata-orange/20 mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-teradata-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                    </div>
+                    <h4 class="header-title text-2xl font-bold mb-3">Unmatched Transparency</h4>
+                    <p class="text-medium-text">The Live Status panel offers a real-time window into the AI's mind, showing its thought process, tool calls, and raw data for ultimate clarity and trust.</p>
+                </div>
+                <!-- Feature 3 -->
+                <div class="feature-card p-8 rounded-xl reveal" style="transition-delay: 200ms;">
+                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-teradata-orange/20 mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-teradata-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
+                    </div>
+                    <h4 class="header-title text-2xl font-bold mb-3">System Prompt Editor</h4>
+                    <p class="text-medium-text">Take full control of the agent's behavior by editing, saving, and resetting the core system prompt that guides its actions and personality.</p>
+                </div>
+                <!-- Feature 4 -->
+                <div class="feature-card p-8 rounded-xl reveal" style="transition-delay: 300ms;">
+                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-teradata-orange/20 mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-teradata-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
+                    </div>
+                    <h4 class="header-title text-2xl font-bold mb-3">Integrated Charting Engine</h4>
+                    <p class="text-medium-text">Go beyond tables. The agent can automatically generate insightful charts and visualizations from your data to reveal trends and patterns.</p>
+                </div>
+                <!-- Feature 5 -->
+                <div class="feature-card p-8 rounded-xl reveal" style="transition-delay: 400ms;">
+                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-teradata-orange/20 mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-teradata-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
+                    </div>
+                    <h4 class="header-title text-2xl font-bold mb-3">Dynamic Capability Loading</h4>
+                    <p class="text-medium-text">The agent automatically discovers and integrates all available tools and prompts from the connected Teradata MCP Server, ensuring it's always up-to-date.</p>
+                </div>
+                <!-- Feature 6 -->
+                <div class="feature-card p-8 rounded-xl reveal" style="transition-delay: 500ms;">
+                    <div class="flex items-center justify-center h-16 w-16 rounded-full bg-teradata-orange/20 mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-teradata-orange" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M12 6V3m0 18v-3m6-9h3m-18 0h3m12 5.25a.75.75 0 01-.75.75h-8.5a.75.75 0 010-1.5h8.5a.75.75 0 01.75.75z" /></svg>
+                    </div>
+                    <h4 class="header-title text-2xl font-bold mb-3">Token Usage Tracking</h4>
+                    <p class="text-medium-text">Monitor the cost and efficiency of your interactions with detailed token counts for every LLM call, helping you optimize prompts and usage.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section id="architecture" class="py-20">
+        <div class="container mx-auto px-6">
+            <div class="text-center mb-12 reveal">
+                <h3 class="header-title text-4xl font-bold section-title">How It Works</h3>
+                <p class="text-medium-text mt-4">A robust architecture for reliable, AI-driven data interaction.</p>
+            </div>
+            <div class="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-2 reveal">
+                <div class="architecture-box w-full md:w-1/6">
+                    <h5 class="font-bold">End User</h5>
+                    <p class="text-sm text-medium-text">Natural Language</p>
+                </div>
+                <div class="architecture-arrow hidden md:block">&harr;</div>
+                <div class="architecture-arrow block md:hidden">&darr;</div>
+                <div class="architecture-box w-full md:w-1/5">
+                    <h5 class="font-bold">Frontend UI</h5>
+                    <p class="text-sm text-medium-text">(HTML, JS, CSS)</p>
+                </div>
+                <div class="architecture-arrow hidden md:block">&harr;</div>
+                <div class="architecture-arrow block md:hidden">&darr;</div>
+                <div class="architecture-box w-full md:w-1/5">
+                    <h5 class="font-bold">Backend Server</h5>
+                    <p class="text-sm text-medium-text">(Python Quart)</p>
+                </div>
+                <div class="architecture-arrow hidden md:block">&harr;</div>
+                <div class="architecture-arrow block md:hidden">&darr;</div>
+                <div class="architecture-box w-full md:w-1/5">
+                    <h5 class="font-bold">LLM</h5>
+                    <p class="text-sm text-medium-text">(Reasoning Engine)</p>
+                </div>
+                <div class="architecture-arrow hidden md:block">&harr;</div>
+                <div class="architecture-arrow block md:hidden">&darr;</div>
+                <div class="architecture-box w-full md:w-1/6">
+                    <h5 class="font-bold">Teradata MCP</h5>
+                    <p class="text-sm text-medium-text">(Tools & Data)</p>
+                </div>
+            </div>
+            <div class="max-w-3xl mx-auto mt-12 text-lg text-gray-300 space-y-4 reveal">
+                <p>The agent uses a sophisticated workflow to translate your questions into answers. It starts with the **Frontend UI** capturing your request. The **Backend Server** then orchestrates the process, sending your request and the available tools to the **Large Language Model (LLM)** for reasoning.</p>
+                <p>The LLM intelligently selects the correct tool and parameters, which the backend then executes against the secure **Teradata MCP Server**. The results are returned to the LLM for synthesis, and the final, human-readable answer is streamed back to the UI.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-white/10">
+        <div class="container mx-auto px-6 py-8 text-center text-medium-text">
+            <p>&copy; 2024 Rainer Geissendoerfer. Licensed under AGPLv3.</p>
+            <p class="mt-2">The Trusted Data Agent is an open-source project. Contributions are welcome!</p>
+            <a href="https://github.com/rgeissen/teradata-trusted-data-agent.git" target="_blank" class="mt-4 inline-block text-teradata-orange hover:underline">
+                View Project on GitHub
+            </a>
+        </div>
+    </footer>
+
+    <script>
+        // Simple scroll reveal animation
+        document.addEventListener("DOMContentLoaded", function() {
+            const revealElements = document.querySelectorAll(".reveal");
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add("visible");
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.1 });
+
+            revealElements.forEach(el => {
+                observer.observe(el);
+            });
+        });
+    </script>
 </body>
 </html>
