@@ -9,6 +9,7 @@ import time
 
 import google.generativeai as genai
 from anthropic import APIError, AsyncAnthropic, InternalServerError, RateLimitError
+from openai import AsyncOpenAI, APIError as OpenAI_APIError
 import boto3
 
 from trusted_data_agent.core.config import APP_CONFIG
@@ -16,7 +17,7 @@ from trusted_data_agent.core.session_manager import get_session, update_token_co
 from trusted_data_agent.core.config import (
     CERTIFIED_GOOGLE_MODELS, CERTIFIED_ANTHROPIC_MODELS,
     CERTIFIED_AMAZON_MODELS, CERTIFIED_AMAZON_PROFILES,
-    CERTIFIED_OLLAMA_MODELS
+    CERTIFIED_OLLAMA_MODELS, CERTIFIED_OPENAI_MODELS
 )
 
 llm_logger = logging.getLogger("llm_conversation")
@@ -39,6 +40,7 @@ class OllamaClient:
 
     async def chat(self, model: str, messages: list, system_prompt: str):
         try:
+            # For Ollama, the system prompt is a dedicated parameter
             payload = {
                 "model": model,
                 "messages": messages,
@@ -147,6 +149,43 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
                 return response_text, input_tokens, output_tokens
             
+            elif APP_CONFIG.CURRENT_PROVIDER == "OpenAI":
+                system_prompt = system_prompt_override or (session_data['system_prompt'] if session_id else "")
+                if not system_prompt:
+                     raise ValueError("A session_id or system_prompt_override is required for OpenAI provider.")
+
+                history_source = chat_history or (session_data.get('chat_object', []) if session_id else [])
+                
+                messages = [{'role': 'system', 'content': system_prompt}]
+                messages.extend([{'role': msg.get('role'), 'content': msg.get('content')} for msg in history_source])
+                messages.append({'role': 'user', 'content': prompt})
+
+                full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
+                for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
+
+                response = await llm_instance.chat.completions.create(
+                    model=APP_CONFIG.CURRENT_MODEL,
+                    messages=messages,
+                    max_tokens=4096,
+                    timeout=120.0
+                )
+
+                if not response or not response.choices or not response.choices[0].message:
+                    raise RuntimeError("OpenAI LLM returned an empty or invalid response.")
+                
+                response_text = _sanitize_llm_output(response.choices[0].message.content)
+
+                if hasattr(response, 'usage'):
+                    usage = response.usage
+                    input_tokens = usage.prompt_tokens
+                    output_tokens = usage.completion_tokens
+                    if session_id:
+                        update_token_count(session_id, input_tokens, output_tokens)
+                
+                llm_logger.info(full_log_message)
+                llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
+                return response_text, input_tokens, output_tokens
+
             elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
                 is_session_call = session_data is not None
 
@@ -164,7 +203,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
 
                 model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
                 
-                if "amazon.nova" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
+                if "amazon.titan" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
                     region = APP_CONFIG.CURRENT_AWS_REGION
                     prefix = ""
                     if region.startswith("us-"): prefix = "us."
@@ -173,20 +212,14 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                     
                     if prefix:
                         adjusted_id = f"{prefix}{model_id_to_invoke}"
-                        app_logger.info(f"Adjusting Nova model ID from '{model_id_to_invoke}' to '{adjusted_id}' for region '{region}'.")
+                        app_logger.info(f"Adjusting Titan model ID from '{model_id_to_invoke}' to '{adjusted_id}' for region '{region}'.")
                         model_id_to_invoke = adjusted_id
 
                 if "anthropic" in model_id_to_invoke:
                     messages = [{'role': msg['role'], 'content': msg['content']} for msg in history]
                     messages.append({'role': 'user', 'content': prompt})
                     body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "system": system_prompt, "messages": messages})
-                elif "amazon.nova" in model_id_to_invoke:
-                    messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history]
-                    messages.append({"role": "user", "content": [{"text": prompt}]})
-                    body_dict = {"messages": messages, "inferenceConfig": {"maxTokens": 4096, "temperature": 0.7, "topP": 0.9}}
-                    if system_prompt: body_dict["system"] = [{"text": system_prompt}]
-                    body = json.dumps(body_dict)
-                else:
+                else: # Assumes Amazon Titan
                     text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history]) + f"user: {prompt}\n\nassistant:"
                     body = json.dumps({"inputText": text_prompt, "textGenerationConfig": {"maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9}})
                 
@@ -196,9 +229,10 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
                 response_body = json.loads(response.get('body').read())
 
-                if "anthropic" in model_id_to_invoke: response_text = response_body.get('content')[0].get('text')
-                elif "amazon.nova" in model_id_to_invoke: response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
-                else: response_text = response_body.get('results')[0].get('outputText')
+                if "anthropic" in model_id_to_invoke:
+                    response_text = response_body.get('content')[0].get('text')
+                else:
+                    response_text = response_body.get('results')[0].get('outputText')
                 
                 llm_logger.info(full_log_message)
                 llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
@@ -238,14 +272,14 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             else:
                 raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
         
-        except (InternalServerError, RateLimitError) as e:
-            if APP_CONFIG.CURRENT_PROVIDER == "Anthropic" and attempt < max_retries - 1:
+        except (InternalServerError, RateLimitError, OpenAI_APIError) as e:
+            if (APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "OpenAI"]) and attempt < max_retries - 1:
                 delay = (base_delay * (2 ** attempt)) + random.uniform(0, 1)
-                app_logger.warning(f"Anthropic model overloaded. Retrying in {delay:.2f} seconds... (Attempt {attempt + 1}/{max_retries})")
+                app_logger.warning(f"{APP_CONFIG.CURRENT_PROVIDER} model overloaded or rate limited. Retrying in {delay:.2f} seconds... (Attempt {attempt + 1}/{max_retries})")
                 await asyncio.sleep(delay)
                 continue
             else:
-                app_logger.error(f"Anthropic model still overloaded after {max_retries} retries. Aborting.")
+                app_logger.error(f"{APP_CONFIG.CURRENT_PROVIDER} model still failing after {max_retries} retries. Aborting.")
                 raise e
         except Exception as e:
             app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
@@ -253,9 +287,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
             llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
             raise e
     
-    # This part of the code is only reached if the try/except/continue/raise logic is correct
-    # But as a fallback, return an error message
-    error_message = f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the Anthropic model: Overloaded_error after {max_retries} retries."
+    error_message = f"FINAL_ANSWER: I'm sorry, but I encountered an error while communicating with the {APP_CONFIG.CURRENT_PROVIDER} model after {max_retries} retries."
     raise RuntimeError(error_message)
 
 
@@ -272,21 +304,27 @@ async def list_models(provider: str, credentials: dict) -> list[dict]:
             models_page = await client.models.list()
             
             model_names = []
-            # Correctly iterate over the .data attribute of the Page object
             for model in models_page.data:
-                # Defensive check for item structure. Handles both direct model objects
-                # and the unexpected case of model objects wrapped in a tuple.
                 if hasattr(model, 'id'):
                     model_names.append(model.id)
                 elif isinstance(model, tuple) and len(model) > 0 and hasattr(model[0], 'id'):
                     model_names.append(model[0].id)
                 else:
-                    # Log a warning if the structure is something else entirely, but don't fail.
                     app_logger.warning(f"Unexpected item structure in Anthropic models list: {type(model)}")
 
             return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_ANTHROPIC_MODELS} for name in model_names]
         except Exception as e:
             app_logger.error(f"Failed to fetch models from Anthropic: {e}")
+            raise e
+
+    elif provider == "OpenAI":
+        try:
+            client = AsyncOpenAI(api_key=credentials.get("apiKey"))
+            models_page = await client.models.list()
+            model_names = [model.id for model in models_page.data if "gpt" in model.id]
+            return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_OPENAI_MODELS} for name in model_names]
+        except Exception as e:
+            app_logger.error(f"Failed to fetch models from OpenAI: {e}")
             raise e
 
     elif provider == "Amazon":

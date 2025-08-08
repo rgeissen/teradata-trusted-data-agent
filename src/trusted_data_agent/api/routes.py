@@ -8,6 +8,7 @@ import sys
 from quart import Blueprint, request, jsonify, render_template, Response
 from google.api_core import exceptions as google_exceptions
 from anthropic import APIError, AsyncAnthropic
+from openai import AsyncOpenAI, APIError as OpenAI_APIError
 from botocore.exceptions import ClientError
 import google.generativeai as genai
 import boto3
@@ -85,22 +86,28 @@ async def get_app_config():
 async def get_api_key(provider):
     """Retrieves API keys from environment variables for pre-population."""
     key = None
-    if provider.lower() == 'google':
+    provider_lower = provider.lower()
+    
+    if provider_lower == 'google':
         key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         return jsonify({"apiKey": key or ""})
-    elif provider.lower() == 'anthropic':
+    elif provider_lower == 'anthropic':
         key = os.environ.get("ANTHROPIC_API_KEY")
         return jsonify({"apiKey": key or ""})
-    elif provider.lower() == 'amazon':
+    elif provider_lower == 'openai':
+        key = os.environ.get("OPENAI_API_KEY")
+        return jsonify({"apiKey": key or ""})
+    elif provider_lower == 'amazon':
         keys = {
             "aws_access_key_id": os.environ.get("AWS_ACCESS_KEY_ID"),
             "aws_secret_access_key": os.environ.get("AWS_SECRET_ACCESS_KEY"),
             "aws_region": os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
         }
         return jsonify(keys)
-    elif provider.lower() == 'ollama':
+    elif provider_lower == 'ollama':
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         return jsonify({"host": host})
+        
     return jsonify({"error": "Unknown provider"}), 404
 
 @api_bp.route("/tools")
@@ -129,7 +136,6 @@ async def get_prompt_content(prompt_name):
         if not prompt_obj:
             return jsonify({"error": f"Prompt '{prompt_name}' not found."}), 404
         
-        # --- CORRECTED: Access the text from the correct nested structure ---
         prompt_text = "Prompt content is not available."
         if (hasattr(prompt_obj, 'messages') and 
             isinstance(prompt_obj.messages, list) and 
@@ -154,8 +160,6 @@ async def get_resources_route():
 @api_bp.route("/charts")
 async def get_charts():
     """Returns the categorized list of chart tools."""
-    # This endpoint is now obsolete as charts are internal, but we keep it
-    # to avoid breaking the UI during transition, returning an empty object.
     return jsonify({})
 
 @api_bp.route("/sessions", methods=["GET"])
@@ -217,7 +221,7 @@ async def new_session():
                 {"role": "model", "parts": [{"text": "Understood. I will follow all instructions."}]}
             ]
             chat_object = STATE.get('llm').start_chat(history=initial_history)
-        elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama"]:
+        elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama", "OpenAI"]:
              chat_object = []
 
         session_id = session_manager.create_session(final_system_prompt, chat_object)
@@ -277,6 +281,9 @@ async def configure_services():
         elif provider == "Anthropic":
             temp_llm_instance = AsyncAnthropic(api_key=data.get("apiKey"))
             await temp_llm_instance.models.list()
+        elif provider == "OpenAI":
+            temp_llm_instance = AsyncOpenAI(api_key=data.get("apiKey"))
+            await temp_llm_instance.models.list()
         elif provider == "Amazon":
             aws_region = data.get("aws_region")
             temp_llm_instance = boto3.client(
@@ -321,12 +328,11 @@ async def configure_services():
         await mcp_adapter.load_and_categorize_teradata_resources(STATE)
         APP_CONFIG.TERADATA_MCP_CONNECTED = True
         
-        # Since charting is now internal, it's always "connected" if the main server is.
         APP_CONFIG.CHART_MCP_CONNECTED = True
 
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
 
-    except (APIError, google_exceptions.PermissionDenied, ClientError, RuntimeError, Exception) as e:
+    except (APIError, OpenAI_APIError, google_exceptions.PermissionDenied, ClientError, RuntimeError, Exception) as e:
         app_logger.error(f"Configuration failed during validation: {e}", exc_info=True)
         STATE['llm'] = None
         STATE['mcp_client'] = None
@@ -341,8 +347,8 @@ async def configure_services():
                  error_message = "Access denied. Please check your AWS IAM permissions for the selected model."
              else:
                 error_message = "Authentication failed. Please check your API keys or credentials."
-        elif isinstance(root_exception, APIError) and "authentication_error" in str(e):
-             error_message = "Authentication failed. Please check your Anthropic API key."
+        elif isinstance(root_exception, (APIError, OpenAI_APIError)) and "authentication_error" in str(e).lower():
+             error_message = f"Authentication failed. Please check your {provider} API key."
 
         return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
 
@@ -383,7 +389,7 @@ async def ask_stream():
                 }
                 yield _format_sse(token_data, "token_update")
             
-            if STATE['llm'] and APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama"]:
+            if STATE['llm'] and APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama", "OpenAI"]:
                 session_data['chat_object'].append({'role': 'user', 'content': user_input})
                 session_data['chat_object'].append({'role': 'assistant', 'content': llm_reasoning_and_command})
 
@@ -425,7 +431,7 @@ async def invoke_prompt_stream():
         ```
         """
         try:
-            if APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama"]:
+            if APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama", "OpenAI"]:
                 session_data['chat_object'].append({'role': 'user', 'content': user_input})
             
             executor = PlanExecutor(session_id=session_id, initial_instruction=initial_instruction, original_user_input=user_input, dependencies={'STATE': STATE})

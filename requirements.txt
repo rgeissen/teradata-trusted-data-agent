@@ -6,3 +6,4 @@ google-generativeai
 langchain-mcp-adapters
 anthropic
 boto3
+openai

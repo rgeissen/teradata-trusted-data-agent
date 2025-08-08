@@ -7,7 +7,6 @@ src/trusted_data_agent.egg-info/PKG-INFO
 src/trusted_data_agent.egg-info/SOURCES.txt
 src/trusted_data_agent.egg-info/dependency_links.txt
 src/trusted_data_agent.egg-info/top_level.txt
-src/trusted_data_agent/agent/__init__.py
 src/trusted_data_agent/agent/executor.py
 src/trusted_data_agent/agent/formatter.py
 src/trusted_data_agent/agent/prompts.py

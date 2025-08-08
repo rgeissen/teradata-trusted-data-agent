@@ -56,15 +56,12 @@ async def main():
     if os.path.exists(LOG_DIR): shutil.rmtree(LOG_DIR)
     os.makedirs(LOG_DIR)
     
-    # --- MODIFIED: Configure the root logger to catch all logs ---
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
     # Apply the custom filter to the handler
     handler.addFilter(SseConnectionFilter())
     
-    # Get the root logger, clear any pre-existing handlers, and add our new one.
-    # This ensures all logs from any library go through our filter.
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
@@ -72,6 +69,10 @@ async def main():
 
     # The app's logger will propagate to the root, so we just set its level.
     app.logger.setLevel(logging.INFO)
+    
+    # Prevent Hypercorn's loggers from propagating to the root logger
+    logging.getLogger("hypercorn.access").propagate = False
+    logging.getLogger("hypercorn.error").propagate = False
 
     # Configure the separate logger for LLM conversations
     llm_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversations.log"))
@@ -85,8 +86,9 @@ async def main():
     print("Web client initialized and ready. Navigate to http://127.0.0.1:5000")
     config = Config()
     config.bind = ["127.0.0.1:5000"]
-    config.accesslog = "-"
-    config.errorlog = "-"
+    # --- DEFINITIVE FIX: Disable Hypercorn's default loggers entirely ---
+    config.accesslog = None
+    config.errorlog = None 
     await hypercorn.asyncio.serve(app, config)
 
 if __name__ == "__main__":
