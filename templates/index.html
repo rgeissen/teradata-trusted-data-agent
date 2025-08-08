@@ -948,7 +948,6 @@
             });
         }
 
-        // --- NEW: Function to copy table data to clipboard as TSV ---
         function copyTableToClipboard(button) {
             const dataStr = button.dataset.table;
             if (!dataStr) {
@@ -968,7 +967,6 @@
                 data.forEach(row => {
                     const values = headers.map(header => {
                         let value = row[header] === null || row[header] === undefined ? '' : String(row[header]);
-                        // Basic sanitization for TSV
                         value = value.replace(/\t/g, ' ').replace(/\n/g, ' ');
                         return value;
                     });
@@ -1288,23 +1286,41 @@
             }
         }
 
+        // --- MODIFIED: Renders resource items with a dedicated "Run" button for prompts ---
         function createResourceItem(resource, type) {
             const detailsEl = document.createElement('details');
             detailsEl.id = `resource-${type}-${resource.name}`;
             detailsEl.className = 'resource-item bg-gray-800/50 rounded-lg border border-gray-700/60';
             
-            detailsEl.innerHTML = `
-                <summary class="flex justify-between items-center p-3 font-semibold text-white hover:bg-gray-700/50 rounded-lg transition-colors">
-                    <span>${resource.name}</span>
-                    <svg class="chevron w-5 h-5 text-[#F15F22] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                </summary>
-                <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60">${resource.description}</div>
+            let contentHTML = `
+                <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60">
+                    <p>${resource.description}</p>
+                </div>
             `;
             
             if (type === 'prompts') {
-                const summary = detailsEl.querySelector('summary');
-                summary.addEventListener('click', (e) => {
-                    e.preventDefault();
+                contentHTML = `
+                <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60 space-y-3">
+                    <p>${resource.description}</p>
+                    <div class="flex justify-end">
+                        <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors">Run</button>
+                    </div>
+                </div>
+                `;
+            }
+
+            detailsEl.innerHTML = `
+                <summary class="flex justify-between items-center p-3 font-semibold text-white hover:bg-gray-700/50 rounded-lg transition-colors cursor-pointer">
+                    <span>${resource.name}</span>
+                    <svg class="chevron w-5 h-5 text-[#F15F22] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </summary>
+                ${contentHTML}
+            `;
+            
+            if (type === 'prompts') {
+                const runButton = detailsEl.querySelector('.run-prompt-button');
+                runButton.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent the details from toggling when the button is clicked
                     openPromptModal(resource);
                 });
             }

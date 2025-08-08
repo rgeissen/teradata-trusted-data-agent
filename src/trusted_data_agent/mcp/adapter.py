@@ -1,4 +1,4 @@
-# src/trusted_data_agent/mcp/adapter.py
+# trusted_data_agent/mcp/adapter.py
 import json
 import logging
 import re
@@ -126,10 +126,9 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
         if loaded_prompts:
             STATE['mcp_prompts'] = {prompt.name: prompt for prompt in loaded_prompts}
-            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description}" for p in loaded_prompts])
+            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description or 'No description available.'}" for p in loaded_prompts])
             
-            serializable_prompts = [{"name": p.name, "description": p.description, "arguments": [arg.model_dump() for arg in p.arguments]} for p in loaded_prompts]
-            prompt_list_for_prompt = "\n".join([f"- {p['name']}: {p['description']}" for p in serializable_prompts])
+            prompt_list_for_prompt = "\n".join([f"- {p.name}: {p.description or 'No description available.'}" for p in loaded_prompts])
             
             categorization_prompt_for_prompts = (
                 "You are a JSON formatting expert. Your task is to categorize the following list of Teradata system prompts into a single JSON object."
@@ -156,10 +155,23 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 raise ValueError(f"LLM failed to return valid JSON for prompt categorization. Response: '{categorized_prompts_str}'")
             cleaned_str_prompts = match_prompts.group(0)
             categorized_prompts = json.loads(cleaned_str_prompts)
-            STATE['structured_prompts'] = {category: [p for p in serializable_prompts if p['name'] in prompt_names] for category, prompt_names in categorized_prompts.items()}
+            
+            STATE['structured_prompts'] = {}
+            for category, prompt_names in categorized_prompts.items():
+                prompt_list = []
+                for name in prompt_names:
+                    if name in STATE['mcp_prompts']:
+                        prompt_obj = STATE['mcp_prompts'][name]
+                        prompt_list.append({
+                            "name": prompt_obj.name,
+                            "description": prompt_obj.description or "No description available.",
+                            "arguments": [arg.model_dump() for arg in prompt_obj.arguments]
+                        })
+                STATE['structured_prompts'][category] = prompt_list
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
             STATE['structured_prompts'] = {}
+
 
 async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
     mcp_tools = STATE.get('mcp_tools', {})
@@ -229,7 +241,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
             if canonical_key == 'xField':
                 x_field_name = data_col
 
-    # --- MODIFIED: Correct the color mapping property for pie charts ---
     if chart_type == 'pie' and 'seriesField' in options:
         app_logger.info("Correcting chart property: Renaming 'seriesField' to 'colorField' for pie chart.")
         options['colorField'] = options.pop('seriesField')
