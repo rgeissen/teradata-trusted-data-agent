@@ -58,6 +58,155 @@ class PlanExecutor:
         self.tool_constraints_cache = {}
         self.globally_failed_tools = set()
         self.is_workflow = False
+        # --- AUTHORITATIVE CONTEXT: Initialize the context stack and structured data collection ---
+        self.context_stack = []
+        self.structured_collected_data = {}
+
+
+    # --- AUTHORITATIVE CONTEXT: New helper to classify the operational level of a tool ---
+    def _get_context_level_for_tool(self, tool_name: str) -> str | None:
+        """Determines if a tool operates at a 'database' or 'table' level."""
+        tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
+        scope = tool_scopes.get(tool_name)
+        if scope in ['database', 'table', 'column']:
+            return 'table' if scope in ['table', 'column'] else 'database'
+        return None
+
+    # --- AUTHORITATIVE CONTEXT: New method to authoritatively manage the context stack ---
+    def _update_and_manage_context_stack(self, command: dict, tool_result: dict | None = None):
+        """
+        Authoritatively manages the context stack based on LLM commands and tool results.
+        It handles pushing, popping, and updating contexts to track loop states.
+        """
+        tool_name = command.get("tool_name")
+        args = command.get("arguments", {})
+        tool_level = self._get_context_level_for_tool(tool_name)
+
+        # --- Pop contexts if the new command operates at a higher level ---
+        while self.context_stack:
+            top_context = self.context_stack[-1]
+            top_level = top_context['type'].split('_name')[0] # 'database_name' -> 'database'
+            if tool_level == 'database' and top_level == 'table':
+                popped = self.context_stack.pop()
+                app_logger.info(f"CONTEXT STACK: Popped '{popped['type']}' context as inner loop appears complete.")
+            else:
+                break
+        
+        # --- Establish a new loop context if a list-generating tool was just run ---
+        if tool_result and tool_result.get("status") == "success":
+            results = tool_result.get("results", [])
+            if isinstance(results, list) and results and isinstance(results[0], dict):
+                first_item_keys = results[0].keys()
+                new_context_type = None
+                list_values = []
+
+                if "TableName" in first_item_keys:
+                    new_context_type = "table_name"
+                    list_values = [item["TableName"] for item in results]
+                elif "DatabaseName" in first_item_keys:
+                    new_context_type = "database_name"
+                    list_values = [item["DatabaseName"] for item in results]
+                
+                if new_context_type and list_values:
+                    app_logger.info(f"CONTEXT STACK: Establishing new loop context for '{new_context_type}' with {len(list_values)} items.")
+                    self.context_stack.append({
+                        'type': new_context_type,
+                        'list': list_values,
+                        'index': -1 # Start at -1, will be advanced to 0 on first use
+                    })
+
+    # --- AUTHORITATIVE CONTEXT: New method to apply guardrails before execution ---
+    def _apply_context_guardrail(self, command: dict) -> tuple[dict, list]:
+        """
+        Corrects or injects parameters into a command based on the authoritative context stack.
+        """
+        if not self.is_workflow or not self.context_stack:
+            return command, []
+
+        corrected_command = command.copy()
+        corrected_command['arguments'] = corrected_command.get('arguments', {}).copy()
+        args = corrected_command['arguments']
+        events_to_yield = []
+        
+        param_aliases = {
+            "database_name": ["db_name"],
+            "table_name": ["tbl_name", "object_name", "obj_name"]
+        }
+
+        # --- Advance the loop index if the LLM signals to do so ---
+        if self.context_stack and 'list' in self.context_stack[-1]:
+            top_context = self.context_stack[-1]
+            context_type = top_context['type']
+            aliases = param_aliases.get(context_type, [])
+            
+            llm_provided_value = None
+            for key in [context_type] + aliases:
+                if key in args:
+                    llm_provided_value = args[key]
+                    break
+            
+            if llm_provided_value:
+                current_index = top_context['index']
+                next_index = current_index + 1
+                if next_index < len(top_context['list']) and llm_provided_value == top_context['list'][next_index]:
+                    app_logger.info(f"CONTEXT STACK: Advancing loop for '{context_type}' to index {next_index} ('{llm_provided_value}').")
+                    top_context['index'] = next_index
+
+        # --- Forcefully inject/correct parameters from the stack's authoritative state ---
+        for context in self.context_stack:
+            context_type = context['type']
+            aliases = param_aliases.get(context_type, [])
+            
+            # Determine the correct value from the authoritative context
+            correct_value = None
+            if 'list' in context:
+                if context['index'] == -1: context['index'] = 0 # Handle first item in a new loop
+                if 0 <= context['index'] < len(context['list']):
+                    correct_value = context['list'][context['index']]
+            
+            if not correct_value: continue # This context isn't a loop or is finished
+
+            # Find which key the LLM used, if any
+            found_key = None
+            llm_provided_value = None
+            for key in [context_type] + aliases:
+                if key in args:
+                    found_key = key
+                    llm_provided_value = args[key]
+                    break
+            
+            # If the key is missing or the value is wrong, OVERRIDE it
+            if not found_key or llm_provided_value != correct_value:
+                key_to_set = found_key or context_type
+                args[key_to_set] = correct_value
+                details = f"LLM provided '{llm_provided_value}' for {key_to_set}. System corrected to authoritative value '{correct_value}'."
+                app_logger.warning(f"GUARDRAIL APPLIED: {details}")
+                events_to_yield.append(_format_sse({
+                    "step": "System Correction", "details": details, "type": "workaround"
+                }))
+
+        return corrected_command, events_to_yield
+    
+    # --- AUTHORITATIVE CONTEXT: New method to add data to the structured collection ---
+    def _add_to_structured_data(self, tool_result: dict):
+        """Adds tool results to a nested dictionary based on the current context."""
+        if not self.context_stack:
+            self.collected_data.append(tool_result)
+            return
+
+        # Create a key based on the current context stack (e.g., "DB_A > Table1")
+        context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
+        
+        if not context_key:
+             self.collected_data.append(tool_result)
+             return
+
+        if context_key not in self.structured_collected_data:
+            self.structured_collected_data[context_key] = []
+        
+        self.structured_collected_data[context_key].append(tool_result)
+        app_logger.info(f"Added tool result to structured data under key: '{context_key}'")
+
 
     async def run(self):
         for i in range(self.max_steps):
@@ -200,7 +349,7 @@ class PlanExecutor:
             "metadata": {"tool_name": tool_name, "comment": f"Consolidated results for date range: {start_date} to {end_date}"},
             "results": all_results
         }
-        self.collected_data.append(final_tool_output)
+        self._add_to_structured_data(final_tool_output)
         self.state = AgentState.SUMMARIZING
         self.next_action_str = "FINAL_ANSWER: "
 
@@ -367,6 +516,12 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
 
     async def _execute_standard_tool(self):
+        # --- AUTHORITATIVE CONTEXT: Apply guardrail to correct/inject parameters ---
+        corrected_command, guardrail_events = self._apply_context_guardrail(self.current_command)
+        for event in guardrail_events:
+            yield event
+        self.current_command = corrected_command
+
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
         
         tool_name = self.current_command.get("tool_name")
@@ -377,6 +532,10 @@ class PlanExecutor:
         tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], self.current_command)
         
         yield _format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
+
+        # --- AUTHORITATIVE CONTEXT: Update context stack based on the command and its result ---
+        if self.is_workflow:
+            self._update_and_manage_context_stack(self.current_command, tool_result)
 
         if 'notification' in self.current_command:
             yield _format_sse({
@@ -403,7 +562,11 @@ class PlanExecutor:
             })
         else:
             tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
-            self.collected_data.append(tool_result)
+            # --- AUTHORITATIVE CONTEXT: Use structured data collection for workflows ---
+            if self.is_workflow:
+                self._add_to_structured_data(tool_result)
+            else:
+                self.collected_data.append(tool_result)
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
             yield _format_sse({"details": tool_result}, "request_user_input")
@@ -512,7 +675,7 @@ class PlanExecutor:
                 return
 
             yield _format_sse({"step": f"Tool Execution Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
-            self.collected_data.append(col_result)
+            self._add_to_structured_data(col_result)
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
             yield _format_sse({"step": "Thinking about the next action...", "details": "Single column execution complete. Resuming main plan."})
             async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
@@ -525,12 +688,13 @@ class PlanExecutor:
             app_logger.info(f"Executing column iteration on a pre-defined subset of {len(column_subset)} columns.")
         else:
             reused_metadata = False
-            for item in reversed(self.collected_data):
-                if isinstance(item, dict) and item.get("status") == "success":
-                    if item.get("metadata", {}).get("tool_name") in ["qlty_columnSummary", "base_columnDescription"] and \
-                       item.get("metadata", {}).get("table_name", "").endswith(table_name):
+            # --- AUTHORITATIVE CONTEXT: Check structured data first for column metadata ---
+            context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
+            if context_key and context_key in self.structured_collected_data:
+                for item in reversed(self.structured_collected_data[context_key]):
+                    if isinstance(item, dict) and item.get("status") == "success" and item.get("metadata", {}).get("tool_name") in ["qlty_columnSummary", "base_columnDescription"]:
                         all_columns_metadata = item.get("results", [])
-                        app_logger.info(f"Reusing column metadata for table {table_name} from previous '{item.get('metadata', {}).get('tool_name')}' tool call.")
+                        app_logger.info(f"Reusing column metadata for table {table_name} from previous '{item.get('metadata', {}).get('tool_name')}' tool call in current context.")
                         reused_metadata = True
                         break
             
@@ -549,6 +713,9 @@ class PlanExecutor:
                 if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
                     raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
                 all_columns_metadata = cols_result.get('results', [])
+                # Also add this to the structured data
+                self._add_to_structured_data(cols_result)
+
 
         all_column_results = []
         
@@ -578,7 +745,7 @@ class PlanExecutor:
 
             if temp_globally_failed_tools_check:
                 all_column_results.append({ "status": "error", "reason": f"Tool '{tool_name}' is non-functional.", "metadata": {"tool_name": tool_name, "table_name": table_name}})
-                self.collected_data.append(all_column_results)
+                self._add_to_structured_data(all_column_results)
                 return
 
         tool_constraints = None
@@ -666,7 +833,7 @@ class PlanExecutor:
             all_column_results.append(col_result)
         yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
 
-        self.collected_data.append(all_column_results)
+        self._add_to_structured_data(all_column_results)
         
         tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": all_column_results})
 
@@ -679,25 +846,23 @@ class PlanExecutor:
         
         if self.active_prompt_plan:
             app_logger.info("Applying forceful, plan-aware reasoning for next step.")
-            last_tool_name = self.current_command.get("tool_name") if self.current_command else "N/A"
             prompt_for_next_step = (
-                "You are in the middle of executing a multi-step plan. Your primary goal is to follow this plan to completion.\n\n"
+                "You are executing a multi-step plan. Your primary goal is to follow this plan sequentially to completion.\n\n"
                 f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
                 "--- CURRENT STATE ---\n"
-                f"- You have just completed a step. The result of the last action is in the conversation history below.\n\n"
-                "--- YOUR TASK: EXECUTE THE NEXT STEP ---\n"
-                "1. **Analyze the ORIGINAL PLAN.** Determine the *very next* instruction in the sequence.\n"
-                "2. **Execute that instruction.**\n"
-                "   - If the next step is to call another tool, your response **MUST** be a single JSON block for that tool call.\n"
-                "   - If the next step is the final text-generation phase of the plan, your response **MUST** start with `FINAL_ANSWER:`.\n\n"
-                "**CRITICAL RULE on `FINAL_ANSWER`:** The `FINAL_ANSWER` keyword is reserved **exclusively** for the final, complete, user-facing response at the very end of the entire plan. "
-                "Do **NOT** use `FINAL_ANSWER` for intermediate thoughts, status updates, or summaries of completed phases. If you are not delivering the final product to the user, your response must be a tool call."
+                f"- You have just received the result of the last action, which is in the conversation history below.\n\n"
+                "--- YOUR TASK: EXECUTE THE *NEXT* STEP ---\n"
+                "1. **Analyze your history and the ORIGINAL PLAN.** Determine the single next instruction in the sequence. **You MUST NOT repeat steps that you have already successfully completed.**\n"
+                "2. **Execute only that next instruction.**\n"
+                "   - If the next step is a tool call, your response **MUST** be a single JSON block for that tool call.\n"
+                "   - If you have completed all tool calls and the final step is to generate the summary, your response **MUST** start with `FINAL_ANSWER:`.\n\n"
+                "**CRITICAL RULE:** Do not restart the plan. Do not perform any action other than the immediate next step. If you are not delivering the final user-facing answer, your response must be a tool call."
             )
         else:
             prompt_for_next_step = (
                 "You have just received data from a tool call. Review the data and your instructions to decide the next step.\n\n"
                 "1.  **Analyze the Result:**\n"
-                "    -   If the `tool_output` shows `\"status\": \"error\"`, you MUST attempt to recover. The `tool_input` field shows the exact command that failed. Formulate a new tool call that corrects the error. For example, if the error is 'Column not found', remove the failing column from the `dimensions` list.\n"
+                "    -   If the `tool_output` shows `\"status\": \"error\"`, you MUST attempt to recover. The `tool_input` field shows the exact command that failed. Formulate a new tool call that corrects the error. For example, if the error is 'Column not found', remove the failing column from the `dimensions` list.\n\n"
                 "    -   If the status is `success`, proceed to the next steps.\n\n"
                 "2.  **Consider a Chart:** Review the `--- Charting Rules ---` in your system prompt. Based on the data you just received, would a chart be an appropriate and helpful way to visualize the information for the user?\n\n"
                 "3.  **Choose Your Action:**\n"
@@ -731,85 +896,54 @@ class PlanExecutor:
 
     def _prepare_data_for_final_summary(self) -> str:
         summary_lines = []
-        for item in self.collected_data:
-            if isinstance(item, list) and item:
-                first_sub_item = item[0]
-                if isinstance(first_sub_item, dict):
-                    tool_name = first_sub_item.get("metadata", {}).get("tool_name", "Column-based tool")
-                    table_name = first_sub_item.get("metadata", {}).get("table_name", "a table")
-                    summary_lines.append(f"- Executed `{tool_name}` on table `{table_name}`.")
-                    if tool_name == 'qlty_univariateStatistics':
-                        for res in item:
-                            if isinstance(res, dict) and res.get("status") == "success":
-                                for stat in res.get("results", []):
-                                    col = stat.get("ColumnName")
-                                    std_dev = stat.get("StdDev")
-                                    if std_dev and float(std_dev) > 1000:
-                                        summary_lines.append(f"  - Finding: High standard deviation ({std_dev}) for column `{col}`.")
-                    elif tool_name == 'qlty_columnSummary':
-                         for res in item:
-                            if isinstance(res, dict) and res.get("status") == "success":
-                                for stat in res.get("results", []):
-                                    col = stat.get("ColumnName")
-                                    null_count = stat.get("NullCount")
-                                    if null_count and int(null_count) > 0:
-                                        summary_lines.append(f"  - Finding: Column `{col}` contains {null_count} missing values.")
-                continue
+        # --- AUTHORITATIVE CONTEXT: Use the structured data for summary preparation ---
+        data_to_summarize = self.structured_collected_data if self.is_workflow and self.structured_collected_data else {" ungrouped": self.collected_data}
 
-            if not isinstance(item, dict):
-                continue
-            
-            tool_name = item.get("metadata", {}).get("tool_name")
-            status = item.get("status")
-            
-            if item.get("type") == "business_description":
-                summary_lines.append(f"- Generated business description for table `{item.get('table_name')}`: \"{item.get('description', 'N/A')[:100]}...\"")
-            
-            elif tool_name == "base_tableDDL":
-                table_name = item.get("metadata", {}).get("table", "a table")
-                ddl_text = item.get("results", [{}])[0].get("Request Text", "")
-                if ddl_text:
-                    summary_lines.append(f"- Retrieved DDL for table `{table_name}`:\n```sql\n{ddl_text}\n```")
-                else:
-                    summary_lines.append(f"- Retrieved DDL for table `{table_name}`, but the content was empty.")
-            
-            elif status == "success" and "results" in item:
-                result_count = len(item["results"])
-                summary_lines.append(f"- Tool `{tool_name}` executed successfully, returning {result_count} rows of data.")
-            elif status == "skipped":
-                summary_lines.append(f"- Skipped step: Tool `{tool_name}`. Reason: {item.get('reason')}")
-            elif status == "error":
-                 summary_lines.append(f"- An error occurred while running tool `{tool_name}`.")
+        for context_key, items in data_to_summarize.items():
+            summary_lines.append(f"- For context: `{context_key}`:")
+            for item in items:
+                if isinstance(item, list) and item:
+                    first_sub_item = item[0]
+                    if isinstance(first_sub_item, dict):
+                        tool_name = first_sub_item.get("metadata", {}).get("tool_name", "Column-based tool")
+                        summary_lines.append(f"  - Executed `{tool_name}`.")
+                elif isinstance(item, dict):
+                    tool_name = item.get("metadata", {}).get("tool_name")
+                    status = item.get("status")
+                    if status == "success" and "results" in item:
+                        result_count = len(item["results"])
+                        summary_lines.append(f"  - Tool `{tool_name}` succeeded with {result_count} results.")
+                    elif status == "error":
+                        summary_lines.append(f"  - Tool `{tool_name}` failed.")
 
         return "\n".join(summary_lines)
 
-    # --- MODIFIED: This function is now the final arbiter of how to summarize a completed run. ---
     async def _handle_summarizing(self):
+        # --- AUTHORITATIVE CONTEXT: Consolidate all collected data for the formatter ---
+        if self.is_workflow and self.structured_collected_data:
+            # If we used the structured collector, it becomes the final data source
+            final_collected_data = self.structured_collected_data
+        else:
+            final_collected_data = self.collected_data
+
         llm_response_for_formatter = self.next_action_str
-        final_collected_data = self.collected_data
         use_workflow_formatter = self.is_workflow
 
         final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
 
-        # CASE 1: The LLM's plan produced a definitive FINAL_ANSWER. We must prioritize it.
         if final_answer_match:
             summary_text = final_answer_match.group(1).strip()
             
-            # If this was a workflow, we structure the output for the workflow formatter
-            # to get the collapsible UI, but we inject our high-quality summary text.
             if self.is_workflow:
                 report_data = {
                     "summary": summary_text,
-                    "structured_data": self.collected_data
+                    "structured_data": final_collected_data
                 }
                 llm_response_for_formatter = json.dumps(report_data)
-            # If it wasn't a workflow, we just use the text directly.
             else:
                 llm_response_for_formatter = summary_text
                 use_workflow_formatter = False
         
-        # CASE 2: The plan finished without a FINAL_ANSWER, and it was a workflow.
-        # This becomes the fallback to generate a summary from scratch.
         elif self.is_workflow:
             yield _format_sse({"step": "Workflow finished, generating structured report...", "details": "The agent is synthesizing all collected data into a report format."})
             
@@ -849,7 +983,7 @@ class PlanExecutor:
                     summary_json = json.loads(json_match.group(0))
                     report_data = {
                         "summary": summary_json.get("summary", "Workflow completed, but no summary was generated."),
-                        "structured_data": self.collected_data
+                        "structured_data": final_collected_data
                     }
                     llm_response_for_formatter = json.dumps(report_data)
                 else:
@@ -857,11 +991,9 @@ class PlanExecutor:
             except (json.JSONDecodeError, TypeError):
                 llm_response_for_formatter = json.dumps({
                     "summary": "The agent finished the workflow but failed to generate a structured report. Displaying raw data instead.",
-                    "structured_data": self.collected_data
+                    "structured_data": final_collected_data
                 })
 
-        # CASE 3: The plan finished, it was NOT a workflow, and there was no FINAL_ANSWER.
-        # This is the fallback for simple, single-tool calls.
         else:
             yield _format_sse({"step": "Plan finished, generating final summary...", "details": "The agent is synthesizing all collected data."})
             
@@ -902,7 +1034,6 @@ class PlanExecutor:
             llm_response_for_formatter = summary_text
             use_workflow_formatter = False
 
-        # This final block is now universal for all cases.
         formatter = OutputFormatter(llm_response_text=llm_response_for_formatter, collected_data=final_collected_data, is_workflow=use_workflow_formatter)
         final_html = formatter.render()
         

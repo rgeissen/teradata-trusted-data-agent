@@ -202,6 +202,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 full_log_message += f"[user]: {prompt}\n"
 
                 model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
+                model_provider_in_profile = APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE or ""
                 
                 if "amazon.titan" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
                     region = APP_CONFIG.CURRENT_AWS_REGION
@@ -215,13 +216,55 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                         app_logger.info(f"Adjusting Titan model ID from '{model_id_to_invoke}' to '{adjusted_id}' for region '{region}'.")
                         model_id_to_invoke = adjusted_id
 
-                if "anthropic" in model_id_to_invoke:
-                    messages = [{'role': msg['role'], 'content': msg['content']} for msg in history]
-                    messages.append({'role': 'user', 'content': prompt})
-                    body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "system": system_prompt, "messages": messages})
-                else: # Assumes Amazon Titan
+                is_legacy_titan_model = "titan" in model_id_to_invoke.lower() and \
+                                        "text-express-v1" in model_id_to_invoke.lower()
+
+                body = ""
+                if not is_legacy_titan_model:
+                    is_anthropic_model = "anthropic" in model_id_to_invoke.lower() or \
+                                         "anthropic" in model_provider_in_profile.lower()
+                    is_meta_model = "meta" in model_id_to_invoke.lower() or \
+                                    "llama" in model_id_to_invoke.lower() or \
+                                    "meta" in model_provider_in_profile.lower()
+
+                    formatted_messages = []
+                    for msg in history:
+                        role = msg.get('role')
+                        content = msg.get('content')
+                        if is_anthropic_model:
+                            formatted_messages.append({'role': role, 'content': content})
+                        elif is_meta_model:
+                             formatted_messages.append({'role': role, 'content': [{'type': 'text', 'text': content}]})
+                        else:
+                            formatted_messages.append({'role': role, 'content': [{'text': content}]})
+                    
+                    if is_anthropic_model:
+                        formatted_messages.append({'role': 'user', 'content': prompt})
+                    elif is_meta_model:
+                        formatted_messages.append({'role': 'user', 'content': [{'type': 'text', 'text': prompt}]})
+                    else:
+                        formatted_messages.append({'role': 'user', 'content': [{'text': prompt}]})
+                    
+                    payload = {"messages": formatted_messages}
+
+                    if is_anthropic_model:
+                        payload["system"] = system_prompt
+                        payload["anthropic_version"] = "bedrock-2023-05-31"
+                        payload["max_tokens"] = 4096
+                    elif is_meta_model:
+                         if system_prompt and not (formatted_messages and formatted_messages[0]['role'] == 'system'):
+                            formatted_messages.insert(0, {'role': 'system', 'content': [{'type': 'text', 'text': system_prompt}]})
+                    else:
+                        if system_prompt:
+                            payload["system"] = [{"text": system_prompt}]
+
+                    body = json.dumps(payload)
+                else: 
                     text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history]) + f"user: {prompt}\n\nassistant:"
-                    body = json.dumps({"inputText": text_prompt, "textGenerationConfig": {"maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9}})
+                    body = json.dumps({
+                        "inputText": text_prompt, 
+                        "textGenerationConfig": {"maxTokenCount": 4096, "temperature": 0.7, "topP": 0.9}
+                    })
                 
                 loop = asyncio.get_running_loop()
 
@@ -229,10 +272,12 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
                 response_body = json.loads(response.get('body').read())
 
-                if "anthropic" in model_id_to_invoke:
-                    response_text = response_body.get('content')[0].get('text')
-                else:
+                # --- DEFINITIVE FIX: Use symmetrical logic for response parsing ---
+                if is_legacy_titan_model:
                     response_text = response_body.get('results')[0].get('outputText')
+                else:
+                    # This now correctly handles Anthropic, Meta, and modern Amazon models like Nova
+                    response_text = response_body.get('content')[0].get('text')
                 
                 llm_logger.info(full_log_message)
                 llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
@@ -291,14 +336,35 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
     raise RuntimeError(error_message)
 
 
+def _is_model_certified(model_name: str, certified_list: list[str]) -> bool:
+    """
+    Checks if a model is certified, supporting exact matches and wildcards
+    anywhere in the string.
+    """
+    for pattern in certified_list:
+        # Escape special regex characters in the pattern, then replace our wildcard
+        # '*' with the regex equivalent '.*'.
+        regex_pattern = re.escape(pattern).replace('\\*', '.*')
+        if re.fullmatch(regex_pattern, model_name):
+            return True
+    return False
+
 async def list_models(provider: str, credentials: dict) -> list[dict]:
+    """
+    Lists available models for a given provider and checks their certification status
+    using a wildcard-aware function.
+    """
+    certified_list = []
+    model_names = []
+
     if provider == "Google":
+        certified_list = CERTIFIED_GOOGLE_MODELS
         genai.configure(api_key=credentials.get("apiKey"))
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        clean_models = [name.split('/')[-1] for name in models]
-        return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_GOOGLE_MODELS} for name in clean_models]
+        model_names = [name.split('/')[-1] for name in models]
     
     elif provider == "Anthropic":
+        certified_list = CERTIFIED_ANTHROPIC_MODELS
         try:
             client = AsyncAnthropic(api_key=credentials.get("apiKey"))
             models_page = await client.models.list()
@@ -311,18 +377,16 @@ async def list_models(provider: str, credentials: dict) -> list[dict]:
                     model_names.append(model[0].id)
                 else:
                     app_logger.warning(f"Unexpected item structure in Anthropic models list: {type(model)}")
-
-            return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_ANTHROPIC_MODELS} for name in model_names]
         except Exception as e:
             app_logger.error(f"Failed to fetch models from Anthropic: {e}")
             raise e
 
     elif provider == "OpenAI":
+        certified_list = CERTIFIED_OPENAI_MODELS
         try:
             client = AsyncOpenAI(api_key=credentials.get("apiKey"))
             models_page = await client.models.list()
             model_names = [model.id for model in models_page.data if "gpt" in model.id]
-            return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_OPENAI_MODELS} for name in model_names]
         except Exception as e:
             app_logger.error(f"Failed to fetch models from OpenAI: {e}")
             raise e
@@ -336,18 +400,27 @@ async def list_models(provider: str, credentials: dict) -> list[dict]:
         )
         loop = asyncio.get_running_loop()
         if credentials.get("listing_method") == "inference_profiles":
+            certified_list = CERTIFIED_AMAZON_PROFILES
             response = await loop.run_in_executor(None, lambda: bedrock_client.list_inference_profiles())
-            models = [p['inferenceProfileArn'] for p in response['inferenceProfileSummaries']]
-            return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_PROFILES} for name in models]
+            model_names = [p['inferenceProfileArn'] for p in response['inferenceProfileSummaries']]
         else:
+            certified_list = CERTIFIED_AMAZON_MODELS
             response = await loop.run_in_executor(None, lambda: bedrock_client.list_foundation_models(byOutputModality='TEXT'))
-            models = [m['modelId'] for m in response['modelSummaries']]
-            return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_AMAZON_MODELS} for name in models]
+            model_names = [m['modelId'] for m in response['modelSummaries']]
     
     elif provider == "Ollama":
+        certified_list = CERTIFIED_OLLAMA_MODELS
         client = OllamaClient(host=credentials.get("host"))
         models_data = await client.list_models()
         model_names = [m.get("name") for m in models_data]
-        return [{"name": name, "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or name in CERTIFIED_OLLAMA_MODELS} for name in model_names]
 
-    return []
+    else:
+        return []
+
+    return [
+        {
+            "name": name,
+            "certified": APP_CONFIG.ALL_MODELS_UNLOCKED or _is_model_certified(name, certified_list)
+        }
+        for name in model_names
+    ]

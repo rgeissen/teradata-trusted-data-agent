@@ -15,10 +15,10 @@ class AppConfig:
 
 APP_CONFIG = AppConfig()
 
-CERTIFIED_GOOGLE_MODELS = ["gemini-1.5-flash-latest"]
-CERTIFIED_ANTHROPIC_MODELS = ["claude-3-sonnet-20240229"]
-CERTIFIED_AMAZON_MODELS = ["amazon.titan-text-express-v1"]
-CERTIFIED_AMAZON_PROFILES = ["arn:aws:bedrock:us-east-1::inference-profile/amazon.titan-text-express-v1"]
+CERTIFIED_GOOGLE_MODELS = ["*gemini-1.5-flash-latest"]
+CERTIFIED_ANTHROPIC_MODELS = ["*claude-3-5-sonnet*"]
+CERTIFIED_AMAZON_MODELS = ["*amazon.nova-pro-v1*"]
+CERTIFIED_AMAZON_PROFILES = ["*amazon.nova-pro-v1*"]
 CERTIFIED_OLLAMA_MODELS = ["llama2"] 
 # --- NEW: Add a list for certified OpenAI models ---
-CERTIFIED_OPENAI_MODELS = ["gpt-4.1"]
+CERTIFIED_OPENAI_MODELS = ["*gpt-4.1"]

@@ -8,7 +8,7 @@ class OutputFormatter:
     Parses raw LLM output and structured tool data to generate professional,
     failure-safe HTML for the UI.
     """
-    def __init__(self, llm_response_text: str, collected_data: list, is_workflow: bool = False):
+    def __init__(self, llm_response_text: str, collected_data: list | dict, is_workflow: bool = False):
         self.raw_summary = llm_response_text
         self.collected_data = collected_data
         self.is_workflow = is_workflow
@@ -26,6 +26,7 @@ class OutputFormatter:
                 
                 report_data = json.loads(json_match.group(0))
                 self.raw_summary = report_data.get("summary", "Workflow completed, but no summary was generated.")
+                # --- AUTHORITATIVE CONTEXT: The collected_data for workflows is now expected to be a dict ---
                 self.collected_data = report_data.get("structured_data", collected_data)
             except (json.JSONDecodeError, TypeError):
                 # Fallback if the LLM fails to produce valid JSON
@@ -34,7 +35,15 @@ class OutputFormatter:
 
     def _has_renderable_tables(self) -> bool:
         """Checks if there is any data that will be rendered as a table."""
-        for item in self.collected_data:
+        data_source = []
+        if isinstance(self.collected_data, dict):
+            # Flatten the dictionary values for checking
+            for item_list in self.collected_data.values():
+                data_source.extend(item_list)
+        else:
+            data_source = self.collected_data
+
+        for item in data_source:
             if isinstance(item, dict) and "results" in item:
                 results = item.get("results")
                 if isinstance(results, list) and results and all(isinstance(row, dict) for row in results):
@@ -127,7 +136,6 @@ class OutputFormatter:
         </div>
         """
 
-    # --- MODIFIED: Added a header with a copy button to generic tables ---
     def _render_table(self, tool_result: dict, index: int, default_title: str) -> str:
         if not isinstance(tool_result, dict) or "results" not in tool_result: return ""
         results = tool_result.get("results")
@@ -137,7 +145,6 @@ class OutputFormatter:
         title = metadata.get("tool_name", default_title)
         headers = results[0].keys()
         
-        # Embed the raw results as a JSON string in a data attribute for the copy function
         table_data_json = json.dumps(results)
 
         html = f"""
@@ -165,7 +172,6 @@ class OutputFormatter:
         self.processed_data_indices.add(index)
         return html
         
-    # --- MODIFIED: Added a header with a copy button to the table within chart details ---
     def _render_chart_with_details(self, chart_data: dict, table_data: dict, chart_index: int, table_index: int) -> str:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
@@ -211,61 +217,53 @@ class OutputFormatter:
         </div>
         """
 
+    # --- AUTHORITATIVE CONTEXT: Updated method to render structured workflow data ---
     def _format_workflow_summary(self) -> str:
         """
-        A specialized formatter to render the results of any multi-step workflow
-        that produces a structured report with collapsible sections.
+        A specialized formatter to render the results of a multi-step workflow
+        that produces structured, grouped data.
         """
-        data_by_table = {}
-        for item in self.collected_data:
-            if isinstance(item, list):
-                for sub_item in item:
-                    if isinstance(sub_item, dict):
-                        metadata = sub_item.get("metadata", {})
-                        table_name = metadata.get("table_name", metadata.get("table"))
-                        if table_name and '.' in table_name: table_name = table_name.split('.')[1]
-                        if not table_name: continue
-                        if table_name not in data_by_table: data_by_table[table_name] = []
-                        data_by_table[table_name].append(sub_item)
-                continue
-            
-            if not isinstance(item, dict): continue
-            
-            metadata = item.get("metadata", {})
-            table_name = metadata.get("table_name", metadata.get("table"))
-            if not table_name and item.get("type") == "business_description": table_name = item.get("table_name")
-            if table_name and '.' in table_name: table_name = table_name.split('.')[1]
-            if not table_name: continue
-
-            if table_name not in data_by_table: data_by_table[table_name] = []
-            data_by_table[table_name].append(item)
-
         sanitized_summary = self._sanitize_summary()
         html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
         
-        for table_name, data in data_by_table.items():
-            html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{table_name}</code></summary><div class='px-4'>"
+        # The collected_data is now a dictionary where keys are the context (e.g., table name)
+        if not isinstance(self.collected_data, dict):
+            # Fallback for unexpected data format
+            return html + "<p>Error: Workflow data was not in the expected structured format.</p>"
+
+        for context_key, data_items in self.collected_data.items():
+            # Sanitize context_key for display
+            display_key = context_key.replace(">", "&gt;")
+            html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
             
-            for item in data:
-                tool_name = item.get("metadata", {}).get("tool_name")
-                if item.get("type") == "business_description":
-                    html += f"<div class='response-card'><h4 class='text-lg font-semibold text-white mb-2'>Business Description</h4><p class='text-gray-300'>{item.get('description')}</p></div>"
-                elif tool_name == 'base_tableDDL':
-                    html += self._render_ddl(item, 0)
-                elif tool_name == 'qlty_columnSummary':
-                    html += self._render_table(item, 0, f"Column Summary for {table_name}")
-                elif tool_name == 'qlty_univariateStatistics':
-                    if isinstance(item, list):
-                        flat_results = [res for col_res in item if isinstance(col_res, dict) and col_res.get('status') == 'success']
-                        if flat_results:
-                            combined_results = [res for col_res in flat_results for res in col_res.get('results', [])]
-                            if combined_results:
-                                first_successful_metadata = next((res.get('metadata') for res in flat_results if res.get('metadata')), {})
-                                html += self._render_table({"results": combined_results, "metadata": first_successful_metadata}, 0, f"Univariate Statistics for {table_name}")
-                    elif item.get('status') == 'success':
-                        html += self._render_table(item, 0, f"Univariate Statistics for {table_name}")
-                elif item.get("status") == "skipped":
-                     html += f"<div class='response-card'><p class='text-sm text-gray-400 italic'>Skipped Step: <strong>{tool_name or 'N/A'}</strong>. Reason: {item.get('reason')}</p></div>"
+            for i, item in enumerate(data_items):
+                # Handle results from column-iteration tools, which are lists
+                if isinstance(item, list):
+                    # Flatten the list of results for rendering in a single table
+                    combined_results = []
+                    metadata = {}
+                    for sub_item in item:
+                        if isinstance(sub_item, dict) and sub_item.get('status') == 'success':
+                            if not metadata: metadata = sub_item.get("metadata", {})
+                            combined_results.extend(sub_item.get("results", []))
+                    
+                    if combined_results:
+                        # Create a temporary dict structure for the table renderer
+                        table_to_render = {"results": combined_results, "metadata": metadata}
+                        html += self._render_table(table_to_render, i, "Column Iteration Result")
+                    continue
+
+                # Handle standard, single tool results
+                if isinstance(item, dict):
+                    tool_name = item.get("metadata", {}).get("tool_name")
+                    if item.get("type") == "business_description":
+                        html += f"<div class='response-card'><h4 class='text-lg font-semibold text-white mb-2'>Business Description</h4><p class='text-gray-300'>{item.get('description')}</p></div>"
+                    elif tool_name == 'base_tableDDL':
+                        html += self._render_ddl(item, i)
+                    elif "results" in item:
+                        html += self._render_table(item, i, f"Result for {tool_name}")
+                    elif item.get("status") == "skipped":
+                        html += f"<div class='response-card'><p class='text-sm text-gray-400 italic'>Skipped Step: <strong>{tool_name or 'N/A'}</strong>. Reason: {item.get('reason')}</p></div>"
             html += "</div></details>"
 
         return html
@@ -279,6 +277,7 @@ class OutputFormatter:
             return self._format_workflow_summary()
 
         final_html = ""
+        data_source = self.collected_data if isinstance(self.collected_data, list) else []
 
         # 1. Always render the summary first.
         clean_summary_html = self._sanitize_summary()
@@ -287,15 +286,12 @@ class OutputFormatter:
 
         # 2. Identify and render all charts next.
         charts = []
-        chart_source_indices = set()
-        for i, tool_result in enumerate(self.collected_data):
+        for i, tool_result in enumerate(data_source):
             if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
                 charts.append((i, tool_result))
-                if i > 0:
-                    chart_source_indices.add(i - 1)
         
         for i, chart_result in charts:
-            table_data_result = self.collected_data[i-1] if i > 0 else None
+            table_data_result = data_source[i-1] if i > 0 else None
             if table_data_result and isinstance(table_data_result, dict) and "results" in table_data_result:
                 final_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
             else:
@@ -309,7 +305,7 @@ class OutputFormatter:
                 self.processed_data_indices.add(i)
 
         # 3. Render all remaining data tables and DDLs last.
-        for i, tool_result in enumerate(self.collected_data):
+        for i, tool_result in enumerate(data_source):
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
             
