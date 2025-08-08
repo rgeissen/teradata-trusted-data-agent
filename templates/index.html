@@ -110,16 +110,17 @@
         }
 
         /* Modal transitions */
-        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay, #confirm-modal-overlay, #system-prompt-popup-overlay, #chat-modal-overlay { transition: opacity 0.3s ease-in-out; }
-        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content, #confirm-modal-content, #system-prompt-popup-content, #chat-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
-        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden, #confirm-modal-overlay.hidden, #system-prompt-popup-overlay.hidden, #chat-modal-overlay.hidden { pointer-events: none; opacity: 0; }
+        #prompt-modal-overlay, #info-modal-overlay, #config-modal-overlay, #prompt-editor-overlay, #confirm-modal-overlay, #system-prompt-popup-overlay, #chat-modal-overlay, #view-prompt-modal-overlay { transition: opacity 0.3s ease-in-out; }
+        #prompt-modal-content, #info-modal-content, #config-modal-content, #prompt-editor-content, #confirm-modal-content, #system-prompt-popup-content, #chat-modal-content, #view-prompt-modal-content { transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out; }
+        #prompt-modal-overlay.hidden, #info-modal-overlay.hidden, #config-modal-overlay.hidden, #prompt-editor-overlay.hidden, #confirm-modal-overlay.hidden, #system-prompt-popup-overlay.hidden, #chat-modal-overlay.hidden, #view-prompt-modal-overlay.hidden { pointer-events: none; opacity: 0; }
         #prompt-modal-overlay.hidden #prompt-modal-content,
         #info-modal-overlay.hidden #info-modal-content,
         #config-modal-overlay.hidden #config-modal-content,
         #prompt-editor-overlay.hidden #prompt-editor-content,
         #confirm-modal-overlay.hidden #confirm-modal-content,
         #system-prompt-popup-overlay.hidden #system-prompt-popup-content,
-        #chat-modal-overlay.hidden #chat-modal-content { transform: scale(0.95); opacity: 0; }
+        #chat-modal-overlay.hidden #chat-modal-content,
+        #view-prompt-modal-overlay.hidden #view-prompt-modal-content { transform: scale(0.95); opacity: 0; }
         
         .status-step {
             transition: all 0.3s ease-in-out;
@@ -500,6 +501,7 @@
         </aside>
     </div>
 
+    <!-- Modals -->
     <div id="chat-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="chat-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-2xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
             <div class="flex justify-between items-center mb-4">
@@ -699,7 +701,6 @@
         </div>
     </div>
 
-
     <div id="prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="prompt-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-lg p-6 transform scale-95 opacity-0">
             <h3 id="prompt-modal-title" class="text-xl font-bold mb-4"></h3>
@@ -729,6 +730,22 @@
             </div>
         </div>
     </div>
+    
+    <!-- NEW: Modal to view prompt content -->
+    <div id="view-prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
+        <div id="view-prompt-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-3xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="view-prompt-modal-title" class="text-xl font-bold header-title"></h3>
+            </div>
+            <div class="flex-1 w-full p-3 bg-gray-800/80 border border-gray-600 rounded-md overflow-y-auto">
+                <pre id="view-prompt-modal-text" class="font-mono text-sm whitespace-pre-wrap"></pre>
+            </div>
+            <div class="flex justify-end items-center mt-4">
+                <button type="button" id="view-prompt-modal-close" class="px-4 py-2 rounded-md bg-teradata-orange hover:bg-teradata-orange-dark transition-colors font-semibold">Close</button>
+            </div>
+        </div>
+    </div>
+
 
     <script>
         const chatLog = document.getElementById('chat-log');
@@ -838,8 +855,15 @@
         const chatModalForm = document.getElementById('chat-modal-form');
         const chatModalInput = document.getElementById('chat-modal-input');
         const chatModalLog = document.getElementById('chat-modal-log');
-        let simpleChatHistory = [];
+        
+        // --- NEW: View Prompt Modal elements ---
+        const viewPromptModalOverlay = document.getElementById('view-prompt-modal-overlay');
+        const viewPromptModalContent = document.getElementById('view-prompt-modal-content');
+        const viewPromptModalTitle = document.getElementById('view-prompt-modal-title');
+        const viewPromptModalText = document.getElementById('view-prompt-modal-text');
+        const viewPromptModalClose = document.getElementById('view-prompt-modal-close');
 
+        let simpleChatHistory = [];
         let currentProvider = 'Google';
         let currentModel = '';
         let currentStatusId = 0;
@@ -1286,7 +1310,6 @@
             }
         }
 
-        // --- MODIFIED: Renders resource items with a dedicated "Run" button for prompts ---
         function createResourceItem(resource, type) {
             const detailsEl = document.createElement('details');
             detailsEl.id = `resource-${type}-${resource.name}`;
@@ -1302,7 +1325,8 @@
                 contentHTML = `
                 <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60 space-y-3">
                     <p>${resource.description}</p>
-                    <div class="flex justify-end">
+                    <div class="flex justify-end items-center gap-x-2">
+                        <button class="view-prompt-button px-3 py-1 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 transition-colors">Prompt</button>
                         <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors">Run</button>
                     </div>
                 </div>
@@ -1320,8 +1344,14 @@
             if (type === 'prompts') {
                 const runButton = detailsEl.querySelector('.run-prompt-button');
                 runButton.addEventListener('click', (e) => {
-                    e.stopPropagation(); // Prevent the details from toggling when the button is clicked
+                    e.stopPropagation();
                     openPromptModal(resource);
+                });
+
+                const viewButton = detailsEl.querySelector('.view-prompt-button');
+                viewButton.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openViewPromptModal(resource.name);
                 });
             }
 
@@ -1660,6 +1690,38 @@
         promptModalOverlay.addEventListener('click', (e) => {
             if (e.target === promptModalOverlay) closePromptModal();
         });
+
+        // --- NEW: Functions to handle the "View Prompt" modal ---
+        async function openViewPromptModal(promptName) {
+            viewPromptModalOverlay.classList.remove('hidden', 'opacity-0');
+            viewPromptModalContent.classList.remove('scale-95', 'opacity-0');
+            viewPromptModalTitle.textContent = `Viewing Prompt: ${promptName}`;
+            viewPromptModalText.textContent = 'Loading...';
+
+            try {
+                const res = await fetch(`/prompt/${promptName}`);
+                const data = await res.json();
+                if (res.ok) {
+                    viewPromptModalText.textContent = data.content;
+                } else {
+                    throw new Error(data.error || 'Failed to fetch prompt content.');
+                }
+            } catch (error) {
+                viewPromptModalText.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function closeViewPromptModal() {
+            viewPromptModalOverlay.classList.add('opacity-0');
+            viewPromptModalContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => viewPromptModalOverlay.classList.add('hidden'), 300);
+        }
+
+        viewPromptModalClose.addEventListener('click', closeViewPromptModal);
+        viewPromptModalOverlay.addEventListener('click', (e) => {
+            if (e.target === viewPromptModalOverlay) closeViewPromptModal();
+        });
+
 
         function setupPanelToggle(button, panel, checkbox, collapseIcon, expandIcon) {
             const toggle = (isOpen) => {

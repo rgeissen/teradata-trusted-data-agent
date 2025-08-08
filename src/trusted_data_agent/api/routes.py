@@ -115,6 +115,36 @@ async def get_prompts():
     if not STATE.get("mcp_client"): return jsonify({"error": "Not configured"}), 400
     return jsonify(STATE.get("structured_prompts", {}))
 
+@api_bp.route("/prompt/<prompt_name>", methods=["GET"])
+async def get_prompt_content(prompt_name):
+    """Retrieves the raw content of a specific MCP prompt."""
+    mcp_client = STATE.get("mcp_client")
+    if not mcp_client:
+        return jsonify({"error": "MCP client not configured."}), 400
+    
+    try:
+        async with mcp_client.session("teradata_mcp_server") as temp_session:
+            prompt_obj = await temp_session.get_prompt(name=prompt_name)
+        
+        if not prompt_obj:
+            return jsonify({"error": f"Prompt '{prompt_name}' not found."}), 404
+        
+        # --- CORRECTED: Access the text from the correct nested structure ---
+        prompt_text = "Prompt content is not available."
+        if (hasattr(prompt_obj, 'messages') and 
+            isinstance(prompt_obj.messages, list) and 
+            len(prompt_obj.messages) > 0):
+            
+            first_message = prompt_obj.messages[0]
+            if hasattr(first_message, 'content') and hasattr(first_message.content, 'text'):
+                prompt_text = first_message.content.text
+
+        return jsonify({"name": prompt_name, "content": prompt_text})
+    except Exception as e:
+        app_logger.error(f"Error fetching prompt content for '{prompt_name}': {e}", exc_info=True)
+        return jsonify({"error": "An error occurred while fetching the prompt."}), 500
+
+
 @api_bp.route("/resources")
 async def get_resources_route():
     """Returns the categorized list of MCP resources."""
