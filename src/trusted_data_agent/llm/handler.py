@@ -202,8 +202,10 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 full_log_message += f"[user]: {prompt}\n"
 
                 model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
-                model_provider_in_profile = APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE or ""
                 
+                # --- DEFINITIVE FIX START: Apply proven logic from user-provided file ---
+                
+                # This check is specific to foundation models, not inference profiles, but is safe to keep.
                 if "amazon.titan" in model_id_to_invoke and not model_id_to_invoke.startswith("arn:aws:bedrock:") and APP_CONFIG.CURRENT_AWS_REGION:
                     region = APP_CONFIG.CURRENT_AWS_REGION
                     prefix = ""
@@ -216,50 +218,30 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                         app_logger.info(f"Adjusting Titan model ID from '{model_id_to_invoke}' to '{adjusted_id}' for region '{region}'.")
                         model_id_to_invoke = adjusted_id
 
-                is_legacy_titan_model = "titan" in model_id_to_invoke.lower() and \
-                                        "text-express-v1" in model_id_to_invoke.lower()
-
                 body = ""
-                if not is_legacy_titan_model:
-                    is_anthropic_model = "anthropic" in model_id_to_invoke.lower() or \
-                                         "anthropic" in model_provider_in_profile.lower()
-                    is_meta_model = "meta" in model_id_to_invoke.lower() or \
-                                    "llama" in model_id_to_invoke.lower() or \
-                                    "meta" in model_provider_in_profile.lower()
-
-                    formatted_messages = []
-                    for msg in history:
-                        role = msg.get('role')
-                        content = msg.get('content')
-                        if is_anthropic_model:
-                            formatted_messages.append({'role': role, 'content': content})
-                        elif is_meta_model:
-                             formatted_messages.append({'role': role, 'content': [{'type': 'text', 'text': content}]})
-                        else:
-                            formatted_messages.append({'role': role, 'content': [{'text': content}]})
-                    
-                    if is_anthropic_model:
-                        formatted_messages.append({'role': 'user', 'content': prompt})
-                    elif is_meta_model:
-                        formatted_messages.append({'role': 'user', 'content': [{'type': 'text', 'text': prompt}]})
-                    else:
-                        formatted_messages.append({'role': 'user', 'content': [{'text': prompt}]})
-                    
-                    payload = {"messages": formatted_messages}
-
-                    if is_anthropic_model:
-                        payload["system"] = system_prompt
-                        payload["anthropic_version"] = "bedrock-2023-05-31"
-                        payload["max_tokens"] = 4096
-                    elif is_meta_model:
-                         if system_prompt and not (formatted_messages and formatted_messages[0]['role'] == 'system'):
-                            formatted_messages.insert(0, {'role': 'system', 'content': [{'type': 'text', 'text': system_prompt}]})
-                    else:
-                        if system_prompt:
-                            payload["system"] = [{"text": system_prompt}]
-
-                    body = json.dumps(payload)
-                else: 
+                # Logic for Anthropic models on Bedrock
+                if "anthropic" in model_id_to_invoke:
+                    messages = [{'role': msg['role'], 'content': msg['content']} for msg in history]
+                    messages.append({'role': 'user', 'content': prompt})
+                    body = json.dumps({
+                        "anthropic_version": "bedrock-2023-05-31", 
+                        "max_tokens": 4096, 
+                        "system": system_prompt, 
+                        "messages": messages
+                    })
+                # Logic for modern Amazon models (like Nova) on Bedrock
+                elif "amazon.nova" in model_id_to_invoke:
+                    messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history]
+                    messages.append({"role": "user", "content": [{"text": prompt}]})
+                    body_dict = {
+                        "messages": messages, 
+                        "inferenceConfig": {"maxTokens": 4096, "temperature": 0.7, "topP": 0.9}
+                    }
+                    if system_prompt:
+                        body_dict["system"] = [{"text": system_prompt}]
+                    body = json.dumps(body_dict)
+                # Fallback logic for legacy Amazon models (like Titan)
+                else:
                     text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history]) + f"user: {prompt}\n\nassistant:"
                     body = json.dumps({
                         "inputText": text_prompt, 
@@ -272,13 +254,16 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
                 response_body = json.loads(response.get('body').read())
 
-                # --- DEFINITIVE FIX: Use symmetrical logic for response parsing ---
-                if is_legacy_titan_model:
-                    response_text = response_body.get('results')[0].get('outputText')
-                else:
-                    # This now correctly handles Anthropic, Meta, and modern Amazon models like Nova
+                # Apply the corresponding response parsing logic
+                if "anthropic" in model_id_to_invoke:
                     response_text = response_body.get('content')[0].get('text')
+                elif "amazon.nova" in model_id_to_invoke:
+                    response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
+                else:
+                    response_text = response_body.get('results')[0].get('outputText')
                 
+                # --- DEFINITIVE FIX END ---
+
                 llm_logger.info(full_log_message)
                 llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
                 return response_text, input_tokens, output_tokens
