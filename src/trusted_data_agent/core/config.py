@@ -12,6 +12,9 @@ class AppConfig:
     CURRENT_MODEL = None
     CURRENT_AWS_REGION = None
     CURRENT_MODEL_PROVIDER_IN_PROFILE = None
+    # --- NEW: Add global retry settings ---
+    LLM_API_MAX_RETRIES = 5
+    LLM_API_BASE_DELAY = 2 # The base delay in seconds for exponential backoff
 
 APP_CONFIG = AppConfig()
 

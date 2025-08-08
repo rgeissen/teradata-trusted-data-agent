@@ -71,8 +71,9 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
     response_text = ""
     input_tokens, output_tokens = 0, 0
     
-    max_retries = 3
-    base_delay = 2
+    # --- MODIFIED: Use global configuration for retry logic ---
+    max_retries = APP_CONFIG.LLM_API_MAX_RETRIES
+    base_delay = APP_CONFIG.LLM_API_BASE_DELAY
     
     for attempt in range(max_retries):
         try:

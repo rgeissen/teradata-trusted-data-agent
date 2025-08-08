@@ -840,19 +840,62 @@ class PlanExecutor:
         yield _format_sse({"step": "Thinking about the next action...", "details": "Adaptive column iteration complete. Resuming main plan."})
         async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
             yield event
+    
+    def _build_just_in_time_context_prompt(self) -> str:
+        """
+        Builds a dynamic, ephemeral context block to remind the LLM of its
+        current position within a single or nested loop.
+        """
+        if not self.context_stack:
+            return ""
+
+        context_lines = []
+        if len(self.context_stack) > 1:
+            context_lines.append("You are executing a nested plan.")
+        else:
+            context_lines.append("You are executing a plan that iterates over a list.")
+
+        for i, context in enumerate(self.context_stack):
+            context_type = context['type'].replace('_name', '').capitalize()
+            prefix = f"{'  ' * i}- **Loop ({context_type}s)**:"
+            
+            current_item = "N/A"
+            if 0 <= context['index'] < len(context['list']):
+                current_item = f"`{context['list'][context['index']]}` (Item {context['index'] + 1} of {len(context['list'])})"
+            
+            context_lines.append(f"{prefix}")
+            context_lines.append(f"{'  ' * (i+1)}- **Current Item**: {current_item}")
+
+        final_instruction = "Your immediate task is to continue the sub-plan for the **innermost current item**."
+        if len(self.context_stack) == 1:
+            final_instruction = "Your immediate task is to continue with the sub-plan for the **current item**. Do not advance to the next item until all steps for the current item are complete."
+
+        return (
+            "\n--- **CURRENT LOOP STATE** ---\n"
+            + "\n".join(context_lines) + "\n"
+            + final_instruction + "\n"
+            "---------------------------\n"
+        )
 
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None):
+        just_in_time_context = self._build_just_in_time_context_prompt()
+        
         prompt_for_next_step = "" 
         
         if self.active_prompt_plan:
             app_logger.info("Applying forceful, plan-aware reasoning for next step.")
+            # --- MODIFIED: Add the "Tool-First" critical rule for workflows ---
             prompt_for_next_step = (
                 "You are executing a multi-step plan. Your primary goal is to follow this plan sequentially to completion.\n\n"
+                "--- **NEW CRITICAL RULE: TOOL-FIRST EXECUTION** ---\n"
+                "You are currently executing a multi-step plan. To complete the next step, you **MUST** prioritize using a direct `tool_name` call. Only if no single tool can accomplish the task should you consider calling another `prompt_name`. Calling another prompt is a sub-routine and should be avoided if a tool can provide the needed information directly.\n"
+                "--------------------------------------------------\n\n"
                 f"--- ORIGINAL PLAN ---\n{self.active_prompt_plan}\n\n"
+                f"{just_in_time_context}" 
                 "--- CURRENT STATE ---\n"
                 f"- You have just received the result of the last action, which is in the conversation history below.\n\n"
                 "--- YOUR TASK: EXECUTE THE *NEXT* STEP ---\n"
-                "1. **Analyze your history and the ORIGINAL PLAN.** Determine the single next instruction in the sequence. **You MUST NOT repeat steps that you have already successfully completed.**\n"
+                "1. **Analyze your history, the LOOP STATE, and the ORIGINAL PLAN.** Determine the single next instruction in the sequence. **You MUST NOT repeat steps that you have already successfully completed for the current item.**\n"
                 "2. **Execute only that next instruction.**\n"
                 "   - If the next step is a tool call, your response **MUST** be a single JSON block for that tool call.\n"
                 "   - If you have completed all tool calls and the final step is to generate the summary, your response **MUST** start with `FINAL_ANSWER:`.\n\n"
