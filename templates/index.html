@@ -1262,7 +1262,7 @@
                                         metricsEl.innerHTML = `(LLM Call: ${eventData.statement_input.toLocaleString()} in / ${eventData.statement_output.toLocaleString()} out)`;
                                         metricsEl.classList.remove('hidden');
                                     }
-                                }
+                                 }
                             } else if (eventName === 'request_user_input') {
                                 updateStatusWindow({ step: "Action Required", details: "Waiting for user to correct parameters.", type: 'workaround' });
                                 toggleLoading(false);
@@ -1327,7 +1327,7 @@
                     <p>${resource.description}</p>
                     <div class="flex justify-end items-center gap-x-2">
                         <button class="view-prompt-button px-3 py-1 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 transition-colors">Prompt</button>
-                        <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors">Run</button>
+                        <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors" disabled title="Execution of prompts without arguments is disabled.">Run</button>
                     </div>
                 </div>
                 `;
@@ -1345,7 +1345,10 @@
                 const runButton = detailsEl.querySelector('.run-prompt-button');
                 runButton.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    openPromptModal(resource);
+                    // Do not open the modal if the button is disabled
+                    if (!runButton.disabled) {
+                        openPromptModal(resource);
+                    }
                 });
 
                 const viewButton = detailsEl.querySelector('.view-prompt-button');
