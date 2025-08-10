@@ -62,7 +62,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         STATE['tool_scopes'] = classify_tool_scopes(loaded_tools)
         
-        # --- MODIFIED: Filter out disabled tools for the LLM's context ---
         disabled_tools_list = STATE.get("disabled_tools", [])
         enabled_tools = [t for t in loaded_tools if t.name not in disabled_tools_list]
 
@@ -82,7 +81,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         
         STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
         
-        # --- MODIFIED: Use all loaded tools for categorization, not just enabled ones ---
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
         categorization_prompt = (
             "You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. "
@@ -102,7 +100,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         cleaned_str = match.group(0)
         categorized_tools = json.loads(cleaned_str)
 
-        # --- MODIFIED: Add a 'disabled' flag for the UI when structuring tools ---
         STATE['structured_tools'] = {}
         for category, tool_names in categorized_tools.items():
             tool_list = []
@@ -148,11 +145,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 "\n2. DO NOT include ```json markdown wrappers, conversational text, or any explanations."
                 "\n3. The JSON keys MUST be the category names."
                 "\n4. The JSON values MUST be an array of the prompt names."
-                "\n\n**EXAMPLE OUTPUT:**"
-                "\n{"
-                "\n  \"Testing Suite\": [\"test_dbaTools\", \"test_secTools\"],"
-                "\n  \"Database Administration\": [\"dba_tableArchive\", \"dba_databaseLineage\"]"
-                "\n}"
                 f"\n\n--- Prompt List to Categorize ---\n{prompt_list_for_prompt}"
             )
 
@@ -187,26 +179,42 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
 
 async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
+    """
+    Corrects common LLM parameter hallucinations by translating between
+    canonical names (e.g., 'database_name') and tool-specific aliases (e.g., 'db_name').
+    """
     mcp_tools = STATE.get('mcp_tools', {})
-    llm_instance = STATE.get('llm')
     tool_name = command.get("tool_name")
     if not tool_name or tool_name not in mcp_tools:
         return command
 
     args = command.get("arguments", {})
     tool_spec = mcp_tools[tool_name]
+    spec_arg_names = set(tool_spec.args.keys() if isinstance(tool_spec.args, dict) else [])
     
-    spec_args_dict = tool_spec.args if isinstance(tool_spec.args, dict) else {}
-    spec_arg_names = set(spec_args_dict.keys())
-
     corrected_args = args.copy()
+    
+    # --- FIX: New, more robust aliasing logic ---
+    # Create a reverse map for easy lookup (alias -> canonical)
+    reverse_alias_map = {alias: canon for canon, aliases in PARAMETER_ALIASES.items() for alias in aliases}
+
+    # First pass: Convert any provided aliases to their canonical form
+    for arg_name in list(corrected_args.keys()):
+        if arg_name in reverse_alias_map:
+            canonical_name = reverse_alias_map[arg_name]
+            if canonical_name not in corrected_args:
+                app_logger.info(f"SHIM APPLIED (Pre-Correction): Translating provided alias '{arg_name}' to canonical '{canonical_name}' for tool '{tool_name}'.")
+                corrected_args[canonical_name] = corrected_args.pop(arg_name)
+
+    # Second pass: Check if the tool spec requires an alias and translate if necessary
     for canonical_name, aliases in PARAMETER_ALIASES.items():
-        if canonical_name in spec_arg_names and canonical_name not in corrected_args:
+        if canonical_name in corrected_args:
+            # Check if the tool spec uses an alias instead of the canonical name
             for alias in aliases:
-                if alias in corrected_args:
-                    app_logger.info(f"SHIM APPLIED: Translating parameter alias '{alias}' to '{canonical_name}' for tool '{tool_name}'.")
-                    corrected_args[canonical_name] = corrected_args.pop(alias)
-                    break 
+                if alias in spec_arg_names and alias not in corrected_args:
+                    app_logger.info(f"SHIM APPLIED (Post-Correction): Translating canonical '{canonical_name}' to required alias '{alias}' for tool '{tool_name}'.")
+                    corrected_args[alias] = corrected_args.pop(canonical_name)
+                    break # Stop after the first matching alias is found
     
     command['arguments'] = corrected_args
     return command

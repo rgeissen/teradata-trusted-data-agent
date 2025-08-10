@@ -25,6 +25,7 @@ class WorkflowManager:
     """
     def __init__(self, prompt_text: str, arguments: dict):
         self.steps = self._parse_steps(prompt_text)
+        # --- FIX: Start execution from Phase 1, treating Phase 0 as declarative ---
         self.current_step_index = 0 if self.steps and "Phase 0" in self.steps[0].get("title", "") else -1
         self.arguments = arguments
         app_logger.info(f"WorkflowManager initialized with {len(self.steps)} steps. Starting at index {self.current_step_index + 1}.")
@@ -52,10 +53,8 @@ class WorkflowManager:
     def _find_tool_in_step(self, step_content: str) -> str | None:
         """
         Finds an explicitly mentioned tool in the step's content.
-        This version makes the backticks around the tool name optional to be more robust.
         """
-        # --- FIX: Made backticks optional in the regex ---
-        tool_match = re.search(r"Use the `?(\w+)`?\sfunction", step_content)
+        tool_match = re.search(r"Use the `(\w+)` function", step_content)
         return tool_match.group(1) if tool_match else None
 
     def get_next_action(self) -> dict | None:
