@@ -117,6 +117,8 @@ This structure separates concerns, making it easier to navigate and extend the a
 
 * **Dynamic Capability Loading:** Automatically discovers and displays all available **Tools**, **Prompts**, and **Resources** from the connected MCP Server.
 
+* **Dynamic Capability Management:** Enable or disable any MCP Tool or Prompt directly from the UI. Disabled capabilities are immediately hidden from the agent's context, allowing for safe testing and phased rollouts of new features without requiring a server restart. This provides fine-grained control over the agent's available functions at runtime.
+
 * **Rich Data Rendering:** Intelligently formats and displays various data types, including query results in interactive tables and SQL DDL in highlighted code blocks.
 
 * **Integrated Charting Engine:** Data visualization capabilities are enabled by default, allowing the agent to render charts based on query results.

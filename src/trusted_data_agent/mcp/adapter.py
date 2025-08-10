@@ -42,23 +42,6 @@ VIZ_TOOL_DEFINITION = {
 }
 
 
-def _patch_legacy_tool_definitions(tools: list):
-    LEGACY_QUALITY_TOOLS = [
-        "qlty_missingValues", "qlty_negativeValues", "qlty_distinctCategories",
-        "qlty_standardDeviation", "qlty_columnSummary", "qlty_univariateStatistics",
-        "qlty_rowsWithMissingValues"
-    ]
-
-    for tool in tools:
-        if tool.name in LEGACY_QUALITY_TOOLS:
-            if "db_name" not in tool.args:
-                app_logger.info(f"PATCHING TOOL DEFINITION: Adding optional 'db_name' to '{tool.name}'.")
-                tool.args["db_name"] = {
-                    "type": "string",
-                    "description": "Optional: The name of the database where the table resides. If not provided, the default database is used.",
-                    "required": False
-                }
-
 async def load_and_categorize_teradata_resources(STATE: dict):
     mcp_client = STATE.get('mcp_client')
     llm_instance = STATE.get('llm')
@@ -68,7 +51,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
     async with mcp_client.session("teradata_mcp_server") as temp_session:
         app_logger.info("--- Loading Teradata tools and prompts... ---")
         loaded_tools = await load_mcp_tools(temp_session)
-        _patch_legacy_tool_definitions(loaded_tools)
 
         class SimpleTool:
             def __init__(self, **kwargs):
@@ -80,8 +62,12 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         STATE['tool_scopes'] = classify_tool_scopes(loaded_tools)
         
+        # --- MODIFIED: Filter out disabled tools for the LLM's context ---
+        disabled_tools_list = STATE.get("disabled_tools", [])
+        enabled_tools = [t for t in loaded_tools if t.name not in disabled_tools_list]
+
         tool_details_list = []
-        for tool in loaded_tools:
+        for tool in enabled_tools:
             tool_str = f"- `{tool.name}`: {tool.description}"
             args_dict = tool.args if isinstance(tool.args, dict) else {}
             if args_dict:
@@ -96,6 +82,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         
         STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
         
+        # --- MODIFIED: Use all loaded tools for categorization, not just enabled ones ---
         tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
         categorization_prompt = (
             "You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. "
@@ -114,7 +101,21 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             raise ValueError(f"LLM failed to return a valid JSON for tool categorization. Response: '{categorized_tools_str}'")
         cleaned_str = match.group(0)
         categorized_tools = json.loads(cleaned_str)
-        STATE['structured_tools'] = {category: [{"name": name, "description": STATE['mcp_tools'][name].description} for name in tool_names if name in STATE['mcp_tools']] for category, tool_names in categorized_tools.items()}
+
+        # --- MODIFIED: Add a 'disabled' flag for the UI when structuring tools ---
+        STATE['structured_tools'] = {}
+        for category, tool_names in categorized_tools.items():
+            tool_list = []
+            for name in tool_names:
+                if name in STATE['mcp_tools']:
+                    tool_obj = STATE['mcp_tools'][name]
+                    is_disabled = name in disabled_tools_list
+                    tool_list.append({
+                        "name": tool_obj.name,
+                        "description": tool_obj.description,
+                        "disabled": is_disabled
+                    })
+            STATE['structured_tools'][category] = tool_list
 
         loaded_prompts = []
         try:
@@ -126,8 +127,18 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
         if loaded_prompts:
             STATE['mcp_prompts'] = {prompt.name: prompt for prompt in loaded_prompts}
-            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description or 'No description available.'}" for p in loaded_prompts])
             
+            disabled_prompts_list = STATE.get("disabled_prompts", [])
+            enabled_prompts = [
+                p for p in loaded_prompts 
+                if p.name not in disabled_prompts_list
+            ]
+            
+            if enabled_prompts:
+                STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description or 'No description available.'}" for p in enabled_prompts])
+            else:
+                STATE['prompts_context'] = "--- No Prompts Available ---"
+
             prompt_list_for_prompt = "\n".join([f"- {p.name}: {p.description or 'No description available.'}" for p in loaded_prompts])
             
             categorization_prompt_for_prompts = (
@@ -162,10 +173,12 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 for name in prompt_names:
                     if name in STATE['mcp_prompts']:
                         prompt_obj = STATE['mcp_prompts'][name]
+                        is_disabled = name in disabled_prompts_list
                         prompt_list.append({
                             "name": prompt_obj.name,
                             "description": prompt_obj.description or "No description available.",
-                            "arguments": [arg.model_dump() for arg in prompt_obj.arguments]
+                            "arguments": [arg.model_dump() for arg in prompt_obj.arguments],
+                            "disabled": is_disabled
                         })
                 STATE['structured_prompts'][category] = prompt_list
         else:

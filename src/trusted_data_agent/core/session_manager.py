@@ -2,12 +2,34 @@
 import uuid
 from datetime import datetime
 
+# --- NEW: Import genai for type hinting ---
+import google.generativeai as genai
+
 _SESSIONS = {}
 
-def create_session(system_prompt: str, chat_object: any) -> str:
+# --- MODIFIED: Updated function signature and logic ---
+def create_session(system_prompt_template: str, charting_intensity: str, provider: str, llm_instance: any) -> str:
     session_id = str(uuid.uuid4())
+    
+    chat_object = None
+    # Google provider requires starting the chat with a history to set the system prompt.
+    # Other providers handle the system prompt per-call, so we just need an empty list.
+    if provider == "Google":
+        # NOTE: The actual system prompt isn't sent here anymore. 
+        # We send a placeholder because the library requires it, but the real,
+        # dynamically-built prompt will be sent with each user message.
+        initial_history = [
+            {"role": "user", "parts": [{"text": "You are a helpful assistant."}]},
+            {"role": "model", "parts": [{"text": "Understood."}]}
+        ]
+        if isinstance(llm_instance, genai.GenerativeModel):
+             chat_object = llm_instance.start_chat(history=initial_history)
+    else:
+        chat_object = []
+
     _SESSIONS[session_id] = {
-        "system_prompt": system_prompt,
+        "system_prompt_template": system_prompt_template,
+        "charting_intensity": charting_intensity,
         "generic_history": [],
         "chat_object": chat_object,
         "name": "New Chat",

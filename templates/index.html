@@ -720,6 +720,8 @@
                 <h3 id="system-prompt-popup-title" class="text-xl font-bold header-title">System Prompt Loaded</h3>
             </div>
             <div class="flex-1 w-full p-3 bg-gray-800/80 border border-gray-600 rounded-md overflow-y-auto">
+                <!-- MODIFIED: Container for disabled capabilities moved to the top -->
+                <div id="disabled-capabilities-container" class="mb-4"></div>
                 <pre id="system-prompt-popup-text" class="font-mono text-sm whitespace-pre-wrap"></pre>
             </div>
             <div class="flex justify-between items-center mt-4">
@@ -731,7 +733,6 @@
         </div>
     </div>
     
-    <!-- NEW: Modal to view prompt content -->
     <div id="view-prompt-modal-overlay" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 hidden opacity-0">
         <div id="view-prompt-modal-content" class="glass-panel rounded-xl shadow-2xl w-full max-w-3xl p-6 transform scale-95 opacity-0 flex flex-col" style="height: 80vh;">
             <div class="flex justify-between items-center mb-4">
@@ -847,6 +848,7 @@
         const systemPromptPopupTitle = document.getElementById('system-prompt-popup-title');
         const systemPromptPopupText = document.getElementById('system-prompt-popup-text');
         const systemPromptPopupClose = document.getElementById('system-prompt-popup-close');
+        const disabledCapabilitiesContainer = document.getElementById('disabled-capabilities-container');
 
         const chatModalButton = document.getElementById('chat-modal-button');
         const chatModalOverlay = document.getElementById('chat-modal-overlay');
@@ -856,7 +858,6 @@
         const chatModalInput = document.getElementById('chat-modal-input');
         const chatModalLog = document.getElementById('chat-modal-log');
         
-        // --- NEW: View Prompt Modal elements ---
         const viewPromptModalOverlay = document.getElementById('view-prompt-modal-overlay');
         const viewPromptModalContent = document.getElementById('view-prompt-modal-content');
         const viewPromptModalTitle = document.getElementById('view-prompt-modal-title');
@@ -1310,27 +1311,113 @@
             }
         }
 
+        async function togglePrompt(promptName, isDisabled, buttonEl) {
+            try {
+                const res = await fetch('/prompt/toggle_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: promptName, disabled: isDisabled })
+                });
+
+                if (!res.ok) {
+                    throw new Error('Server responded with an error.');
+                }
+
+                for (const category in resourceData.prompts) {
+                    const prompt = resourceData.prompts[category].find(p => p.name === promptName);
+                    if (prompt) {
+                        prompt.disabled = isDisabled;
+                        break;
+                    }
+                }
+                
+                const promptItem = document.getElementById(`resource-prompts-${promptName}`);
+                const runButton = promptItem.querySelector('.run-prompt-button');
+                
+                promptItem.classList.toggle('opacity-60', isDisabled);
+                promptItem.title = isDisabled ? 'This prompt is disabled and will not be used by the agent.' : '';
+                runButton.disabled = isDisabled;
+                runButton.title = isDisabled ? 'This prompt is disabled.' : 'Run this prompt.';
+
+                buttonEl.innerHTML = isDisabled ? 
+                    `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074L3.707 2.293zM10 12a2 2 0 110-4 2 2 0 010 4z" clip-rule="evenodd" /><path d="M2 10s3.939 4 8 4 8-4 8-4-3.939-4-8-4-8 4-8 4zm13.707 4.293a1 1 0 00-1.414-1.414L12.586 14.6A8.007 8.007 0 0110 16c-4.478 0-8.268-2.943-9.542-7 .946-2.317 2.83-4.224 5.166-5.447L2.293 1.293A1 1 0 00.879 2.707l14 14a1 1 0 001.414 0z" /></svg>` :
+                    `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" /></svg>`;
+                
+                updatePromptsTabCounter();
+
+            } catch (error) {
+                console.error(`Failed to toggle prompt ${promptName}:`, error);
+            }
+        }
+
+        async function toggleTool(toolName, isDisabled, buttonEl) {
+            try {
+                const res = await fetch('/tool/toggle_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: toolName, disabled: isDisabled })
+                });
+
+                if (!res.ok) {
+                    throw new Error('Server responded with an error.');
+                }
+
+                for (const category in resourceData.tools) {
+                    const tool = resourceData.tools[category].find(t => t.name === toolName);
+                    if (tool) {
+                        tool.disabled = isDisabled;
+                        break;
+                    }
+                }
+                
+                const toolItem = document.getElementById(`resource-tools-${toolName}`);
+                toolItem.classList.toggle('opacity-60', isDisabled);
+                toolItem.title = isDisabled ? 'This tool is disabled and will not be used by the agent.' : '';
+
+                buttonEl.innerHTML = isDisabled ? 
+                    `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074L3.707 2.293zM10 12a2 2 0 110-4 2 2 0 010 4z" clip-rule="evenodd" /><path d="M2 10s3.939 4 8 4 8-4 8-4-3.939-4-8-4-8 4-8 4zm13.707 4.293a1 1 0 00-1.414-1.414L12.586 14.6A8.007 8.007 0 0110 16c-4.478 0-8.268-2.943-9.542-7 .946-2.317 2.83-4.224 5.166-5.447L2.293 1.293A1 1 0 00.879 2.707l14 14a1 1 0 001.414 0z" /></svg>` :
+                    `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" /></svg>`;
+                
+                updateToolsTabCounter();
+
+            } catch (error) {
+                console.error(`Failed to toggle tool ${toolName}:`, error);
+            }
+        }
+
         function createResourceItem(resource, type) {
             const detailsEl = document.createElement('details');
             detailsEl.id = `resource-${type}-${resource.name}`;
             detailsEl.className = 'resource-item bg-gray-800/50 rounded-lg border border-gray-700/60';
             
-            let contentHTML = `
-                <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60">
-                    <p>${resource.description}</p>
-                </div>
-            `;
-            
+            if (resource.disabled) {
+                detailsEl.classList.add('opacity-60');
+                detailsEl.title = `This ${type.slice(0, -1)} is disabled and will not be used by the agent.`;
+            }
+
+            const toggleIcon = resource.disabled ? 
+                `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074L3.707 2.293zM10 12a2 2 0 110-4 2 2 0 010 4z" clip-rule="evenodd" /><path d="M2 10s3.939 4 8 4 8-4 8-4-3.939-4-8-4-8 4-8 4zm13.707 4.293a1 1 0 00-1.414-1.414L12.586 14.6A8.007 8.007 0 0110 16c-4.478 0-8.268-2.943-9.542-7 .946-2.317 2.83-4.224 5.166-5.447L2.293 1.293A1 1 0 00.879 2.707l14 14a1 1 0 001.414 0z" /></svg>` :
+                `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" /></svg>`;
+
+            let contentHTML = '';
             if (type === 'prompts') {
+                const runButtonDisabledAttr = resource.disabled ? 'disabled' : '';
+                const runButtonTitle = resource.disabled ? 'This prompt is disabled.' : 'Run this prompt.';
                 contentHTML = `
                 <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60 space-y-3">
                     <p>${resource.description}</p>
                     <div class="flex justify-end items-center gap-x-2">
+                        <button class="prompt-toggle-button p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition-colors">${toggleIcon}</button>
                         <button class="view-prompt-button px-3 py-1 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 transition-colors">Prompt</button>
-                        <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors" disabled title="Execution of prompts without arguments is disabled.">Run</button>
+                        <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors" ${runButtonDisabledAttr} title="${runButtonTitle}">Run</button>
                     </div>
-                </div>
-                `;
+                </div>`;
+            } else { // For tools and resources
+                 contentHTML = `
+                <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60 flex justify-between items-center">
+                    <p>${resource.description}</p>
+                    ${type === 'tools' ? `<button class="tool-toggle-button p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition-colors">${toggleIcon}</button>` : ''}
+                </div>`;
             }
 
             detailsEl.innerHTML = `
@@ -1343,22 +1430,45 @@
             
             if (type === 'prompts') {
                 const runButton = detailsEl.querySelector('.run-prompt-button');
-                runButton.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    // Do not open the modal if the button is disabled
-                    if (!runButton.disabled) {
-                        openPromptModal(resource);
-                    }
-                });
-
+                runButton.addEventListener('click', (e) => { e.stopPropagation(); if (!runButton.disabled) openPromptModal(resource); });
                 const viewButton = detailsEl.querySelector('.view-prompt-button');
-                viewButton.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    openViewPromptModal(resource.name);
-                });
+                viewButton.addEventListener('click', (e) => { e.stopPropagation(); openViewPromptModal(resource.name); });
+                const toggleButton = detailsEl.querySelector('.prompt-toggle-button');
+                toggleButton.addEventListener('click', (e) => { e.stopPropagation(); togglePrompt(resource.name, !resource.disabled, toggleButton); });
+            } else if (type === 'tools') {
+                const toggleButton = detailsEl.querySelector('.tool-toggle-button');
+                if(toggleButton) {
+                    toggleButton.addEventListener('click', (e) => { e.stopPropagation(); toggleTool(resource.name, !resource.disabled, toggleButton); });
+                }
             }
 
             return detailsEl;
+        }
+
+        function updatePromptsTabCounter() {
+            const tabButton = document.querySelector('.resource-tab[data-type="prompts"]');
+            if (!tabButton || !resourceData.prompts) return;
+            let totalCount = 0;
+            let disabledCount = 0;
+            Object.values(resourceData.prompts).forEach(items => {
+                totalCount += items.length;
+                disabledCount += items.filter(item => item.disabled).length;
+            });
+            const disabledIndicator = disabledCount > 0 ? '*' : '';
+            tabButton.textContent = `Prompts (${totalCount})${disabledIndicator}`;
+        }
+
+        function updateToolsTabCounter() {
+            const tabButton = document.querySelector('.resource-tab[data-type="tools"]');
+            if (!tabButton || !resourceData.tools) return;
+            let totalCount = 0;
+            let disabledCount = 0;
+            Object.values(resourceData.tools).forEach(items => {
+                totalCount += items.length;
+                disabledCount += items.filter(item => item.disabled).length;
+            });
+            const disabledIndicator = disabledCount > 0 ? '*' : '';
+            tabButton.textContent = `Tools (${totalCount})${disabledIndicator}`;
         }
 
         async function loadResources(type) {
@@ -1377,10 +1487,17 @@
                 }
                 
                 tabButton.style.display = 'inline-block';
-                const totalCount = Object.values(data).reduce((acc, items) => acc + items.length, 0);
-                tabButton.textContent = `${typeCapitalized} (${totalCount})`;
-
                 resourceData[type] = data;
+
+                if (type === 'prompts') {
+                    updatePromptsTabCounter();
+                } else if (type === 'tools') {
+                    updateToolsTabCounter();
+                } else {
+                    const totalCount = Object.values(data).reduce((acc, items) => acc + items.length, 0);
+                    tabButton.textContent = `${typeCapitalized} (${totalCount})`;
+                }
+
                 categoriesContainer.innerHTML = '';
                 panelsContainer.innerHTML = '';
                 
@@ -1694,7 +1811,6 @@
             if (e.target === promptModalOverlay) closePromptModal();
         });
 
-        // --- NEW: Functions to handle the "View Prompt" modal ---
         async function openViewPromptModal(promptName) {
             viewPromptModalOverlay.classList.remove('hidden', 'opacity-0');
             viewPromptModalContent.classList.remove('scale-95', 'opacity-0');
@@ -1857,6 +1973,55 @@
             }
         }
 
+        function buildDisabledCapabilitiesList() {
+            const disabledTools = [];
+            if (resourceData.tools) {
+                Object.values(resourceData.tools).flat().forEach(tool => {
+                    if (tool.disabled) disabledTools.push(tool.name);
+                });
+            }
+
+            const disabledPrompts = [];
+            if (resourceData.prompts) {
+                Object.values(resourceData.prompts).flat().forEach(prompt => {
+                    if (prompt.disabled) disabledPrompts.push(prompt.name);
+                });
+            }
+
+            if (disabledTools.length === 0 && disabledPrompts.length === 0) {
+                disabledCapabilitiesContainer.style.display = 'none';
+                return '';
+            }
+            
+            disabledCapabilitiesContainer.style.display = 'block';
+
+            let html = `
+                <div class="border-b border-white/10 pb-4 mb-4">
+                    <h4 class="text-md font-bold text-yellow-300 mb-2">Inactive Capabilities</h4>
+                    <p class="text-xs text-gray-400 mb-3">The following are currently disabled for the agent (due to a necessary refinement on the MCP server). You can enable them for testing in the Capabilities Panel.</p>
+                    <div class="flex gap-x-8">
+            `;
+
+            if (disabledTools.length > 0) {
+                html += '<div><h5 class="font-semibold text-sm text-white mb-1">Tools</h5><ul class="list-disc list-inside text-xs text-gray-300 space-y-1">';
+                disabledTools.forEach(name => {
+                    html += `<li><code class="text-teradata-orange text-xs">${name}</code></li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            if (disabledPrompts.length > 0) {
+                html += '<div><h5 class="font-semibold text-sm text-white mb-1">Prompts</h5><ul class="list-disc list-inside text-xs text-gray-300 space-y-1">';
+                disabledPrompts.forEach(name => {
+                    html += `<li><code class="text-teradata-orange text-xs">${name}</code></li>`;
+                });
+                html += '</ul></div>';
+            }
+
+            html += '</div></div>';
+            return html;
+        }
+
         function openSystemPromptPopup() {
             const promptText = getSystemPromptForModel(currentProvider, currentModel);
             const isCustom = isPromptCustomForModel(currentProvider, currentModel);
@@ -1867,7 +2032,9 @@
                 systemPromptPopupTitle.innerHTML = `Default System Prompt Selected for: <code class="text-teradata-orange font-normal">${currentProvider}</code>`;
             }
 
+            disabledCapabilitiesContainer.innerHTML = buildDisabledCapabilitiesList();
             systemPromptPopupText.textContent = promptText || "Could not load system prompt.";
+            
             systemPromptPopupOverlay.classList.remove('hidden', 'opacity-0');
             systemPromptPopupContent.classList.remove('scale-95', 'opacity-0');
             

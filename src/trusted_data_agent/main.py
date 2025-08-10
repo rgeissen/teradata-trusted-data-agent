@@ -22,6 +22,8 @@ APP_STATE = {
     "structured_tools": {}, "structured_prompts": {}, "structured_resources": {}, "structured_charts": {},
     "tool_scopes": {},
     "tools_context": "--- No Tools Available ---", "prompts_context": "--- No Prompts Available ---", "charts_context": "--- No Charts Available ---",
+    "disabled_prompts": list(APP_CONFIG.INITIALLY_DISABLED_PROMPTS),
+    "disabled_tools": list(APP_CONFIG.INITIALLY_DISABLED_TOOLS)
 }
 
 # --- Custom log filter to suppress benign SSE connection warnings ---
@@ -98,6 +100,7 @@ if __name__ == "__main__":
 
     if args.all_models:
         APP_CONFIG.ALL_MODELS_UNLOCKED = True
+        # --- FIX: Removed the erroneous backslash before the closing quote ---
         print("\n--- DEV MODE: All models will be selectable. ---")
     
     # Charting is now enabled by default in config.py

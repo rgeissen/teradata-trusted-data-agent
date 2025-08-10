@@ -58,12 +58,10 @@ class PlanExecutor:
         self.tool_constraints_cache = {}
         self.globally_failed_tools = set()
         self.is_workflow = False
-        # --- AUTHORITATIVE CONTEXT: Initialize the context stack and structured data collection ---
         self.context_stack = []
         self.structured_collected_data = {}
 
 
-    # --- AUTHORITATIVE CONTEXT: New helper to classify the operational level of a tool ---
     def _get_context_level_for_tool(self, tool_name: str) -> str | None:
         """Determines if a tool operates at a 'database' or 'table' level."""
         tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
@@ -72,7 +70,6 @@ class PlanExecutor:
             return 'table' if scope in ['table', 'column'] else 'database'
         return None
 
-    # --- AUTHORITATIVE CONTEXT: New method to authoritatively manage the context stack ---
     def _update_and_manage_context_stack(self, command: dict, tool_result: dict | None = None):
         """
         Authoritatively manages the context stack based on LLM commands and tool results.
@@ -82,7 +79,6 @@ class PlanExecutor:
         args = command.get("arguments", {})
         tool_level = self._get_context_level_for_tool(tool_name)
 
-        # --- Pop contexts if the new command operates at a higher level ---
         while self.context_stack:
             top_context = self.context_stack[-1]
             top_level = top_context['type'].split('_name')[0] # 'database_name' -> 'database'
@@ -92,7 +88,6 @@ class PlanExecutor:
             else:
                 break
         
-        # --- Establish a new loop context if a list-generating tool was just run ---
         if tool_result and tool_result.get("status") == "success":
             results = tool_result.get("results", [])
             if isinstance(results, list) and results and isinstance(results[0], dict):
@@ -112,10 +107,9 @@ class PlanExecutor:
                     self.context_stack.append({
                         'type': new_context_type,
                         'list': list_values,
-                        'index': -1 # Start at -1, will be advanced to 0 on first use
+                        'index': -1 
                     })
 
-    # --- AUTHORITATIVE CONTEXT: New method to apply guardrails before execution ---
     def _apply_context_guardrail(self, command: dict) -> tuple[dict, list]:
         """
         Corrects or injects parameters into a command based on the authoritative context stack.
@@ -133,7 +127,6 @@ class PlanExecutor:
             "table_name": ["tbl_name", "object_name", "obj_name"]
         }
 
-        # --- Advance the loop index if the LLM signals to do so ---
         if self.context_stack and 'list' in self.context_stack[-1]:
             top_context = self.context_stack[-1]
             context_type = top_context['type']
@@ -152,21 +145,18 @@ class PlanExecutor:
                     app_logger.info(f"CONTEXT STACK: Advancing loop for '{context_type}' to index {next_index} ('{llm_provided_value}').")
                     top_context['index'] = next_index
 
-        # --- Forcefully inject/correct parameters from the stack's authoritative state ---
         for context in self.context_stack:
             context_type = context['type']
             aliases = param_aliases.get(context_type, [])
             
-            # Determine the correct value from the authoritative context
             correct_value = None
             if 'list' in context:
-                if context['index'] == -1: context['index'] = 0 # Handle first item in a new loop
+                if context['index'] == -1: context['index'] = 0 
                 if 0 <= context['index'] < len(context['list']):
                     correct_value = context['list'][context['index']]
             
-            if not correct_value: continue # This context isn't a loop or is finished
+            if not correct_value: continue 
 
-            # Find which key the LLM used, if any
             found_key = None
             llm_provided_value = None
             for key in [context_type] + aliases:
@@ -175,7 +165,6 @@ class PlanExecutor:
                     llm_provided_value = args[key]
                     break
             
-            # If the key is missing or the value is wrong, OVERRIDE it
             if not found_key or llm_provided_value != correct_value:
                 key_to_set = found_key or context_type
                 args[key_to_set] = correct_value
@@ -187,14 +176,12 @@ class PlanExecutor:
 
         return corrected_command, events_to_yield
     
-    # --- AUTHORITATIVE CONTEXT: New method to add data to the structured collection ---
     def _add_to_structured_data(self, tool_result: dict):
         """Adds tool results to a nested dictionary based on the current context."""
         if not self.context_stack:
             self.collected_data.append(tool_result)
             return
 
-        # Create a key based on the current context stack (e.g., "DB_A > Table1")
         context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
         
         if not context_key:
@@ -226,9 +213,6 @@ class PlanExecutor:
                             async for event in self._execute_date_range_orchestrator(date_param_name, date_phrase):
                                 yield event
                             continue
-                    
-                    async for event in self._intercept_and_correct_command():
-                        yield event
                     
                     tool_name = self.current_command.get("tool_name")
                     if tool_name in self.globally_failed_tools:
@@ -283,7 +267,8 @@ class PlanExecutor:
         )
         response_str, _, _ = await llm_handler.call_llm_api(
             self.dependencies['STATE']['llm'], classification_prompt, raise_on_error=True,
-            system_prompt_override="You are a JSON-only responding assistant."
+            system_prompt_override="You are a JSON-only responding assistant.",
+            dependencies=self.dependencies
         )
         try:
             data = json.loads(response_str)
@@ -314,7 +299,8 @@ class PlanExecutor:
         )
         range_response_str, _, _ = await llm_handler.call_llm_api(
             self.dependencies['STATE']['llm'], conversion_prompt, raise_on_error=True,
-            system_prompt_override="You are a JSON-only responding assistant."
+            system_prompt_override="You are a JSON-only responding assistant.",
+            dependencies=self.dependencies
         )
 
         try:
@@ -352,30 +338,6 @@ class PlanExecutor:
         self._add_to_structured_data(final_tool_output)
         self.state = AgentState.SUMMARIZING
         self.next_action_str = "FINAL_ANSWER: "
-
-    async def _intercept_and_correct_command(self):
-        if not self.current_command: return
-
-        tool_name = self.current_command.get("tool_name")
-        args = self.current_command.get("arguments", {})
-
-        if tool_name == "base_tableList":
-            app_logger.warning("INTERCEPTED: Faulty tool 'base_tableList'. Replacing with 'base_readQuery'.")
-            
-            db_name = args.get("db_name")
-            if not db_name:
-                raise ValueError("Cannot execute 'base_tableList' replacement: 'db_name' parameter is missing.")
-
-            corrected_sql = f"SELECT TableName FROM DBC.TablesV WHERE DatabaseName = '{db_name}'"
-            
-            self.current_command['tool_name'] = "base_readQuery"
-            self.current_command['arguments'] = {"sql": corrected_sql}
-            
-            yield _format_sse({
-                "step": "System Correction",
-                "details": f"Intercepted faulty 'base_tableList' tool. Replacing with a direct SQL query for '{db_name}'.",
-                "type": "workaround"
-            })
 
     def _enrich_arguments_from_history(self, prompt_text: str, arguments: dict) -> tuple[dict, list]:
         events_to_yield = []
@@ -516,7 +478,6 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
 
     async def _execute_standard_tool(self):
-        # --- AUTHORITATIVE CONTEXT: Apply guardrail to correct/inject parameters ---
         corrected_command, guardrail_events = self._apply_context_guardrail(self.current_command)
         for event in guardrail_events:
             yield event
@@ -533,7 +494,6 @@ class PlanExecutor:
         
         yield _format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
 
-        # --- AUTHORITATIVE CONTEXT: Update context stack based on the command and its result ---
         if self.is_workflow:
             self._update_and_manage_context_stack(self.current_command, tool_result)
 
@@ -562,7 +522,6 @@ class PlanExecutor:
             })
         else:
             tool_result_str = json.dumps({"tool_name": self.current_command.get("tool_name"), "tool_output": tool_result})
-            # --- AUTHORITATIVE CONTEXT: Use structured data collection for workflows ---
             if self.is_workflow:
                 self._add_to_structured_data(tool_result)
             else:
@@ -624,7 +583,8 @@ class PlanExecutor:
                 self.dependencies['STATE']['llm'], 
                 prompt, 
                 raise_on_error=True,
-                system_prompt_override="You are a JSON-only responding assistant."
+                system_prompt_override="You are a JSON-only responding assistant.",
+                dependencies=self.dependencies
             )
 
             try:
@@ -688,7 +648,6 @@ class PlanExecutor:
             app_logger.info(f"Executing column iteration on a pre-defined subset of {len(column_subset)} columns.")
         else:
             reused_metadata = False
-            # --- AUTHORITATIVE CONTEXT: Check structured data first for column metadata ---
             context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
             if context_key and context_key in self.structured_collected_data:
                 for item in reversed(self.structured_collected_data[context_key]):
@@ -713,7 +672,6 @@ class PlanExecutor:
                 if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
                     raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
                 all_columns_metadata = cols_result.get('results', [])
-                # Also add this to the structured data
                 self._add_to_structured_data(cols_result)
 
 
@@ -884,7 +842,6 @@ class PlanExecutor:
         
         if self.active_prompt_plan:
             app_logger.info("Applying forceful, plan-aware reasoning for next step.")
-            # --- MODIFIED: Add the "Tool-First" critical rule for workflows ---
             prompt_for_next_step = (
                 "You are executing a multi-step plan. Your primary goal is to follow this plan sequentially to completion.\n\n"
                 "--- **NEW CRITICAL RULE: TOOL-FIRST EXECUTION** ---\n"
@@ -921,7 +878,10 @@ class PlanExecutor:
         
         yield _format_sse({"step": "Calling LLM"})
 
-        self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id)
+        # --- MODIFIED: Pass the dependencies dictionary to the handler ---
+        self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
+            self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id, dependencies=self.dependencies
+        )
         
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
@@ -939,7 +899,6 @@ class PlanExecutor:
 
     def _prepare_data_for_final_summary(self) -> str:
         summary_lines = []
-        # --- AUTHORITATIVE CONTEXT: Use the structured data for summary preparation ---
         data_to_summarize = self.structured_collected_data if self.is_workflow and self.structured_collected_data else {" ungrouped": self.collected_data}
 
         for context_key, items in data_to_summarize.items():
@@ -962,9 +921,7 @@ class PlanExecutor:
         return "\n".join(summary_lines)
 
     async def _handle_summarizing(self):
-        # --- AUTHORITATIVE CONTEXT: Consolidate all collected data for the formatter ---
         if self.is_workflow and self.structured_collected_data:
-            # If we used the structured collector, it becomes the final data source
             final_collected_data = self.structured_collected_data
         else:
             final_collected_data = self.collected_data
@@ -1008,7 +965,10 @@ class PlanExecutor:
                 "Example response: {\"summary\": \"The data quality assessment for the database is complete. DDL was retrieved for three tables, and various quality checks were performed...\"}"
             )
             yield _format_sse({"step": "Calling LLM"})
-            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+            # --- MODIFIED: Pass the dependencies dictionary to the handler ---
+            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
+                self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies
+            )
             
             updated_session = session_manager.get_session(self.session_id)
             if updated_session:
@@ -1060,7 +1020,10 @@ class PlanExecutor:
                 "The line chart below visualizes the number of requests over time, broken down by workload type, to illustrate these trends."
             )
             yield _format_sse({"step": "Calling LLM"})
-            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(self.dependencies['STATE']['llm'], final_prompt, self.session_id)
+            # --- MODIFIED: Pass the dependencies dictionary to the handler ---
+            final_llm_response, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
+                self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies
+            )
             
             updated_session = session_manager.get_session(self.session_id)
             if updated_session:

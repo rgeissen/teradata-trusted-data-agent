@@ -35,6 +35,81 @@ def set_dependencies(app_state):
     global STATE
     STATE = app_state
 
+def _regenerate_contexts():
+    """
+    Updates all capability contexts ('tools_context', 'prompts_context', etc.)
+    in the global STATE based on the current disabled lists and prints the
+    current status to the console for debugging.
+    """
+    print("\n--- Regenerating Agent Capability Contexts ---")
+    
+    # Regenerate Tool Contexts
+    if STATE.get('mcp_tools'):
+        all_tools = list(STATE['mcp_tools'].values())
+        disabled_tools_list = STATE.get("disabled_tools", [])
+        enabled_tools = [t for t in all_tools if t.name not in disabled_tools_list]
+        
+        print(f"\n[ Tools Status ]")
+        print(f"  - Active: {len(enabled_tools)}")
+        for tool in enabled_tools:
+            print(f"    - {tool.name}")
+        print(f"  - Inactive: {len(disabled_tools_list)}")
+        for tool_name in disabled_tools_list:
+            print(f"    - {tool_name}")
+
+        tool_details_list = []
+        for tool in enabled_tools:
+            tool_str = f"- `{tool.name}`: {tool.description}"
+            args_dict = tool.args if isinstance(tool.args, dict) else {}
+            if args_dict:
+                tool_str += "\n  - Arguments:"
+                for arg_name, arg_details in args_dict.items():
+                    arg_type = arg_details.get('type', 'any')
+                    is_required = arg_details.get('required', False)
+                    req_str = "required" if is_required else "optional"
+                    arg_desc = arg_details.get('description', 'No description.')
+                    tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+            tool_details_list.append(tool_str)
+        
+        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
+        app_logger.info(f"Regenerated LLM tool context. {len(enabled_tools)} tools are active.")
+
+        if STATE.get('structured_tools'):
+            for category, tool_list in STATE['structured_tools'].items():
+                for tool_info in tool_list:
+                    tool_info['disabled'] = tool_info['name'] in disabled_tools_list
+            app_logger.info("Updated 'disabled' status in structured tools for the UI.")
+
+    # Regenerate Prompt Contexts
+    if STATE.get('mcp_prompts'):
+        all_prompts = list(STATE['mcp_prompts'].values())
+        disabled_prompts_list = STATE.get("disabled_prompts", [])
+        enabled_prompts = [p for p in all_prompts if p.name not in disabled_prompts_list]
+        
+        print(f"\n[ Prompts Status ]")
+        print(f"  - Active: {len(enabled_prompts)}")
+        for prompt in enabled_prompts:
+            print(f"    - {prompt.name}")
+        print(f"  - Inactive: {len(disabled_prompts_list)}")
+        for prompt_name in disabled_prompts_list:
+            print(f"    - {prompt_name}")
+
+        if enabled_prompts:
+            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description or 'No description available.'}" for p in enabled_prompts])
+        else:
+            STATE['prompts_context'] = "--- No Prompts Available ---"
+        
+        app_logger.info(f"Regenerated LLM prompt context. {len(enabled_prompts)} prompts are active.")
+
+        if STATE.get('structured_prompts'):
+            for category, prompt_list in STATE['structured_prompts'].items():
+                for prompt_info in prompt_list:
+                    prompt_info['disabled'] = prompt_info['name'] in disabled_prompts_list
+            app_logger.info("Updated 'disabled' status in structured prompts for the UI.")
+    
+    print("\n" + "-"*44)
+
+
 @api_bp.route("/")
 async def index():
     """Serves the main HTML page."""
@@ -57,13 +132,12 @@ async def simple_chat():
         return jsonify({"error": "No message provided."}), 400
 
     try:
-        system_prompt = "You are a helpful assistant."
-        
         response_text, _, _ = await llm_handler.call_llm_api(
             llm_instance=STATE.get('llm'),
             prompt=message,
             chat_history=history,
-            system_prompt_override=system_prompt
+            system_prompt_override="You are a helpful assistant.",
+            dependencies={'STATE': STATE}
         )
         
         final_response = response_text.replace("FINAL_ANSWER:", "").strip()
@@ -121,6 +195,62 @@ async def get_prompts():
     """Returns the categorized list of MCP prompts."""
     if not STATE.get("mcp_client"): return jsonify({"error": "Not configured"}), 400
     return jsonify(STATE.get("structured_prompts", {}))
+
+@api_bp.route("/tool/toggle_status", methods=["POST"])
+async def toggle_tool_status():
+    """
+    Enables or disables a tool by adding/removing it from the runtime
+    'disabled_tools' list and immediately regenerates the agent's context.
+    """
+    data = await request.get_json()
+    tool_name = data.get("name")
+    is_disabled = data.get("disabled")
+
+    if not tool_name or is_disabled is None:
+        return jsonify({"status": "error", "message": "Missing 'name' or 'disabled' field."}), 400
+
+    disabled_tools_set = set(STATE.get("disabled_tools", []))
+
+    if is_disabled:
+        disabled_tools_set.add(tool_name)
+        app_logger.info(f"Disabling tool '{tool_name}' for agent use.")
+    else:
+        disabled_tools_set.discard(tool_name)
+        app_logger.info(f"Enabling tool '{tool_name}' for agent use.")
+    
+    STATE["disabled_tools"] = list(disabled_tools_set)
+    
+    _regenerate_contexts()
+
+    return jsonify({"status": "success", "message": f"Tool '{tool_name}' status updated."})
+
+@api_bp.route("/prompt/toggle_status", methods=["POST"])
+async def toggle_prompt_status():
+    """
+    Enables or disables a prompt by adding/removing it from the runtime
+    'disabled_prompts' list and immediately regenerates the agent's context.
+    """
+    data = await request.get_json()
+    prompt_name = data.get("name")
+    is_disabled = data.get("disabled")
+
+    if not prompt_name or is_disabled is None:
+        return jsonify({"status": "error", "message": "Missing 'name' or 'disabled' field."}), 400
+
+    disabled_prompts_set = set(STATE.get("disabled_prompts", []))
+
+    if is_disabled:
+        disabled_prompts_set.add(prompt_name)
+        app_logger.info(f"Disabling prompt '{prompt_name}' for agent use.")
+    else:
+        disabled_prompts_set.discard(prompt_name)
+        app_logger.info(f"Enabling prompt '{prompt_name}' for agent use.")
+    
+    STATE["disabled_prompts"] = list(disabled_prompts_set)
+    
+    _regenerate_contexts()
+
+    return jsonify({"status": "success", "message": f"Prompt '{prompt_name}' status updated."})
 
 @api_bp.route("/prompt/<prompt_name>", methods=["GET"])
 async def get_prompt_content(prompt_name):
@@ -180,18 +310,6 @@ async def get_session_history(session_id):
         return jsonify(response_data)
     return jsonify({"error": "Session not found"}), 404
 
-def get_full_system_prompt(base_prompt_text, charting_intensity_val):
-    """Constructs the final system prompt by injecting context."""
-    chart_instructions = CHARTING_INSTRUCTIONS.get(charting_intensity_val, CHARTING_INSTRUCTIONS['none'])
-    
-    final_system_prompt = base_prompt_text
-    final_system_prompt = final_system_prompt.replace("{charting_instructions}", chart_instructions)
-    final_system_prompt = final_system_prompt.replace("{tools_context}", STATE.get('tools_context'))
-    final_system_prompt = final_system_prompt.replace("{prompts_context}", STATE.get('prompts_context'))
-    final_system_prompt = final_system_prompt.replace("{charts_context}", "")
-    
-    return final_system_prompt
-
 @api_bp.route("/session", methods=["POST"])
 async def new_session():
     """Creates a new chat session."""
@@ -208,23 +326,16 @@ async def new_session():
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     
     data = await request.get_json()
-    system_prompt_from_client = data.get("system_prompt")
+    system_prompt_template = data.get("system_prompt")
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
 
     try:
-        final_system_prompt = get_full_system_prompt(system_prompt_from_client, charting_intensity)
-        
-        chat_object = None
-        if APP_CONFIG.CURRENT_PROVIDER == "Google":
-            initial_history = [
-                {"role": "user", "parts": [{"text": final_system_prompt}]},
-                {"role": "model", "parts": [{"text": "Understood. I will follow all instructions."}]}
-            ]
-            chat_object = STATE.get('llm').start_chat(history=initial_history)
-        elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama", "OpenAI"]:
-             chat_object = []
-
-        session_id = session_manager.create_session(final_system_prompt, chat_object)
+        session_id = session_manager.create_session(
+            system_prompt_template=system_prompt_template,
+            charting_intensity=charting_intensity,
+            provider=APP_CONFIG.CURRENT_PROVIDER,
+            llm_instance=STATE.get('llm')
+        )
         app_logger.info(f"Created new session: {session_id} for provider {APP_CONFIG.CURRENT_PROVIDER}.")
         return jsonify({"session_id": session_id, "name": "New Chat"})
     except Exception as e:
@@ -330,6 +441,9 @@ async def configure_services():
         
         APP_CONFIG.CHART_MCP_CONNECTED = True
 
+        # --- NEW: Call the context regeneration and logging function after successful setup ---
+        _regenerate_contexts()
+
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
 
     except (APIError, OpenAI_APIError, google_exceptions.PermissionDenied, ClientError, RuntimeError, Exception) as e:
@@ -377,7 +491,9 @@ async def ask_stream():
             
             yield _format_sse({"step": "Calling LLM"})
 
-            llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(STATE['llm'], user_input, session_id)
+            llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
+                STATE['llm'], user_input, session_id, dependencies={'STATE': STATE}
+            )
             
             updated_session = session_manager.get_session(session_id)
             if updated_session:

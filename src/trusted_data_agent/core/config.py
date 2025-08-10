@@ -12,9 +12,11 @@ class AppConfig:
     CURRENT_MODEL = None
     CURRENT_AWS_REGION = None
     CURRENT_MODEL_PROVIDER_IN_PROFILE = None
-    # --- NEW: Add global retry settings ---
     LLM_API_MAX_RETRIES = 5
     LLM_API_BASE_DELAY = 2 # The base delay in seconds for exponential backoff
+    INITIALLY_DISABLED_PROMPTS = ["qlty_databaseQuality"]
+    # --- NEW: Add a list of tools to be disabled at startup ---
+    INITIALLY_DISABLED_TOOLS = ["rag_executeWorkflow"]
 
 APP_CONFIG = AppConfig()
 
@@ -23,5 +25,4 @@ CERTIFIED_ANTHROPIC_MODELS = ["*claude-sonnet-4*"]
 CERTIFIED_AMAZON_MODELS = ["*amazon.nova-pro-v1*"]
 CERTIFIED_AMAZON_PROFILES = ["*amazon.nova-pro-v1*"]
 CERTIFIED_OLLAMA_MODELS = ["llama2"] 
-# --- NEW: Add a list for certified OpenAI models ---
 CERTIFIED_OPENAI_MODELS = ["*gpt-4.1"]
