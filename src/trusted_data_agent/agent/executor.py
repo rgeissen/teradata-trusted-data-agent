@@ -126,6 +126,7 @@ class PlanExecutor:
         self.last_tool_result_str = None
         self.context_stack = []
         self.structured_collected_data = {}
+        self.last_command_str = None
 
     def _get_context_level_for_tool(self, tool_name: str) -> str | None:
         tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
@@ -466,6 +467,23 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
             return
         
+        if command_str == self.last_command_str:
+            app_logger.warning(f"LOOP DETECTED: The LLM is trying to repeat the exact same command. Command: {command_str}")
+            error_message = f"Repetitive action detected. The agent tried to call the same tool with the same arguments twice in a row. This usually indicates the tool is not behaving as expected or the agent's plan is flawed."
+            tool_result_str = json.dumps({
+                "tool_input": json.loads(command_str), 
+                "tool_output": {"status": "error", "error_message": error_message}
+            })
+            yield _format_sse({"step": "System Error", "details": error_message, "type": "error"}, "tool_result")
+            
+            self.last_command_str = None 
+            
+            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                yield event
+            return
+        
+        self.last_command_str = command_str
+        
         try:
             command = json.loads(command_str)
         except (json.JSONDecodeError, KeyError) as e:
@@ -503,7 +521,24 @@ class PlanExecutor:
             arguments = command.get("arguments", {})
             enriched_arguments, events_to_yield = self._enrich_arguments_from_history(prompt_text, arguments)
             for event in events_to_yield: yield event
+            
+            required_placeholders = set(re.findall(r'{(\w+)}', prompt_text))
+            provided_keys = set(enriched_arguments.keys())
+            missing_args = required_placeholders - provided_keys
 
+            if missing_args:
+                app_logger.error(f"LLM failed to provide required arguments for prompt '{prompt_name}'. Missing: {missing_args}")
+                error_message = f"Prompt execution failed. The following required arguments were not provided: {list(missing_args)}"
+                tool_result_str = json.dumps({
+                    "tool_input": command, 
+                    "tool_output": {"status": "error", "error_message": error_message}
+                })
+                yield _format_sse({"step": "System Error", "details": error_message, "type": "error"}, "tool_result")
+                
+                async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                    yield event
+                return 
+            
             self.workflow_manager = WorkflowManager(prompt_text, enriched_arguments)
             self.is_workflow = True
             self.active_prompt_plan = prompt_text.format(**enriched_arguments)
@@ -739,19 +774,22 @@ class PlanExecutor:
                 "2.  **Fulfill the task.** If the task is to describe or analyze something, provide that analysis directly.\n"
                 "3.  Your response **MUST** start with `FINAL_ANSWER:`."
             )
+            final_prompt_to_llm = prompt_for_next_step
         else:
             prompt_for_next_step = (
-                "You have just received data from a tool call. Review the data and your instructions to decide the next step.\n\n"
-                "1.  **Analyze the Result:**\n"
-                "    -   If the `tool_output` shows `\"status\": \"error\"`, you MUST attempt to recover.\n\n"
-                "2.  **Consider a Chart:** Review the `--- Charting Rules ---` in your system prompt.\n\n"
-                "3.  **Choose Your Action:**\n"
-                "    -   If a chart is appropriate, call the chart-generation tool.\n"
-                "    -   If you need more information, call another tool.\n"
-                "    -   If you have all the information, provide the final answer starting with `FINAL_ANSWER:`."
+                f"You are an assistant that has just received data from a tool call. Your task is to decide if this data is enough to answer the user's original question, or if another step is needed.\n\n"
+                f"--- User's Original Question ---\n"
+                f"'{self.original_user_input}'\n\n"
+                f"--- Data from Last Tool Call ---\n"
+                f"{tool_result_str}\n\n"
+                "--- Your Decision Process ---\n"
+                "1.  **Analyze the Data:** Does the data above directly and completely answer the user's original question?\n"
+                "2.  **Choose Your Action:**\n"
+                "    -   If the data IS sufficient, your response **MUST** be a final answer to the user. Start your response with `FINAL_ANSWER:` and provide a brief summary.\n"
+                "    -   If the data is NOT sufficient and you need more information, call another tool or prompt by providing the appropriate JSON block.\n"
+                "    -   If the last tool call resulted in an error, you MUST attempt to recover.\n"
             )
-        
-        final_prompt_to_llm = f"{prompt_for_next_step}\n\nThe last tool execution returned: {tool_result_str}" if tool_result_str and not self.is_workflow else prompt_for_next_step
+            final_prompt_to_llm = prompt_for_next_step
         
         yield _format_sse({"step": "Calling LLM"})
 
@@ -791,79 +829,58 @@ class PlanExecutor:
 
     async def _handle_summarizing(self):
         final_collected_data = self.structured_collected_data if self.is_workflow and self.structured_collected_data else self.collected_data
-        llm_response_for_formatter = self.next_action_str
-        use_workflow_formatter = self.is_workflow
-
-        # --- FIX: Robustly parse FINAL_ANSWER from either JSON or plain text ---
-        summary_text = None
+        
+        final_summary_text = ""
+        # --- FIX: Add robust parsing for both JSON and plain text FINAL_ANSWER ---
         try:
-            # First, try to parse as JSON
-            json_match = re.search(r'\{.*\}', self.next_action_str, re.DOTALL)
+            # First, try to parse the response as a JSON object
+            json_match = re.search(r"\{.*\}", self.next_action_str, re.DOTALL)
             if json_match:
                 parsed_json = json.loads(json_match.group(0))
                 if "FINAL_ANSWER" in parsed_json:
-                    summary_text = parsed_json["FINAL_ANSWER"]
-        except json.JSONDecodeError:
-            # If JSON parsing fails, it's not a JSON string, so we ignore the error
+                    final_summary_text = parsed_json["FINAL_ANSWER"]
+        except (json.JSONDecodeError, TypeError):
+            # If it's not JSON or doesn't have the key, it will fall through to the next check
             pass
 
-        if summary_text is None:
-            # If it wasn't valid JSON with the right key, try the plain text regex
+        if not final_summary_text:
+            # Fallback to regex for plain text FINAL_ANSWER
             final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
             if final_answer_match:
-                summary_text = final_answer_match.group(1).strip()
+                final_summary_text = final_answer_match.group(1).strip()
 
-        if summary_text is not None:
-            # We successfully extracted a summary
-            if self.is_workflow:
-                llm_response_for_formatter = json.dumps({"summary": summary_text, "structured_data": final_collected_data})
-            else:
-                llm_response_for_formatter = summary_text
-                use_workflow_formatter = False
+        # --- END FIX ---
         
-        elif self.is_workflow:
-            yield _format_sse({"step": "Workflow finished, generating structured report..."})
+        if not final_summary_text and self.is_workflow:
+            yield _format_sse({"step": "Workflow finished, generating final summary..."})
             summarized_data_str = self._prepare_data_for_final_summary()
-            final_prompt = (
-                "You are a data analyst generating a final report from a multi-step workflow.\n\n"
-                f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
-                "--- YOUR TASK ---\n"
-                "Generate a final report in a single, raw JSON object with a `\"summary\"` key. "
-                "The summary should synthesize the findings from the data to answer the user's original request."
-            )
-            yield _format_sse({"step": "Calling LLM"})
-            final_llm_response, _, _ = await llm_handler.call_llm_api(
-                self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies
-            )
-            try:
-                summary_json = json.loads(re.search(r"\{.*\}", final_llm_response, re.DOTALL).group(0))
-                llm_response_for_formatter = json.dumps({
-                    "summary": summary_json.get("summary", "Workflow completed, but no summary was generated."),
-                    "structured_data": final_collected_data
-                })
-            except (json.JSONDecodeError, AttributeError):
-                llm_response_for_formatter = json.dumps({
-                    "summary": "The agent finished the workflow but failed to generate a structured report.",
-                    "structured_data": final_collected_data
-                })
-        else:
-            yield _format_sse({"step": "Plan finished, generating final summary..."})
-            summarized_data_str = self._prepare_data_for_final_summary()
+            
             final_prompt = (
                 "You are a data analyst generating the final, user-facing summary of a complex task.\n\n"
                 f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
                 "--- YOUR TASK ---\n"
                 f"Generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
-                "Your response MUST start with `FINAL_ANSWER:`."
+                "Your response MUST start with `FINAL_ANSWER:` and should not contain any other formatting or conversational text."
             )
             yield _format_sse({"step": "Calling LLM"})
             final_llm_response, _, _ = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies
             )
-            llm_response_for_formatter = final_llm_response or "The agent finished its plan but did not provide a final summary."
-            use_workflow_formatter = False
+            
+            final_answer_match = re.search(r'FINAL_ANSWER:(.*)', final_llm_response, re.DOTALL | re.IGNORECASE)
+            if final_answer_match:
+                final_summary_text = final_answer_match.group(1).strip()
+            else:
+                final_summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
-        formatter = OutputFormatter(llm_response_text=llm_response_for_formatter, collected_data=final_collected_data, is_workflow=use_workflow_formatter)
+        elif not final_summary_text:
+            final_summary_text = self.next_action_str.replace("FINAL_ANSWER:", "").strip()
+
+        formatter = OutputFormatter(
+            llm_response_text=final_summary_text, 
+            collected_data=final_collected_data, 
+            is_workflow=self.is_workflow
+        )
         final_html = formatter.render()
         
         session_manager.add_to_history(self.session_id, 'assistant', final_html)

@@ -9,29 +9,13 @@ class OutputFormatter:
     failure-safe HTML for the UI.
     """
     def __init__(self, llm_response_text: str, collected_data: list | dict, is_workflow: bool = False):
+        # --- FIX: The constructor is now simplified. ---
+        # It no longer attempts to parse JSON from the LLM response.
+        # It directly accepts the summary text and the authoritative collected_data from the executor.
         self.raw_summary = llm_response_text
         self.collected_data = collected_data
         self.is_workflow = is_workflow
         self.processed_data_indices = set()
-
-        if self.is_workflow:
-            try:
-                # FIX: Sanitize the response to handle non-standard whitespace before parsing.
-                sanitized_response = llm_response_text.replace(u'\xa0', u' ')
-                
-                # FIX: Robustly extract JSON, ignoring potential markdown wrappers from the LLM.
-                json_match = re.search(r"\{.*\}", sanitized_response, re.DOTALL)
-                if not json_match:
-                    raise json.JSONDecodeError("No JSON object found in the LLM response.", sanitized_response, 0)
-                
-                report_data = json.loads(json_match.group(0))
-                self.raw_summary = report_data.get("summary", "Workflow completed, but no summary was generated.")
-                # --- AUTHORITATIVE CONTEXT: The collected_data for workflows is now expected to be a dict ---
-                self.collected_data = report_data.get("structured_data", collected_data)
-            except (json.JSONDecodeError, TypeError):
-                # Fallback if the LLM fails to produce valid JSON
-                self.raw_summary = "The agent finished the workflow but failed to generate a structured report. Displaying raw data instead."
-
 
     def _has_renderable_tables(self) -> bool:
         """Checks if there is any data that will be rendered as a table."""
@@ -217,7 +201,6 @@ class OutputFormatter:
         </div>
         """
 
-    # --- AUTHORITATIVE CONTEXT: Updated method to render structured workflow data ---
     def _format_workflow_summary(self) -> str:
         """
         A specialized formatter to render the results of a multi-step workflow
@@ -226,20 +209,17 @@ class OutputFormatter:
         sanitized_summary = self._sanitize_summary()
         html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
         
-        # The collected_data is now a dictionary where keys are the context (e.g., table name)
         if not isinstance(self.collected_data, dict):
-            # Fallback for unexpected data format
+            # This fallback should no longer be necessary with the new executor logic,
+            # but it's kept as a safeguard.
             return html + "<p>Error: Workflow data was not in the expected structured format.</p>"
 
         for context_key, data_items in self.collected_data.items():
-            # Sanitize context_key for display
             display_key = context_key.replace(">", "&gt;")
             html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
             
             for i, item in enumerate(data_items):
-                # Handle results from column-iteration tools, which are lists
                 if isinstance(item, list):
-                    # Flatten the list of results for rendering in a single table
                     combined_results = []
                     metadata = {}
                     for sub_item in item:
@@ -248,12 +228,10 @@ class OutputFormatter:
                             combined_results.extend(sub_item.get("results", []))
                     
                     if combined_results:
-                        # Create a temporary dict structure for the table renderer
                         table_to_render = {"results": combined_results, "metadata": metadata}
                         html += self._render_table(table_to_render, i, "Column Iteration Result")
                     continue
 
-                # Handle standard, single tool results
                 if isinstance(item, dict):
                     tool_name = item.get("metadata", {}).get("tool_name")
                     if item.get("type") == "business_description":
