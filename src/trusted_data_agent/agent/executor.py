@@ -54,7 +54,6 @@ class WorkflowManager:
         Finds an explicitly mentioned tool in the step's content.
         This version makes the backticks around the tool name optional to be more robust.
         """
-        # --- FIX: Made backticks optional in the regex ---
         tool_match = re.search(r"Use the `?(\w+)`?\sfunction", step_content)
         return tool_match.group(1) if tool_match else None
 
@@ -795,10 +794,27 @@ class PlanExecutor:
         llm_response_for_formatter = self.next_action_str
         use_workflow_formatter = self.is_workflow
 
-        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
+        # --- FIX: Robustly parse FINAL_ANSWER from either JSON or plain text ---
+        summary_text = None
+        try:
+            # First, try to parse as JSON
+            json_match = re.search(r'\{.*\}', self.next_action_str, re.DOTALL)
+            if json_match:
+                parsed_json = json.loads(json_match.group(0))
+                if "FINAL_ANSWER" in parsed_json:
+                    summary_text = parsed_json["FINAL_ANSWER"]
+        except json.JSONDecodeError:
+            # If JSON parsing fails, it's not a JSON string, so we ignore the error
+            pass
 
-        if final_answer_match:
-            summary_text = final_answer_match.group(1).strip()
+        if summary_text is None:
+            # If it wasn't valid JSON with the right key, try the plain text regex
+            final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
+            if final_answer_match:
+                summary_text = final_answer_match.group(1).strip()
+
+        if summary_text is not None:
+            # We successfully extracted a summary
             if self.is_workflow:
                 llm_response_for_formatter = json.dumps({"summary": summary_text, "structured_data": final_collected_data})
             else:
