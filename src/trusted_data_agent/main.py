@@ -67,10 +67,11 @@ async def main():
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
-    root_logger.setLevel(logging.INFO)
+    # --- FIX: Change logging level to DEBUG to see all messages ---
+    root_logger.setLevel(logging.DEBUG)
 
     # The app's logger will propagate to the root, so we just set its level.
-    app.logger.setLevel(logging.INFO)
+    app.logger.setLevel(logging.DEBUG)
     
     # Prevent Hypercorn's loggers from propagating to the root logger
     logging.getLogger("hypercorn.access").propagate = False
@@ -88,7 +89,6 @@ async def main():
     print("Web client initialized and ready. Navigate to http://127.0.0.1:5000")
     config = Config()
     config.bind = ["127.0.0.1:5000"]
-    # --- DEFINITIVE FIX: Disable Hypercorn's default loggers entirely ---
     config.accesslog = None
     config.errorlog = None 
     await hypercorn.asyncio.serve(app, config)
@@ -100,7 +100,6 @@ if __name__ == "__main__":
 
     if args.all_models:
         APP_CONFIG.ALL_MODELS_UNLOCKED = True
-        # --- FIX: Removed the erroneous backslash before the closing quote ---
         print("\n--- DEV MODE: All models will be selectable. ---")
     
     # Charting is now enabled by default in config.py

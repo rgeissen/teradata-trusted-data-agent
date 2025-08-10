@@ -99,8 +99,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
     base_delay = APP_CONFIG.LLM_API_BASE_DELAY
     
     session_data = get_session(session_id) if session_id else None
-    # This remains the primary way to get the system prompt for all providers.
-    # The fix below will handle the special case for Amazon one-off calls internally.
     system_prompt = _get_full_system_prompt(session_data, dependencies, system_prompt_override)
 
     history_for_log = []
@@ -121,6 +119,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
     for attempt in range(max_retries):
         try:
             if APP_CONFIG.CURRENT_PROVIDER == "Google":
+                # --- FIX: Restore logic to handle both session and non-session calls ---
                 is_session_call = session_data is not None and 'chat_object' in session_data
                 
                 if is_session_call:
@@ -128,6 +127,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                     full_prompt_for_api = f"SYSTEM PROMPT:\n{system_prompt}\n\nUSER PROMPT:\n{prompt}"
                     response = await chat_session.send_message_async(full_prompt_for_api)
                 else:
+                    # One-off call for tasks like categorization
                     response = await llm_instance.generate_content_async(prompt)
 
                 if not response or not hasattr(response, 'text'):
@@ -141,7 +141,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 
                 break
 
-            elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "OpenAI", "Ollama"]:
+            elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "OpenAI", "Ollama", "Amazon"]:
                 history_source = chat_history if chat_history is not None else (session_data.get('chat_object', []) if session_id else [])
                 messages_for_api = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history_source]
                 messages_for_api.append({'role': 'user', 'content': prompt})
@@ -169,67 +169,34 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                     )
                     response_text = response["message"]["content"].strip()
                     input_tokens, output_tokens = response.get('prompt_eval_count', 0), response.get('eval_count', 0)
+
+                elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
+                    model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
+                    body = ""
+                    if "anthropic" in model_id_to_invoke:
+                        body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "system": system_prompt, "messages": messages_for_api})
+                    elif "amazon.nova" in model_id_to_invoke:
+                        nova_messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history_source]
+                        nova_messages.append({"role": "user", "content": [{"text": prompt}]})
+                        body_dict = {"messages": nova_messages, "inferenceConfig": {"maxTokens": 4096}}
+                        if system_prompt: body_dict["system"] = [{"text": system_prompt}]
+                        body = json.dumps(body_dict)
+                    else: 
+                        text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history_source]) + f"user: {prompt}\n\nassistant:"
+                        body = json.dumps({"inputText": text_prompt, "textGenerationConfig": {"maxTokenCount": 4096}})
+                    
+                    loop = asyncio.get_running_loop()
+                    response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
+                    response_body = json.loads(response.get('body').read())
+                    
+                    if "anthropic" in model_id_to_invoke:
+                        response_text = response_body.get('content')[0].get('text')
+                    elif "amazon.nova" in model_id_to_invoke:
+                        response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
+                    else:
+                        response_text = response_body.get('results')[0].get('outputText')
                 
                 break
-            
-            # --- FIX: Isolate Amazon provider logic to restore known-good behavior ---
-            elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
-                # Determine history and system prompt based on context (session or one-off)
-                # This makes the logic self-contained and avoids side-effects from the shared setup.
-                is_session_call = session_data is not None
-                if is_session_call:
-                    # For a session call, the system_prompt is already correctly built
-                    history = session_data.get('chat_object', [])
-                else:
-                    # For a one-off call (like categorization), use the override
-                    system_prompt = system_prompt_override or "You are a helpful assistant."
-                    history = chat_history or []
-
-                model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
-                body = ""
-
-                # Logic for Anthropic models on Bedrock
-                if "anthropic" in model_id_to_invoke:
-                    messages = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history]
-                    messages.append({'role': 'user', 'content': prompt})
-                    body = json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31", 
-                        "max_tokens": 4096, 
-                        "system": system_prompt, 
-                        "messages": messages
-                    })
-                # Logic for modern Amazon models (like Nova) on Bedrock
-                elif "amazon.nova" in model_id_to_invoke:
-                    messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history]
-                    messages.append({"role": "user", "content": [{"text": prompt}]})
-                    body_dict = {
-                        "messages": messages, 
-                        "inferenceConfig": {"maxTokens": 4096}
-                    }
-                    if system_prompt:
-                        body_dict["system"] = [{"text": system_prompt}]
-                    body = json.dumps(body_dict)
-                # Fallback logic for legacy Amazon models (like Titan)
-                else: 
-                    text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history]) + f"user: {prompt}\n\nassistant:"
-                    body = json.dumps({
-                        "inputText": text_prompt, 
-                        "textGenerationConfig": {"maxTokenCount": 4096}
-                    })
-                
-                loop = asyncio.get_running_loop()
-                response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
-                response_body = json.loads(response.get('body').read())
-                
-                if "anthropic" in model_id_to_invoke:
-                    response_text = response_body.get('content')[0].get('text')
-                elif "amazon.nova" in model_id_to_invoke:
-                    response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
-                else:
-                    response_text = response_body.get('results')[0].get('outputText')
-                
-                break
-            # --- END FIX ---
 
             else:
                 raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")

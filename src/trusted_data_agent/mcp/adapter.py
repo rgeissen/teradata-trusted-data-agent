@@ -162,8 +162,16 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             STATE['structured_prompts'] = {}
             for category, prompt_names in categorized_prompts.items():
                 prompt_list = []
-                for name in prompt_names:
-                    if name in STATE['mcp_prompts']:
+                # --- FIX: Parse the name from the "name: description" string ---
+                for raw_name_from_llm in prompt_names:
+                    # Split at the first colon and take the part before it.
+                    # This handles cases where the description might also have a colon.
+                    name = raw_name_from_llm.split(':', 1)[0].strip()
+                    is_found = name in STATE['mcp_prompts']
+                    
+                    app_logger.debug(f"Categorization Check: Raw='{raw_name_from_llm}', Parsed='{name}', Found? -> {is_found}")
+
+                    if is_found:
                         prompt_obj = STATE['mcp_prompts'][name]
                         is_disabled = name in disabled_prompts_list
                         prompt_list.append({
@@ -172,6 +180,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                             "arguments": [arg.model_dump() for arg in prompt_obj.arguments],
                             "disabled": is_disabled
                         })
+                # --- END FIX ---
                 STATE['structured_prompts'][category] = prompt_list
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
@@ -194,11 +203,8 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
     
     corrected_args = args.copy()
     
-    # --- FIX: New, more robust aliasing logic ---
-    # Create a reverse map for easy lookup (alias -> canonical)
     reverse_alias_map = {alias: canon for canon, aliases in PARAMETER_ALIASES.items() for alias in aliases}
 
-    # First pass: Convert any provided aliases to their canonical form
     for arg_name in list(corrected_args.keys()):
         if arg_name in reverse_alias_map:
             canonical_name = reverse_alias_map[arg_name]
@@ -206,15 +212,13 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
                 app_logger.info(f"SHIM APPLIED (Pre-Correction): Translating provided alias '{arg_name}' to canonical '{canonical_name}' for tool '{tool_name}'.")
                 corrected_args[canonical_name] = corrected_args.pop(arg_name)
 
-    # Second pass: Check if the tool spec requires an alias and translate if necessary
     for canonical_name, aliases in PARAMETER_ALIASES.items():
         if canonical_name in corrected_args:
-            # Check if the tool spec uses an alias instead of the canonical name
             for alias in aliases:
                 if alias in spec_arg_names and alias not in corrected_args:
                     app_logger.info(f"SHIM APPLIED (Post-Correction): Translating canonical '{canonical_name}' to required alias '{alias}' for tool '{tool_name}'.")
                     corrected_args[alias] = corrected_args.pop(canonical_name)
-                    break # Stop after the first matching alias is found
+                    break 
     
     command['arguments'] = corrected_args
     return command
