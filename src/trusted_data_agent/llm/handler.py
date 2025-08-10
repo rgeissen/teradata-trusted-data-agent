@@ -64,7 +64,6 @@ def _sanitize_llm_output(text: str) -> str:
     sanitized_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', sanitized_text)
     return sanitized_text.strip()
 
-# --- NEW: Centralized function for Just-in-Time system prompt assembly ---
 def _get_full_system_prompt(session_data: dict, dependencies: dict, system_prompt_override: str = None) -> str:
     """
     Constructs the final system prompt by injecting the latest context from the
@@ -104,8 +103,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
     for attempt in range(max_retries):
         try:
             session_data = get_session(session_id) if session_id else None
-
-            # --- MODIFIED: Assemble the system prompt just-in-time ---
             system_prompt = _get_full_system_prompt(session_data, dependencies, system_prompt_override)
 
             if APP_CONFIG.CURRENT_PROVIDER == "Google":
@@ -113,9 +110,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 
                 if is_session_call:
                     chat_session = session_data['chat_object']
-                    # --- MODIFIED: Inject the dynamic system prompt into the history for this call ---
-                    # The Google SDK doesn't have a dedicated system prompt parameter for chat history,
-                    # so we prepend it to the user's prompt.
                     full_prompt = f"SYSTEM PROMPT:\n{system_prompt}\n\nUSER PROMPT:\n{prompt}"
 
                     history_for_log = chat_session.history
@@ -149,23 +143,18 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 if history_source is None:
                     history_source = session_data.get('chat_object', []) if session_id else []
 
-                messages = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history_source if msg.get('role') in ['user', 'model', 'assistant']]
-                messages.append({'role': 'user', 'content': prompt})
+                messages_for_log = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history_source if msg.get('role') in ['user', 'model', 'assistant']]
+                messages_for_log.append({'role': 'user', 'content': prompt})
 
                 full_log_message += f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n"
                 full_log_message += f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
-                for msg in messages: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
+                for msg in messages_for_log: full_log_message += f"[{msg['role']}]: {msg['content']}\n"
                 
                 if APP_CONFIG.CURRENT_PROVIDER == "Anthropic":
                     response = await llm_instance.messages.create(
-                        model=APP_CONFIG.CURRENT_MODEL,
-                        system=system_prompt,
-                        messages=messages,
-                        max_tokens=4096,
-                        timeout=120.0
+                        model=APP_CONFIG.CURRENT_MODEL, system=system_prompt, messages=messages_for_log, max_tokens=4096, timeout=120.0
                     )
-                    if not response or not response.content:
-                        raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
+                    if not response or not response.content: raise RuntimeError("Anthropic LLM returned an empty or invalid response.")
                     response_text = _sanitize_llm_output(response.content[0].text)
                     if hasattr(response, 'usage'):
                         usage = response.usage
@@ -173,16 +162,11 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                         output_tokens = usage.output_tokens
                 
                 elif APP_CONFIG.CURRENT_PROVIDER == "OpenAI":
-                    # OpenAI prefers the system prompt as the first message
-                    messages.insert(0, {'role': 'system', 'content': system_prompt})
+                    messages_for_log.insert(0, {'role': 'system', 'content': system_prompt})
                     response = await llm_instance.chat.completions.create(
-                        model=APP_CONFIG.CURRENT_MODEL,
-                        messages=messages,
-                        max_tokens=4096,
-                        timeout=120.0
+                        model=APP_CONFIG.CURRENT_MODEL, messages=messages_for_log, max_tokens=4096, timeout=120.0
                     )
-                    if not response or not response.choices or not response.choices[0].message:
-                        raise RuntimeError("OpenAI LLM returned an empty or invalid response.")
+                    if not response or not response.choices or not response.choices[0].message: raise RuntimeError("OpenAI LLM returned an empty or invalid response.")
                     response_text = _sanitize_llm_output(response.choices[0].message.content)
                     if hasattr(response, 'usage'):
                         usage = response.usage
@@ -191,12 +175,9 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 
                 elif APP_CONFIG.CURRENT_PROVIDER == "Ollama":
                     response = await llm_instance.chat(
-                        model=APP_CONFIG.CURRENT_MODEL,
-                        messages=messages,
-                        system_prompt=system_prompt
+                        model=APP_CONFIG.CURRENT_MODEL, messages=messages_for_log, system_prompt=system_prompt
                     )
-                    if not response or "message" not in response or "content" not in response["message"]:
-                        raise RuntimeError("Ollama LLM returned an empty or invalid response.")
+                    if not response or "message" not in response or "content" not in response["message"]: raise RuntimeError("Ollama LLM returned an empty or invalid response.")
                     response_text = response["message"]["content"].strip()
                     if 'prompt_eval_count' in response and 'eval_count' in response:
                         input_tokens = response.get('prompt_eval_count', 0)
@@ -210,14 +191,16 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                         if region.startswith("us-"): prefix = "us."
                         elif region.startswith("eu-"): prefix = "eu."
                         elif region.startswith("ap-"): prefix = "apac."
-                        if prefix:
-                            model_id_to_invoke = f"{prefix}{model_id_to_invoke}"
+                        if prefix: model_id_to_invoke = f"{prefix}{model_id_to_invoke}"
 
                     body = ""
                     if "anthropic" in model_id_to_invoke:
-                        body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "system": system_prompt, "messages": messages})
+                        body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 4096, "system": system_prompt, "messages": messages_for_log})
+                    # --- FIX: Restore correct JSON Array format for Nova models ---
                     elif "amazon.nova" in model_id_to_invoke:
-                        body_dict = {"messages": messages, "inferenceConfig": {"maxTokens": 4096, "temperature": 0.7, "topP": 0.9}}
+                        nova_messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history_source]
+                        nova_messages.append({"role": "user", "content": [{"text": prompt}]})
+                        body_dict = {"messages": nova_messages, "inferenceConfig": {"maxTokens": 4096, "temperature": 0.7, "topP": 0.9}}
                         if system_prompt: body_dict["system"] = [{"text": system_prompt}]
                         body = json.dumps(body_dict)
                     else: # Legacy Titan
