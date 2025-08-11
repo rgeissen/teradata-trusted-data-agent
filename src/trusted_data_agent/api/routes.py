@@ -488,6 +488,13 @@ async def ask_stream():
                 session_manager.update_session_name(session_id, new_name)
                 yield _format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
+            # --- MODIFIED: Handle simple greetings deterministically ---
+            if user_input.lower().strip() in ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]:
+                greeting_response = "Hello! How can I assist you with your Teradata database queries or analysis today?"
+                yield _format_sse({"final_answer": greeting_response}, "final_answer")
+                session_manager.add_to_history(session_id, 'assistant', greeting_response)
+                return # Exit early for greetings
+
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
             yield _format_sse({"step": "Calling LLM", "details": "Analyzing user query to determine the first action."})
@@ -560,3 +567,4 @@ async def invoke_prompt_stream():
             yield _format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
 
     return Response(stream_generator(), mimetype="text/event-stream")
+
