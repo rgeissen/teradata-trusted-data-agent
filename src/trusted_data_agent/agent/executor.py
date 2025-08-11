@@ -256,6 +256,7 @@ class PlanExecutor:
                 elif self.state == AgentState.EXECUTING_TOOL:
                     is_range_candidate, date_param_name = self._is_date_query_candidate()
                     if is_range_candidate:
+                        yield _format_sse({"step": "Calling LLM", "details": "Classifying date query."})
                         query_type, date_phrase = await self._classify_date_query_type()
                         if query_type == 'range':
                             async for event in self._execute_date_range_orchestrator(date_param_name, date_phrase):
@@ -313,7 +314,8 @@ class PlanExecutor:
         response_str, _, _ = await llm_handler.call_llm_api(
             self.dependencies['STATE']['llm'], classification_prompt, raise_on_error=True,
             system_prompt_override="You are a JSON-only responding assistant.",
-            dependencies=self.dependencies
+            dependencies=self.dependencies,
+            reason="Classifying date query."
         )
         try:
             return json.loads(response_str).get('type', 'single'), json.loads(response_str).get('phrase', self.original_user_input)
@@ -339,10 +341,12 @@ class PlanExecutor:
             f"what are the start and end dates for '{date_phrase}'? "
             "Your response MUST be ONLY a JSON object with 'start_date' and 'end_date' in YYYY-MM-DD format."
         )
+        yield _format_sse({"step": "Calling LLM", "details": "Calculating date range."})
         range_response_str, _, _ = await llm_handler.call_llm_api(
             self.dependencies['STATE']['llm'], conversion_prompt, raise_on_error=True,
             system_prompt_override="You are a JSON-only responding assistant.",
-            dependencies=self.dependencies
+            dependencies=self.dependencies,
+            reason="Calculating date range."
         )
 
         try:
@@ -443,7 +447,7 @@ class PlanExecutor:
                     self.current_command = next_action['command']
                     self.state = AgentState.EXECUTING_TOOL
                 elif next_action['type'] == 'llm_prompt':
-                    async for event in self._get_next_action_from_llm(scoped_prompt_content=next_action['prompt_content']):
+                    async for event in self._get_next_action_from_llm(scoped_prompt_content=next_action['prompt_content'], reason="Executing workflow step."):
                         yield event
             else:
                 app_logger.info("WorkflowManager reports all steps are complete.")
@@ -478,7 +482,7 @@ class PlanExecutor:
             
             self.last_command_str = None 
             
-            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Recovering from repetitive action error."):
                 yield event
             return
         
@@ -535,7 +539,7 @@ class PlanExecutor:
                 })
                 yield _format_sse({"step": "System Error", "details": error_message, "type": "error"}, "tool_result")
                 
-                async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+                async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Recovering from missing arguments."):
                     yield event
                 return 
             
@@ -604,7 +608,7 @@ class PlanExecutor:
             self.state = AgentState.DECIDING
         else:
             yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
-            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str):
+            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Deciding next action based on tool result."):
                 yield event
 
     async def _get_tool_constraints(self, tool_name: str):
@@ -629,11 +633,12 @@ class PlanExecutor:
             )
             
             yield _format_sse({"step": f"Inferring constraints for tool: {tool_name}", "type": "workaround"})
-            yield _format_sse({"step": "Calling LLM"})
+            yield _format_sse({"step": "Calling LLM", "details": "Determining tool constraints."})
             response_text, _, _ = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], prompt, raise_on_error=True,
                 system_prompt_override="You are a JSON-only responding assistant.",
-                dependencies=self.dependencies
+                dependencies=self.dependencies,
+                reason="Determining tool constraints."
             )
 
             try:
@@ -756,7 +761,7 @@ class PlanExecutor:
         final_instruction = "Your immediate task is to continue the sub-plan for the **innermost current item**."
         return "\n--- **CURRENT LOOP STATE** ---\n" + "\n".join(context_lines) + "\n" + final_instruction + "\n---------------------------\n"
 
-    async def _get_next_action_from_llm(self, tool_result_str: str | None = None, scoped_prompt_content: str | None = None):
+    async def _get_next_action_from_llm(self, tool_result_str: str | None = None, scoped_prompt_content: str | None = None, reason: str = "No reason provided."):
         prompt_for_next_step = "" 
         
         if self.is_workflow:
@@ -791,10 +796,10 @@ class PlanExecutor:
             )
             final_prompt_to_llm = prompt_for_next_step
         
-        yield _format_sse({"step": "Calling LLM"})
+        yield _format_sse({"step": "Calling LLM", "details": reason})
 
         self.next_action_str, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
-            self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id, dependencies=self.dependencies
+            self.dependencies['STATE']['llm'], final_prompt_to_llm, self.session_id, dependencies=self.dependencies, reason=reason
         )
         
         updated_session = session_manager.get_session(self.session_id)
@@ -862,9 +867,10 @@ class PlanExecutor:
                 f"Generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
                 "Your response MUST start with `FINAL_ANSWER:` and should not contain any other formatting or conversational text."
             )
-            yield _format_sse({"step": "Calling LLM"})
+            yield _format_sse({"step": "Calling LLM", "details": "Generating final workflow summary."})
             final_llm_response, _, _ = await llm_handler.call_llm_api(
-                self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies
+                self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies,
+                reason="Generating final workflow summary."
             )
             
             final_answer_match = re.search(r'FINAL_ANSWER:(.*)', final_llm_response, re.DOTALL | re.IGNORECASE)

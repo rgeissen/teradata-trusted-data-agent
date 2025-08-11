@@ -137,7 +137,8 @@ async def simple_chat():
             prompt=message,
             chat_history=history,
             system_prompt_override="You are a helpful assistant.",
-            dependencies={'STATE': STATE}
+            dependencies={'STATE': STATE},
+            reason="Simple, tool-less chat."
         )
         
         final_response = response_text.replace("FINAL_ANSWER:", "").strip()
@@ -489,10 +490,11 @@ async def ask_stream():
 
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
-            yield _format_sse({"step": "Calling LLM"})
+            yield _format_sse({"step": "Calling LLM", "details": "Analyzing user query to determine the first action."})
 
             llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
-                STATE['llm'], user_input, session_id, dependencies={'STATE': STATE}
+                STATE['llm'], user_input, session_id, dependencies={'STATE': STATE},
+                reason="Analyzing user query to determine the first action."
             )
             
             updated_session = session_manager.get_session(session_id)

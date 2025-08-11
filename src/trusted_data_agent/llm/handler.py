@@ -87,7 +87,7 @@ def _get_full_system_prompt(session_data: dict, dependencies: dict, system_promp
     
     return final_system_prompt
 
-async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None, dependencies: dict = None) -> tuple[str, int, int]:
+async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None, dependencies: dict = None, reason: str = "No reason provided.") -> tuple[str, int, int]:
     if not llm_instance:
         raise RuntimeError("LLM is not initialized.")
     
@@ -112,6 +112,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
 
     full_log_message = (
         f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
+        f"--- REASON FOR CALL ---\n{reason}\n\n"
         f"--- History ---\n{chr(10).join(history_for_log)}\n\n"
         f"--- Current User Prompt (with System Prompt) ---\n"
         f"SYSTEM PROMPT:\n{system_prompt}\n\n"
