@@ -68,10 +68,10 @@ async def main():
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     # --- FIX: Change logging level to DEBUG to see all messages ---
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(logging.INFO)
 
     # The app's logger will propagate to the root, so we just set its level.
-    app.logger.setLevel(logging.DEBUG)
+    app.logger.setLevel(logging.INFO)
     
     # Prevent Hypercorn's loggers from propagating to the root logger
     logging.getLogger("hypercorn.access").propagate = False
