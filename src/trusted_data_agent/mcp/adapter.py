@@ -257,29 +257,27 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
     options = {"title": {"text": args.get("title", "Generated Chart")}}
     
     source_columns = {}
-    x_field_name = None
+    x_field_name_in_data = None # Store the actual key name in data for x-axis
     for llm_key, data_col in mapping.items():
         canonical_key = reverse_alias_map.get(llm_key.lower())
         if canonical_key:
             options[canonical_key] = data_col
-            source_columns[canonical_key] = data_col
+            # Find the actual column name in the data based on case-insensitive match
+            actual_col_name = next((k for k in data[0].keys() if k.lower() == data_col.lower()), None)
+            if not actual_col_name:
+                raise KeyError(f"The mapped column '{data_col}' (from '{llm_key}') was not found in the provided data.")
+            source_columns[canonical_key] = actual_col_name # Store the actual column name
             if canonical_key == 'xField':
-                x_field_name = data_col
+                x_field_name_in_data = actual_col_name
 
     if chart_type == 'pie' and 'seriesField' in options:
         app_logger.info("Correcting chart property: Renaming 'seriesField' to 'colorField' for pie chart.")
         options['colorField'] = options.pop('seriesField')
 
-    first_row_keys = {k.lower(): k for k in data[0].keys()}
     final_data = []
-
     for row in data:
         new_row = {}
-        for key, col in source_columns.items():
-            actual_col_name = first_row_keys.get(col.lower())
-            if not actual_col_name:
-                raise KeyError(f"The mapped column '{col}' was not found in the data.")
-            
+        for key, actual_col_name in source_columns.items():
             new_row[actual_col_name] = row[actual_col_name]
             if key in ['yField', 'angleField']:
                 try:
@@ -288,12 +286,14 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
                     raise TypeError(f"Column '{actual_col_name}' for y-axis/angle must be numeric.")
         final_data.append(new_row)
     
-    if x_field_name:
+    # --- MODIFIED: Use the actual column name for sorting ---
+    if x_field_name_in_data:
         try:
-            final_data.sort(key=lambda x: x[x_field_name])
-            app_logger.info(f"Chart data successfully sorted by x-axis field: '{x_field_name}'.")
+            # Sort by the actual column name found in the data
+            final_data.sort(key=lambda x: x[x_field_name_in_data])
+            app_logger.info(f"Chart data successfully sorted by x-axis field: '{x_field_name_in_data}'.")
         except (KeyError, TypeError) as e:
-            app_logger.warning(f"Could not sort chart data by x-axis field '{x_field_name}': {e}. Chart may appear unordered.")
+            app_logger.warning(f"Could not sort chart data by x-axis field '{x_field_name_in_data}': {e}. Chart may appear unordered.")
 
     options["data"] = final_data
     

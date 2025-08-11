@@ -135,7 +135,7 @@ PROVIDER_SYSTEM_PROMPTS = {
         "3.  **GENERATE RESPONSE JSON:** Your response MUST be a single JSON object. The key you use in this JSON object depends entirely on the source list of your chosen capability:\\n\"\n"
         "    -   If your chosen capability is from the `--- Available Prompts ---` list, you **MUST** use the key `\\\"prompt_name\\\"`.\n"
         "    -   If your chosen capability is from the `--- Available Tools ---` list, you **MUST** use the key `\\\"tool_name\\\"`.\n\n"
-        "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
+        "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will will cause a critical system failure.**\n\n"
         "--- **NEW CRITICAL RULE: ONE ACTION AT A TIME** ---\n"
         "You **MUST** generate only one tool or prompt call in a single turn. Do not chain multiple JSON blocks together. After you receive the result from your action, you can then decide on the next step. This is a strict instruction.\n\n"
         "--- **NEW CRITICAL RULE: HANDLING OUT-OF-SCOPE QUERIES** ---\n"
@@ -316,7 +316,7 @@ CHARTING_INSTRUCTIONS = {
     "none": "--- **Charting Rules** ---\n- Charting is disabled. Do NOT use any charting tools.",
     "medium": (
         "--- **Charting Rules & Capabilities** ---\n"
-        "- After gathering data, you can visualize it using the `viz_createChart` tool.\n"
+        "- After gathering data that is suitable for visualization, you **MUST** use the `viz_createChart` tool as your next action. Do NOT re-call data gathering tools if the data is already sufficient for charting.\n"
         "- To use it, you must select the best `chart_type` and provide the correct data `mapping`.\n"
         "- First, analyze the data and the user's goal. Then, choose a chart type from the guidelines below that best represents the information.\n"
         "- Do not generate charts for simple data retrievals that are easily readable in a table.\n"
@@ -326,7 +326,7 @@ CHARTING_INSTRUCTIONS = {
     "heavy": (
         "--- **Charting Rules & Capabilities** ---\n"
         "- You should actively look for opportunities to visualize data using the `viz_createChart` tool.\n"
-        "- After nearly every successful data-gathering operation, your next step should be to call `viz_createChart`.\n"
+        "- After nearly every successful data-gathering operation that yields chartable data, your next step **MUST** be to call `viz_createChart`. Do NOT re-call data gathering tools if the data is already sufficient for charting.\n"
         "- To use it, you must select the best `chart_type` and provide the correct data `mapping`.\n"
         "- Analyze the data and the user's goal, then choose a chart type from the guidelines below.\n"
         "- Prefer visual answers over text-based tables whenever possible.\n"

@@ -47,7 +47,7 @@ class OutputFormatter:
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
         clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
         
-        # --- MODIFIED: Enhanced list and paragraph processing for robustness ---
+        # --- MODIFIED: Enhanced list and paragraph processing ---
         lines = clean_summary.strip().split('\n')
         html_output = [] # Use a list to build output, then join at the end
         
@@ -84,7 +84,7 @@ class OutputFormatter:
                     html_output.append('</ul>')
                     current_list_items = [] # Reset for next list block
 
-                # Now process this non-list line (headers or paragraphs)
+                # Now process this non-list line
                 if stripped_line.startswith('# '):
                     content = stripped_line[2:]
                     html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
@@ -167,7 +167,7 @@ class OutputFormatter:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
         
-        table_html = ""
+        table_html = "" # This variable is correctly initialized here
         results = table_data.get("results")
         if isinstance(results, list) and results and all(isinstance(item, dict) for item in results):
             headers = results[0].keys()
@@ -191,9 +191,10 @@ class OutputFormatter:
                 for header in headers:
                     cell_data = str(row.get(header, ''))
                     sanitized_cell = cell_data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    html += f"<td>{sanitized_cell}</td>"
-                html += "</tr>"
-            html += "</tbody></table></div>"
+                    # FIX: Changed 'html' to 'table_html' here
+                    table_html += f"<td>{sanitized_cell}</td>"
+                table_html += "</tr>"
+            table_html += "</tbody></table></div>"
 
         self.processed_data_indices.add(chart_index)
         self.processed_data_indices.add(table_index)
