@@ -113,7 +113,7 @@ class PlanExecutor:
         self.original_user_input = original_user_input
         self.state = AgentState.DECIDING
         self.next_action_str = initial_instruction
-        self.collected_data = []
+        self.collected_data = [] # Retained for non-workflow specific data (charts, etc.)
         self.max_steps = 40
         self.active_prompt_plan = None
         self.active_prompt_name = None
@@ -125,7 +125,7 @@ class PlanExecutor:
         self.workflow_manager = None
         self.last_tool_result_str = None
         self.context_stack = []
-        self.structured_collected_data = {}
+        self.structured_collected_data = {} # For workflow-specific, grouped data
         self.last_command_str = None
 
     def _get_context_level_for_tool(self, tool_name: str) -> str | None:
@@ -134,41 +134,6 @@ class PlanExecutor:
         if scope in ['database', 'table', 'column']:
             return 'table' if scope in ['table', 'column'] else 'database'
         return None
-
-    def _update_and_manage_context_stack(self, command: dict, tool_result: dict | None = None):
-        tool_name = command.get("tool_name")
-        tool_level = self._get_context_level_for_tool(tool_name)
-
-        while self.context_stack:
-            top_context = self.context_stack[-1]
-            top_level = top_context['type'].split('_name')[0]
-            if tool_level == 'database' and top_level == 'table':
-                popped = self.context_stack.pop()
-                app_logger.info(f"CONTEXT STACK: Popped '{popped['type']}' context as inner loop appears complete.")
-            else:
-                break
-        
-        if tool_result and tool_result.get("status") == "success":
-            results = tool_result.get("results", [])
-            if isinstance(results, list) and results and isinstance(results[0], dict):
-                first_item_keys = results[0].keys()
-                new_context_type = None
-                list_values = []
-
-                if "TableName" in first_item_keys:
-                    new_context_type = "table_name"
-                    list_values = [item["TableName"] for item in results]
-                elif "DatabaseName" in first_item_keys:
-                    new_context_type = "database_name"
-                    list_values = [item["DatabaseName"] for item in results]
-                
-                if new_context_type and list_values:
-                    app_logger.info(f"CONTEXT STACK: Establishing new loop context for '{new_context_type}' with {len(list_values)} items.")
-                    self.context_stack.append({
-                        'type': new_context_type,
-                        'list': list_values,
-                        'index': -1 
-                    })
 
     def _apply_context_guardrail(self, command: dict) -> tuple[dict, list]:
         if not self.is_workflow or not self.context_stack:
@@ -225,23 +190,60 @@ class PlanExecutor:
                 }))
 
         return corrected_command, events_to_yield
-    
+
+    def _update_and_manage_context_stack(self, command: dict, tool_result: dict | None = None):
+        tool_name = command.get("tool_name")
+        tool_level = self._get_context_level_for_tool(tool_name)
+
+        while self.context_stack:
+            top_context = self.context_stack[-1]
+            top_level = top_context['type'].split('_name')[0]
+            if tool_level == 'database' and top_level == 'table':
+                popped = self.context_stack.pop()
+                app_logger.info(f"CONTEXT STACK: Popped '{popped['type']}' context as inner loop appears complete.")
+            else:
+                break
+        
+        if tool_result and tool_result.get("status") == "success":
+            results = tool_result.get("results", [])
+            if isinstance(results, list) and results and isinstance(results[0], dict):
+                first_item_keys = results[0].keys()
+                new_context_type = None
+                list_values = []
+
+                if "TableName" in first_item_keys:
+                    new_context_type = "table_name"
+                    list_values = [item["TableName"] for item in results]
+                elif "DatabaseName" in first_item_keys:
+                    new_context_type = "database_name"
+                    list_values = [item["DatabaseName"] for item in results]
+                
+                if new_context_type and list_values:
+                    app_logger.info(f"CONTEXT STACK: Establishing new loop context for '{new_context_type}' with {len(list_values)} items.")
+                    self.context_stack.append({
+                        'type': new_context_type,
+                        'list': list_values,
+                        'index': -1 
+                    })
+
     def _add_to_structured_data(self, tool_result: dict):
-        if not self.context_stack:
+        # --- MODIFIED: Always add to structured_collected_data if it's a workflow ---
+        if self.is_workflow:
+            context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
+            
+            if not context_key:
+                # If no specific context, use a generic key for overall workflow results
+                context_key = "Overall Workflow Results" 
+            
+            if context_key not in self.structured_collected_data:
+                self.structured_collected_data[context_key] = []
+            
+            self.structured_collected_data[context_key].append(tool_result)
+            app_logger.info(f"Added tool result to structured data under key: '{context_key}' for workflow.")
+        else:
+            # For non-workflow execution, continue to use collected_data as before
             self.collected_data.append(tool_result)
-            return
-
-        context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
-        
-        if not context_key:
-             self.collected_data.append(tool_result)
-             return
-
-        if context_key not in self.structured_collected_data:
-            self.structured_collected_data[context_key] = []
-        
-        self.structured_collected_data[context_key].append(tool_result)
-        app_logger.info(f"Added tool result to structured data under key: '{context_key}'")
+            app_logger.info(f"Added tool result to collected data for non-workflow execution.")
 
     async def run(self):
         for i in range(self.max_steps):
@@ -591,10 +593,8 @@ class PlanExecutor:
             tool_result_str = json.dumps({"tool_input": self.current_command, "tool_output": {"status": "error", "error_message": error_details}})
         else:
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": tool_result})
-            if self.is_workflow:
-                self._add_to_structured_data(tool_result)
-            else:
-                self.collected_data.append(tool_result)
+            # --- MODIFIED: Ensure _add_to_structured_data is always called for workflows ---
+            self._add_to_structured_data(tool_result)
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
             yield _format_sse({"details": tool_result}, "request_user_input")
@@ -815,7 +815,15 @@ class PlanExecutor:
 
     def _prepare_data_for_final_summary(self) -> str:
         summary_lines = []
-        data_to_summarize = self.structured_collected_data if self.is_workflow and self.structured_collected_data else {" ungrouped": self.collected_data}
+        # --- MODIFIED: Ensure data_to_summarize correctly reflects workflow structure ---
+        # If it's a workflow, we expect structured_collected_data to hold the relevant items.
+        # If structured_collected_data is empty or not a dict, default to an empty dict for safe iteration.
+        data_to_summarize = self.structured_collected_data if self.is_workflow and isinstance(self.structured_collected_data, dict) else {}
+
+        # Add a default key if the structured data is empty but collected_data has items
+        if not data_to_summarize and self.collected_data:
+            data_to_summarize = {"Overall Workflow Results": self.collected_data}
+
 
         for context_key, items in data_to_summarize.items():
             summary_lines.append(f"- For context: `{context_key}`:")
@@ -833,28 +841,31 @@ class PlanExecutor:
         return "\n".join(summary_lines)
 
     async def _handle_summarizing(self):
-        final_collected_data = self.structured_collected_data if self.is_workflow and self.structured_collected_data else self.collected_data
+        # --- MODIFIED: Ensure final_collected_data uses structured_collected_data for workflows ---
+        final_collected_data = self.structured_collected_data if self.is_workflow else self.collected_data
         
         final_summary_text = ""
-        # --- FIX: Add robust parsing for both JSON and plain text FINAL_ANSWER ---
-        try:
-            # First, try to parse the response as a JSON object
+        # --- MODIFIED: Prioritize plain text FINAL_ANSWER, then JSON, then raw text ---
+        # 1. Try to extract plain text FINAL_ANSWER:
+        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
+        if final_answer_match:
+            final_summary_text = final_answer_match.group(1).strip()
+        else:
+            # 2. If not found, try to parse a JSON object with "FINAL_ANSWER" key
             json_match = re.search(r"\{.*\}", self.next_action_str, re.DOTALL)
             if json_match:
-                parsed_json = json.loads(json_match.group(0))
-                if "FINAL_ANSWER" in parsed_json:
-                    final_summary_text = parsed_json["FINAL_ANSWER"]
-        except (json.JSONDecodeError, TypeError):
-            # If it's not JSON or doesn't have the key, it will fall through to the next check
-            pass
-
+                try:
+                    parsed_json = json.loads(json_match.group(0))
+                    if "FINAL_ANSWER" in parsed_json:
+                        final_summary_text = parsed_json["FINAL_ANSWER"].strip()
+                except (json.JSONDecodeError, TypeError):
+                    pass # Not a valid JSON or doesn't contain FINAL_ANSWER key
+        
+        # 3. If still no final_summary_text, use the raw next_action_str (stripped of "FINAL_ANSWER:")
         if not final_summary_text:
-            # Fallback to regex for plain text FINAL_ANSWER
-            final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
-            if final_answer_match:
-                final_summary_text = final_answer_match.group(1).strip()
+            final_summary_text = self.next_action_str.replace("FINAL_ANSWER:", "").strip()
 
-        # --- END FIX ---
+        # --- END MODIFIED ---
         
         if not final_summary_text and self.is_workflow:
             yield _format_sse({"step": "Workflow finished, generating final summary..."})
@@ -892,3 +903,4 @@ class PlanExecutor:
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield _format_sse({"final_answer": final_html}, "final_answer")
         self.state = AgentState.DONE
+
