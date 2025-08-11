@@ -249,7 +249,7 @@ class PlanExecutor:
                 break
             try:
                 if self.state == AgentState.DECIDING:
-                    yield _format_sse({"step": "Assistant has decided on an action", "details": self.next_action_str}, "llm_thought")
+                    yield _format_sse({"step": "LLM has decided on an action", "details": self.next_action_str}, "llm_thought")
                     async for event in self._handle_deciding():
                         yield event
                 
