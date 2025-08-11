@@ -607,7 +607,7 @@ class PlanExecutor:
             self.last_tool_result_str = tool_result_str
             self.state = AgentState.DECIDING
         else:
-            yield _format_sse({"step": "Thinking about the next action...", "details": "The agent is reasoning based on the current context."})
+            yield _format_sse({"step": "Thinking about the next action...", "details": f"Analyzing result from the `{tool_name}` tool to decide the next step."})
             async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Deciding next action based on tool result."):
                 yield event
 
