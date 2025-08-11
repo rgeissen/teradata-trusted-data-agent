@@ -129,6 +129,8 @@ class PlanExecutor:
         self.last_command_str = None
         # --- NEW: Flag to indicate if the original user input requested a chart ---
         self.charting_intent_detected = self._detect_charting_intent(original_user_input)
+        # --- NEW: Store the output of the last tool call for deterministic checks ---
+        self.last_tool_output = None
 
     def _detect_charting_intent(self, user_input: str) -> bool:
         """
@@ -481,8 +483,19 @@ class PlanExecutor:
         if not command_str:
             self.state = AgentState.SUMMARIZING
             return
-        
-        # --- MODIFIED: Prioritize charting on repetitive action if intent detected ---
+
+        # --- MODIFIED: Add a deterministic check for repetitive charting calls ---
+        try:
+            potential_command = json.loads(command_str)
+            if potential_command.get("tool_name") == "viz_createChart":
+                if self.last_tool_output and self.last_tool_output.get("type") == "chart":
+                    app_logger.warning("DETERMINISTIC GUARDRAIL: LLM requested a second chart, but a chart has already been successfully generated. Forcing to summary state.")
+                    self.next_action_str = "FINAL_ANSWER: The chart has been generated and is displayed below."
+                    self.state = AgentState.SUMMARIZING
+                    return
+        except (json.JSONDecodeError, TypeError):
+            pass # Not a JSON command, or not a chart call, so continue.
+
         if command_str == self.last_command_str:
             app_logger.warning(f"LOOP DETECTED: The LLM is trying to repeat the exact same command. Command: {command_str}")
             
@@ -661,6 +674,9 @@ class PlanExecutor:
             yield _format_sse({"step": "System Notification", "details": self.current_command['notification'], "type": "workaround"})
             del self.current_command['notification']
 
+        # --- MODIFIED: Store the tool result in the new instance variable ---
+        self.last_tool_output = tool_result
+
         tool_result_str = ""
         if isinstance(tool_result, dict) and "error" in tool_result:
             error_details = tool_result.get("data", tool_result.get("error", ""))
@@ -757,6 +773,8 @@ class PlanExecutor:
             yield _format_sse({"step": f"Tool Execution Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
             self._add_to_structured_data(col_result)
             self.last_tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
+            # --- NEW: Store the result of the column iteration in the new variable ---
+            self.last_tool_output = col_result
             self.state = AgentState.DECIDING
             return
 
@@ -830,6 +848,8 @@ class PlanExecutor:
 
         self._add_to_structured_data(all_column_results)
         self.last_tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": all_column_results})
+        # --- NEW: Store the final output of the column iteration in the new variable ---
+        self.last_tool_output = {"metadata": {"tool_name": tool_name}, "results": all_column_results, "status": "success"}
         self.state = AgentState.DECIDING
 
     def _build_just_in_time_context_prompt(self) -> str:
@@ -973,26 +993,59 @@ class PlanExecutor:
         # Prioritize plain text FINAL_ANSWER, then JSON, then raw text
         # 1. Try to extract plain text FINAL_ANSWER:
         final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
-        if final_answer_match:
-            final_summary_text = final_answer_match.group(1).strip()
-        else:
-            # 2. If not found, try to parse a JSON object with "FINAL_ANSWER" key
-            json_match = re.search(r"\{.*\}", self.next_action_str, re.DOTALL)
-            if json_match:
-                try:
-                    parsed_json = json.loads(json_match.group(0))
-                    if "FINAL_ANSWER" in parsed_json:
-                        final_summary_text = parsed_json["FINAL_ANSWER"].strip()
-                except (json.JSONDecodeError, TypeError):
-                    pass # Not a valid JSON or doesn't contain FINAL_ANSWER key
-        
-        # 3. If still no final_summary_text, use the raw next_action_str (stripped of "FINAL_ANSWER:")
-        if not final_summary_text:
-            final_summary_text = self.next_action_str.replace("FINAL_ANSWER:", "").strip()
+        # --- MODIFIED: Add a check for markdown formatting to determine if the response is "pre-formatted"
+        has_markdown_formatting = bool(re.search(r'\n\*|\n-|\*{2,}|#', final_answer_match.group(1) if final_answer_match else "", re.DOTALL))
 
-        # END MODIFIED
-        
-        if not final_summary_text and self.is_workflow:
+        # --- MODIFIED: Refactored logic to handle pre-formatted FINAL_ANSWER
+        if final_answer_match:
+            # If a FINAL_ANSWER was already generated, use it directly.
+            # This is the fix for the reported issue.
+            final_summary_text = final_answer_match.group(1).strip()
+            app_logger.info("Using pre-existing FINAL_ANSWER from a workflow step. Bypassing LLM call.")
+
+        # --- MODIFIED: This entire conditional block is new
+        elif self.last_tool_output and self.last_tool_output.get("type") == "chart":
+            yield _format_sse({"step": "Chart generated", "details": "Generating final summary with data analysis."})
+            
+            # The data for the chart is typically the item before the chart in collected_data
+            data_for_llm_analysis = None
+            if self.collected_data and len(self.collected_data) >= 2:
+                data_for_llm_analysis = self.collected_data[-2]
+            
+            if not data_for_llm_analysis:
+                app_logger.warning("Could not find source data for chart analysis. Reverting to simple summary.")
+                final_summary_text = "The chart has been generated and is displayed below."
+            else:
+                final_prompt = (
+                    "You are an expert data analyst. Your task is to provide a final, comprehensive, and insightful summary of the user's request.\n\n"
+                    f"--- USER'S ORIGINAL QUESTION ---\n"
+                    f"'{self.original_user_input}'\n\n"
+                    f"--- RELEVANT DATA COLLECTED ---\n"
+                    "You have successfully executed tools and collected the following data. Analyze this data to generate your response.\n"
+                    f"```json\n{json.dumps(data_for_llm_analysis, indent=2)}\n```\n\n"
+                    "--- YOUR INSTRUCTIONS ---\n"
+                    "1.  **Analyze the data:** Identify key findings, notable trends, or important facts from the raw data provided. For example, mention which category has the highest or lowest count, or if there is a significant imbalance.\n"
+                    "2.  **Provide context:** Briefly introduce the data source (e.g., table name, column) from the user's original question.\n"
+                    "3.  **DO NOT simply describe the chart's dimensions or appearance.** Go beyond "
+                    "\"The chart shows the distribution...\" and provide actual insights like "
+                    "\"The data reveals that females are the largest demographic...\"\n"
+                    "4.  Your response **MUST** start with `FINAL_ANSWER:` and include a natural language summary followed by a brief statement indicating that the chart is shown below. Do not wrap this final response in a JSON object."
+                )
+            
+                yield _format_sse({"step": "Calling LLM", "details": "Generating final summary with data analysis."})
+                final_llm_response, _, _ = await llm_handler.call_llm_api(
+                    self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies,
+                    reason="Generating final summary with data analysis."
+                )
+                
+                final_answer_match = re.search(r'FINAL_ANSWER:(.*)', final_llm_response, re.DOTALL | re.IGNORECASE)
+                if final_answer_match:
+                    final_summary_text = final_answer_match.group(1).strip()
+                else:
+                    final_summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
+
+        # This block handles all other cases (non-chart outputs and workflows that didn't provide a FINAL_ANSWER)
+        elif not final_summary_text or self.is_workflow:
             yield _format_sse({"step": "Workflow finished", "details": "Generating final summary."})
             summarized_data_str = self._prepare_data_for_final_summary()
             
@@ -1015,8 +1068,10 @@ class PlanExecutor:
             else:
                 final_summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
-        elif not final_summary_text:
+        # Fallback to catch any remaining cases where final_summary_text might be unset
+        if not final_summary_text:
             final_summary_text = self.next_action_str.replace("FINAL_ANSWER:", "").strip()
+        # --- END MODIFIED ---
 
         formatter = OutputFormatter(
             llm_response_text=final_summary_text, 
@@ -1028,4 +1083,3 @@ class PlanExecutor:
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield _format_sse({"final_answer": final_html}, "final_answer")
         self.state = AgentState.DONE
-

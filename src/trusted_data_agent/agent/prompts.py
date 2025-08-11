@@ -189,7 +189,7 @@ PROVIDER_SYSTEM_PROMPTS = {
     "OpenAI": (
         "You are a specialized assistant for interacting with a Teradata database. Your primary goal is to fulfill user requests by selecting the best tool or prompt. You will be given a set of instructions, available tools, and available prompts. Your response MUST follow the specified format without any extra conversational text or explanations.\n\n"
         "--- **CRITICAL RESPONSE PROTOCOL** ---\n"
-        "Your primary task is to select a single capability to fulfill the user's request. You have two lists of capabilities available: `--- Available Prompts ---` and `--- Available Tools ---`.\\n\"\n"
+        "Your primary task is to select a single capability to fulfill the user's request. You have two lists of capabilities available: `--- Available Prompts ---` and `--- Available Tools ---`.\n\n"
         "1.  **CHOOSE ONE CAPABILITY:** First, review both lists and select the single best capability (either a prompt or a tool) that can fulfill the user's request. If a prompt can solve the entire request, you MUST choose the prompt.\n\n"
         "2.  **IDENTIFY THE SOURCE:** Determine which list the chosen capability came from.\n\n"
         "3.  **GENERATE RESPONSE JSON:** Your response MUST be a single JSON object. The key you use in this JSON object depends entirely on the source list of your chosen capability:\\n\"\n"
@@ -286,9 +286,9 @@ G2PLOT_GUIDELINES = """
        "tool_name": "viz_createChart",
        "arguments": {{
          "chart_type": "line",
-         "title": "Usage by Workload",
-         "data": [...],
-         "mapping": {{
+       "title": "Usage by Workload",
+       "data": [...],
+       "mapping": {{
            "x_axis": "LogDate",
            "y_axis": "Request Count",
            "color": "workloadType"
@@ -310,11 +310,6 @@ G2PLOT_GUIDELINES = """
     - Required `mapping` keys: `x_axis`, `y_axis`.
     - Use `color` to group points by category.
     - Use `size` to represent a third numerical variable.
-
-- **Specific Mapping Guidance for Categorical Counts**:
-  - When you receive data that has `DistinctValue` (the actual category) and `DistinctValueCount` (its count), you **MUST** map `x_axis` to `DistinctValue` and `y_axis` to `DistinctValueCount`.
-  - **CRITICAL**: Do NOT use `ColumnName` for `x_axis` when `DistinctValue` is present. `ColumnName` is a metadata field, not the category value itself.
-  - Example: If data is `[{"ColumnName": "STATE", "DistinctValue": "OH", "DistinctValueCount": "9"}]`, then `x_axis` should be `DistinctValue` and `y_axis` should be `DistinctValueCount`.
 """
 
 CHARTING_INSTRUCTIONS = {

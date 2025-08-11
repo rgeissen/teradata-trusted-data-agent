@@ -226,6 +226,7 @@ async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
 def _transform_chart_data(data: any) -> list[dict]:
     """
     Checks for and corrects common LLM data format hallucinations for charts.
+    Also renames 'ColumnName' to 'SourceColumnName' for clarity in charting.
     """
     if isinstance(data, dict) and 'labels' in data and 'values' in data:
         app_logger.warning("Correcting hallucinated chart data format from labels/values to list of dicts.")
@@ -237,15 +238,34 @@ def _transform_chart_data(data: any) -> list[dict]:
         app_logger.warning("Correcting hallucinated chart data format from columns/rows to list of dicts.")
         if isinstance(data.get('rows'), list):
             return data['rows']
+    
+    # --- NEW: Rename 'ColumnName' to 'SourceColumnName' in qlty_distinctCategories output ---
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        if "ColumnName" in data[0] and "DistinctValue" in data[0] and "DistinctValueCount" in data[0]:
+            app_logger.info("Detected qlty_distinctCategories output pattern. Renaming 'ColumnName' to 'SourceColumnName'.")
+            transformed_data = []
+            for row in data:
+                new_row = row.copy()
+                if "ColumnName" in new_row:
+                    new_row["SourceColumnName"] = new_row.pop("ColumnName")
+                transformed_data.append(new_row)
+            return transformed_data
+    # --- END NEW ---
+
     return data
 
 def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
     """
     Constructs the G2Plot JSON specification from the LLM's request.
+    --- NEW LOGIC: Prioritize DistinctValue/DistinctValueCount for qlty_distinctCategories ---
+    This function now includes specific logic to correctly map data from
+    qlty_distinctCategories tool output to chart axes, overriding generic mapping
+    if that specific data structure is detected.
     """
     chart_type = args.get("chart_type", "").lower()
     mapping = args.get("mapping", {})
     
+    # Define canonical mappings for chart fields
     alias_map = {
         'xField': ['x', 'x_axis', 'category', 'categories', 'label'],
         'yField': ['y', 'y_axis', 'value', 'values', 'metric'],
@@ -257,40 +277,72 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
     options = {"title": {"text": args.get("title", "Generated Chart")}}
     
     source_columns = {}
-    x_field_name_in_data = None # Store the actual key name in data for x-axis
-    for llm_key, data_col in mapping.items():
-        canonical_key = reverse_alias_map.get(llm_key.lower())
-        if canonical_key:
-            options[canonical_key] = data_col
-            # Find the actual column name in the data based on case-insensitive match
-            actual_col_name = next((k for k in data[0].keys() if k.lower() == data_col.lower()), None)
-            if not actual_col_name:
-                raise KeyError(f"The mapped column '{data_col}' (from '{llm_key}') was not found in the provided data.")
-            source_columns[canonical_key] = actual_col_name # Store the actual column name
-            if canonical_key == 'xField':
-                x_field_name_in_data = actual_col_name
+    x_field_name_in_data = None 
+
+    # --- NEW: Prioritize specific mapping for qlty_distinctCategories output (now with SourceColumnName) ---
+    if data and isinstance(data, list) and data[0] and \
+       "DistinctValue" in data[0] and "DistinctValueCount" in data[0]:
+        
+        app_logger.info("Detected qlty_distinctCategories output. Forcing x_axis to 'DistinctValue' and y_axis to 'DistinctValueCount'.")
+        
+        # Override mapping based on the known structure of qlty_distinctCategories
+        options['xField'] = "DistinctValue"
+        options['yField'] = "DistinctValueCount"
+        x_field_name_in_data = "DistinctValue" # Set for sorting
+        source_columns['xField'] = "DistinctValue"
+        source_columns['yField'] = "DistinctValueCount"
+        
+        # Adjust title to be more descriptive based on the actual distinct values
+        if "SourceColumnName" in data[0]: # Check for the renamed field
+            original_col_name = data[0]["SourceColumnName"]
+            options["title"]["text"] = f"Distribution of {original_col_name} Categories"
+        else:
+            options["title"]["text"] = "Distribution of Distinct Categories"
+
+    else:
+        # Existing generic mapping logic
+        first_row_keys_lower = {k.lower(): k for k in data[0].keys()} if data and data[0] else {}
+        for llm_key, data_col in mapping.items():
+            canonical_key = reverse_alias_map.get(llm_key.lower())
+            if canonical_key:
+                actual_col_name = first_row_keys_lower.get(data_col.lower())
+                if not actual_col_name:
+                    raise KeyError(f"The mapped column '{data_col}' (from '{llm_key}') was not found in the provided data.")
+                options[canonical_key] = actual_col_name
+                source_columns[canonical_key] = actual_col_name
+                if canonical_key == 'xField':
+                    x_field_name_in_data = actual_col_name
+    # --- END NEW ---
 
     if chart_type == 'pie' and 'seriesField' in options:
         app_logger.info("Correcting chart property: Renaming 'seriesField' to 'colorField' for pie chart.")
         options['colorField'] = options.pop('seriesField')
 
     final_data = []
+    # Ensure data types are correct and build final_data based on source_columns
     for row in data:
         new_row = {}
-        for key, actual_col_name in source_columns.items():
-            new_row[actual_col_name] = row[actual_col_name]
-            if key in ['yField', 'angleField']:
-                try:
-                    new_row[actual_col_name] = float(new_row[actual_col_name])
-                except (ValueError, TypeError):
-                    raise TypeError(f"Column '{actual_col_name}' for y-axis/angle must be numeric.")
-        final_data.append(new_row)
+        for key_role, actual_col_name in source_columns.items():
+            if actual_col_name in row: # Ensure the actual column name exists in the row
+                new_row[actual_col_name] = row[actual_col_name]
+                # Convert numeric fields to float/int if necessary
+                if key_role in ['yField', 'angleField']:
+                    try:
+                        new_row[actual_col_name] = float(new_row[actual_col_name])
+                    except (ValueError, TypeError):
+                        app_logger.warning(f"Non-numeric value '{new_row[actual_col_name]}' encountered for numeric field '{actual_col_name}'. Attempting conversion failed.")
+                        # If conversion fails, keep as is or handle as appropriate (e.g., default to 0)
+                        # For now, keeping as is might lead to chart rendering issues if G2Plot expects numbers.
+                        # A more robust solution might involve filtering or explicit error handling.
+            else:
+                app_logger.warning(f"Mapped column '{actual_col_name}' not found in data row: {row}. Skipping this field for this row.")
+        if new_row: # Only add row if it has relevant data
+            final_data.append(new_row)
     
-    # --- MODIFIED: Use the actual column name for sorting ---
     if x_field_name_in_data:
         try:
             # Sort by the actual column name found in the data
-            final_data.sort(key=lambda x: x[x_field_name_in_data])
+            final_data.sort(key=lambda x: x.get(x_field_name_in_data, '')) # Use .get with default for robustness
             app_logger.info(f"Chart data successfully sorted by x-axis field: '{x_field_name_in_data}'.")
         except (KeyError, TypeError) as e:
             app_logger.warning(f"Could not sort chart data by x-axis field '{x_field_name_in_data}': {e}. Chart may appear unordered.")
@@ -316,6 +368,7 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             args = command.get("arguments", {})
             data = args.get("data")
 
+            # --- MODIFIED: Transform data BEFORE building G2Plot spec ---
             data = _transform_chart_data(data)
             
             if not isinstance(data, list) or not data:
