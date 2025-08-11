@@ -13,6 +13,8 @@ PROVIDER_SYSTEM_PROMPTS = {
         "**This is not a suggestion. It is a strict rule. Using `tool_name` for a prompt, or `prompt_name` for a tool, will cause a critical system failure.**\n\n"
         "--- **NEW CRITICAL RULE: ONE ACTION AT A TIME** ---\n"
         "You **MUST** generate only one tool or prompt call in a single turn. Do not chain multiple JSON blocks together. After you receive the result from your action, you can then decide on the next step. This is a strict instruction.\n\n"
+        "--- **CRITICAL RULE on `FINAL_ANSWER`** ---\n"
+        "When you have a complete answer for the user, you MUST stop calling tools or prompts. Your response MUST be a single plain text string that begins with the exact prefix 'FINAL_ANSWER:'. DO NOT wrap this final response in a JSON object or use the keys 'prompt_name' or 'tool_name'.\n\n"
         "**Example for a Prompt:**\n"
         "```json\n"
         "{{\n"
