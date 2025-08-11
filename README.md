@@ -16,6 +16,7 @@ This solution provides unparalleled, real-time insight into the complete convers
 * [How It Works: Architecture](#how-it-works-architecture)
 * [Key Features](#key-features)
 * [Agent Workflows and Prompt Contracts](#agent-workflows-and-prompt-contracts)
+    * [Why Workflows Are Relevant](#why-workflows-are-relevant)
     * [How Workflows are Executed](#how-workflows-are-executed)
     * [The Contract for Prompt Workflows](#the-contract-for-prompt-workflows)
 * [Installation and Setup Guide](#installation-and-setup-guide)
@@ -135,6 +136,14 @@ This structure separates concerns, making it easier to navigate and extend the a
 ---
 
 ## Agent Workflows and Prompt Contracts
+
+### Why Workflows Are Relevant
+While single-tool calls are effective for simple, direct questions, complex analytical tasks often require a sequence of actions. **Workflows** are the agent's mechanism for executing these sophisticated, multi-step tasks. By defining a clear plan within a prompt, we can empower the agent to perform complex analyses with greater reliability and efficiency.
+
+The primary advantages of this workflow system are:
+* **Reliability & Consistency**: Workflows are deterministic. They ensure that a defined business process is executed the exact same way every time, reducing the variability of LLM-only approaches.
+* **Efficiency**: By parsing the entire plan upfront, the agent can execute the steps sequentially without needing to consult the LLM between actions. This significantly reduces latency and API costs.
+* **Power**: Workflows unlock the ability to perform in-depth analyses, such as iterating through a list of tables to gather statistics on each one, which would be cumbersome and error-prone in a purely conversational turn-by-turn process.
 
 ### How Workflows are Executed
 
