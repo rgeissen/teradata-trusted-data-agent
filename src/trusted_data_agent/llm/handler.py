@@ -14,7 +14,7 @@ import boto3
 
 from trusted_data_agent.core.config import APP_CONFIG
 from trusted_data_agent.core.session_manager import get_session, update_token_count
-from trusted_data_agent.agent.prompts import CHARTING_INSTRUCTIONS
+from trusted_data_agent.agent.prompts import CHARTING_INSTRUCTIONS, PROVIDER_SYSTEM_PROMPTS
 from trusted_data_agent.core.config import (
     CERTIFIED_GOOGLE_MODELS, CERTIFIED_ANTHROPIC_MODELS,
     CERTIFIED_AMAZON_MODELS, CERTIFIED_AMAZON_PROFILES,
@@ -116,16 +116,22 @@ def _get_full_system_prompt(session_data: dict, dependencies: dict, system_promp
         return "You are a helpful assistant."
 
     base_prompt_text = session_data.get("system_prompt_template", "You are a helpful assistant.")
-    charting_intensity = session_data.get("charting_intensity", "none")
     STATE = dependencies['STATE']
 
-    chart_instructions = CHARTING_INSTRUCTIONS.get(charting_intensity, CHARTING_INSTRUCTIONS['none'])
+    charting_instructions_section = ""
+    if APP_CONFIG.CHARTING_ENABLED:
+        charting_intensity = session_data.get("charting_intensity", "medium")
+        chart_instructions_detail = CHARTING_INSTRUCTIONS.get(charting_intensity, "")
+        if chart_instructions_detail:
+            charting_instructions_section = f"- **Charting Guidelines:** {chart_instructions_detail}"
     
-    final_system_prompt = base_prompt_text.format(
-        charting_instructions=chart_instructions,
-        tools_context=STATE.get('tools_context', ''),
-        prompts_context=STATE.get('prompts_context', ''),
-        charts_context=""
+    # --- MODIFIED: Replaced fragile .format() with robust .replace() calls ---
+    final_system_prompt = base_prompt_text.replace(
+        '{charting_instructions_section}', charting_instructions_section
+    ).replace(
+        '{tools_context}', STATE.get('tools_context', '')
+    ).replace(
+        '{prompts_context}', STATE.get('prompts_context', '')
     )
     
     return final_system_prompt
@@ -151,7 +157,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
         elif 'chat_object' in session_data:
              history_for_log = [f"[{msg.get('role')}]: {msg.get('content')}" for msg in session_data.get('chat_object', [])]
 
-    # --- MODIFIED: Replaced chr(10) with standard newline character ---
     full_log_message = (
         f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
         f"--- REASON FOR CALL ---\n{reason}\n\n"

@@ -20,7 +20,7 @@ class AppConfig:
 
 APP_CONFIG = AppConfig()
 
-CERTIFIED_GOOGLE_MODELS = ["*gemini-1.5-flash-latest"]
+CERTIFIED_GOOGLE_MODELS = ["*gemini-2.0-flash-001*"]
 CERTIFIED_ANTHROPIC_MODELS = ["*claude-sonnet-4*"]
 CERTIFIED_AMAZON_MODELS = ["*amazon.nova-pro-v1*"]
 CERTIFIED_AMAZON_PROFILES = ["*amazon.nova-pro-v1*"]
