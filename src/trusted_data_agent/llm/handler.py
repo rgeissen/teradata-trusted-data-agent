@@ -1,4 +1,4 @@
-# src/trusted_data_agent/llm/handler.py
+# trusted_data_agent/llm/handler.py
 import asyncio
 import json
 import logging
@@ -62,6 +62,54 @@ def _sanitize_llm_output(text: str) -> str:
     sanitized_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', sanitized_text)
     return sanitized_text.strip()
 
+def _extract_final_answer_from_json(text: str) -> str:
+    """
+    Detects if the LLM hallucinated and wrapped a FINAL_ANSWER inside a JSON object.
+    If so, it extracts the FINAL_ANSWER string and returns it.
+    This makes the agent more robust to common LLM formatting errors.
+    """
+    try:
+        # Use a robust regex to find json, possibly with markdown wrappers.
+        json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*?\})", text, re.DOTALL)
+        if not json_match:
+            return text
+
+        # Prioritize the markdown block match if it exists, otherwise use the raw json match.
+        json_str = json_match.group(1) or json_match.group(2)
+        if not json_str:
+            return text
+            
+        data = json.loads(json_str.strip())
+
+        # Recursively search for a string value containing the FINAL_ANSWER directive.
+        def find_answer_in_values(d):
+            if isinstance(d, dict):
+                for value in d.values():
+                    found = find_answer_in_values(value)
+                    if found:
+                        return found
+            elif isinstance(d, list):
+                for item in d:
+                    found = find_answer_in_values(item)
+                    if found:
+                        return found
+            elif isinstance(d, str) and "FINAL_ANSWER:" in d:
+                return d
+            return None
+
+        final_answer_value = find_answer_in_values(data)
+
+        if final_answer_value:
+            app_logger.warning(f"LLM hallucination detected and corrected. Extracted FINAL_ANSWER from JSON.")
+            # Return the extracted string so the rest of the system can process it normally.
+            return final_answer_value
+
+    except (json.JSONDecodeError, AttributeError):
+        # If parsing fails or it's not a structure we can search, it's not the target hallucination.
+        return text
+    
+    return text
+
 def _get_full_system_prompt(session_data: dict, dependencies: dict, system_prompt_override: str = None) -> str:
     """
     Constructs the final system prompt.
@@ -99,8 +147,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
     base_delay = APP_CONFIG.LLM_API_BASE_DELAY
     
     session_data = get_session(session_id) if session_id else None
-    # This remains the primary way to get the system prompt for all providers.
-    # The fix below will handle the special case for Amazon one-off calls internally.
     system_prompt = _get_full_system_prompt(session_data, dependencies, system_prompt_override)
 
     history_for_log = []
@@ -173,23 +219,17 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 
                 break
             
-            # --- FIX: Isolate Amazon provider logic to restore known-good behavior ---
             elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
-                # Determine history and system prompt based on context (session or one-off)
-                # This makes the logic self-contained and avoids side-effects from the shared setup.
                 is_session_call = session_data is not None
                 if is_session_call:
-                    # For a session call, the system_prompt is already correctly built
                     history = session_data.get('chat_object', [])
                 else:
-                    # For a one-off call (like categorization), use the override
                     system_prompt = system_prompt_override or "You are a helpful assistant."
                     history = chat_history or []
 
                 model_id_to_invoke = APP_CONFIG.CURRENT_MODEL
                 body = ""
 
-                # Logic for Anthropic models on Bedrock
                 if "anthropic" in model_id_to_invoke:
                     messages = [{'role': 'assistant' if msg.get('role') == 'model' else msg.get('role'), 'content': msg.get('content')} for msg in history]
                     messages.append({'role': 'user', 'content': prompt})
@@ -199,7 +239,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                         "system": system_prompt, 
                         "messages": messages
                     })
-                # Logic for modern Amazon models (like Nova) on Bedrock
                 elif "amazon.nova" in model_id_to_invoke:
                     messages = [{'role': 'assistant' if msg.get('role') == 'model' else 'user', 'content': [{'text': msg.get('content')}]} for msg in history]
                     messages.append({"role": "user", "content": [{"text": prompt}]})
@@ -210,7 +249,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                     if system_prompt:
                         body_dict["system"] = [{"text": system_prompt}]
                     body = json.dumps(body_dict)
-                # Fallback logic for legacy Amazon models (like Titan)
                 else: 
                     text_prompt = f"{system_prompt}\n\n" + "".join([f"{msg['role']}: {msg['content']}\n\n" for msg in history]) + f"user: {prompt}\n\nassistant:"
                     body = json.dumps({
@@ -230,7 +268,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                     response_text = response_body.get('results')[0].get('outputText')
                 
                 break
-            # --- END FIX ---
 
             else:
                 raise NotImplementedError(f"Provider '{APP_CONFIG.CURRENT_PROVIDER}' is not yet supported.")
@@ -251,6 +288,8 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
 
     if not response_text and raise_on_error:
         raise RuntimeError(f"LLM call failed after {max_retries} retries.")
+
+    response_text = _extract_final_answer_from_json(response_text)
 
     llm_logger.info(full_log_message)
     llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")

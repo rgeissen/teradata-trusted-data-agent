@@ -314,15 +314,6 @@ async def get_session_history(session_id):
 @api_bp.route("/session", methods=["POST"])
 async def new_session():
     """Creates a new chat session."""
-    try:
-        log_file_path = os.path.join("logs", "llm_conversations.log")
-        if os.path.exists(log_file_path):
-            with open(log_file_path, 'w'):
-                pass
-            app_logger.info(f"Cleared LLM conversation log: {log_file_path}")
-    except Exception as e:
-        app_logger.error(f"Could not clear log file: {e}")
-
     if not STATE.get('llm') or not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     
@@ -331,6 +322,13 @@ async def new_session():
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
 
     try:
+        # Reload all tool and prompt definitions from the MCP server.
+        # This ensures every new session starts with the most up-to-date capabilities.
+        app_logger.info("New session requested. Reloading all MCP resources...")
+        await mcp_adapter.load_and_categorize_teradata_resources(STATE)
+        _regenerate_contexts()
+        app_logger.info("MCP resources reloaded and contexts regenerated successfully.")
+
         session_id = session_manager.create_session(
             system_prompt_template=system_prompt_template,
             charting_intensity=charting_intensity,
@@ -442,7 +440,6 @@ async def configure_services():
         
         APP_CONFIG.CHART_MCP_CONNECTED = True
 
-        # --- NEW: Call the context regeneration and logging function after successful setup ---
         _regenerate_contexts()
 
         return jsonify({"status": "success", "message": "Teradata MCP and LLM configured successfully."})
@@ -488,12 +485,11 @@ async def ask_stream():
                 session_manager.update_session_name(session_id, new_name)
                 yield _format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
-            # --- MODIFIED: Handle simple greetings deterministically ---
             if user_input.lower().strip() in ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]:
                 greeting_response = "Hello! How can I assist you with your Teradata database queries or analysis today?"
                 yield _format_sse({"final_answer": greeting_response}, "final_answer")
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
-                return # Exit early for greetings
+                return
 
             yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
             
@@ -567,4 +563,3 @@ async def invoke_prompt_stream():
             yield _format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
 
     return Response(stream_generator(), mimetype="text/event-stream")
-

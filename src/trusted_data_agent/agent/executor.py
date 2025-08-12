@@ -113,7 +113,7 @@ class PlanExecutor:
         self.original_user_input = original_user_input
         self.state = AgentState.DECIDING
         self.next_action_str = initial_instruction
-        self.collected_data = [] # Retained for non-workflow specific data (charts, etc.)
+        self.collected_data = []
         self.max_steps = 40
         self.active_prompt_plan = None
         self.active_prompt_name = None
@@ -125,11 +125,9 @@ class PlanExecutor:
         self.workflow_manager = None
         self.last_tool_result_str = None
         self.context_stack = []
-        self.structured_collected_data = {} # For workflow-specific, grouped data
+        self.structured_collected_data = {}
         self.last_command_str = None
-        # --- NEW: Flag to indicate if the original user input requested a chart ---
         self.charting_intent_detected = self._detect_charting_intent(original_user_input)
-        # --- NEW: Store the output of the last tool call for deterministic checks ---
         self.last_tool_output = None
 
     def _detect_charting_intent(self, user_input: str) -> bool:
@@ -238,21 +236,15 @@ class PlanExecutor:
                     })
 
     def _add_to_structured_data(self, tool_result: dict):
-        # Always add to structured_collected_data if it's a workflow
         if self.is_workflow:
             context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
-            
             if not context_key:
-                # If no specific context, use a generic key for overall workflow results
                 context_key = "Overall Workflow Results" 
-            
             if context_key not in self.structured_collected_data:
                 self.structured_collected_data[context_key] = []
-            
             self.structured_collected_data[context_key].append(tool_result)
             app_logger.info(f"Added tool result to structured data under key: '{context_key}' for workflow.")
         else:
-            # For non-workflow execution, continue to use collected_data as before
             self.collected_data.append(tool_result)
             app_logger.info(f"Added tool result to collected data for non-workflow execution.")
 
@@ -484,7 +476,6 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
             return
 
-        # --- MODIFIED: Add a deterministic check for repetitive charting calls ---
         try:
             potential_command = json.loads(command_str)
             if potential_command.get("tool_name") == "viz_createChart":
@@ -494,12 +485,11 @@ class PlanExecutor:
                     self.state = AgentState.SUMMARIZING
                     return
         except (json.JSONDecodeError, TypeError):
-            pass # Not a JSON command, or not a chart call, so continue.
+            pass 
 
         if command_str == self.last_command_str:
             app_logger.warning(f"LOOP DETECTED: The LLM is trying to repeat the exact same command. Command: {command_str}")
             
-            # Check if charting intent is active and last tool was a successful data-gathering tool
             is_data_tool_success = False
             tool_name_from_result = None
             if self.charting_intent_detected and self.last_tool_result_str:
@@ -514,39 +504,31 @@ class PlanExecutor:
                     pass
 
             if self.charting_intent_detected and is_data_tool_success:
-                # Deterministically generate the viz_createChart command
                 app_logger.info("Deterministic action: Forcing viz_createChart due to repetitive data tool call with charting intent.")
-                
-                # Extract relevant data and infer mapping for the chart
                 chart_data = last_tool_output["results"]
-                
-                # Try to infer x_axis and y_axis from the data
                 x_axis_field = None
                 y_axis_field = None
                 if chart_data and isinstance(chart_data, list) and chart_data[0]:
-                    # Heuristic: Find first string column for x, first numeric for y
                     for key, value in chart_data[0].items():
                         if isinstance(value, str) and not x_axis_field:
                             x_axis_field = key
                         try:
-                            float(value) # Check if it can be converted to numeric
+                            float(value)
                             if not y_axis_field:
                                 y_axis_field = key
                         except (ValueError, TypeError):
                             pass
                     
-                    # Fallback if specific fields aren't found or if only two columns exist
                     if not x_axis_field and len(chart_data[0]) >= 1:
                         x_axis_field = list(chart_data[0].keys())[0]
                     if not y_axis_field and len(chart_data[0]) >= 2:
                         y_axis_field = list(chart_data[0].keys())[1]
 
-
                 if x_axis_field and y_axis_field:
                     chart_command = {
                         "tool_name": "viz_createChart",
                         "arguments": {
-                            "chart_type": "bar", # Default to bar chart, LLM can refine later if needed
+                            "chart_type": "bar",
                             "title": f"Distribution of {x_axis_field} by {y_axis_field}",
                             "data": chart_data,
                             "mapping": {
@@ -556,26 +538,22 @@ class PlanExecutor:
                         }
                     }
                     self.next_action_str = json.dumps(chart_command, indent=2)
-                    self.last_command_str = None # Reset to allow this new command to execute
-                    self.state = AgentState.DECIDING # Re-enter deciding state with the new command
-                    return # Exit this handler to allow the new command to be processed
+                    self.last_command_str = None
+                    self.state = AgentState.DECIDING 
+                    return
                 else:
                     app_logger.warning(f"Could not infer sufficient mapping for chart from data: {chart_data}. Falling back to LLM recovery.")
             
-            # If not forcing chart, proceed with generic repetitive action error handling
             error_message = f"Repetitive action detected. The agent tried to call the same tool with the same arguments twice in a row. This usually indicates the tool is not behaving as expected or the agent's plan is flawed."
             tool_result_str = json.dumps({
                 "tool_input": json.loads(command_str), 
                 "tool_output": {"status": "error", "error_message": error_message}
             })
             yield _format_sse({"step": "System Error", "details": error_message, "type": "error"}, "tool_result")
-            
             self.last_command_str = None 
-            
             async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Recovering from repetitive action error."):
                 yield event
             return
-        # --- END MODIFIED ---
         
         self.last_command_str = command_str
         
@@ -674,7 +652,6 @@ class PlanExecutor:
             yield _format_sse({"step": "System Notification", "details": self.current_command['notification'], "type": "workaround"})
             del self.current_command['notification']
 
-        # --- MODIFIED: Store the tool result in the new instance variable ---
         self.last_tool_output = tool_result
 
         tool_result_str = ""
@@ -685,7 +662,6 @@ class PlanExecutor:
             tool_result_str = json.dumps({"tool_input": self.current_command, "tool_output": {"status": "error", "error_message": error_details}})
         else:
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": tool_result})
-            # Ensure _add_to_structured_data is always called for workflows
             self._add_to_structured_data(tool_result)
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
@@ -700,7 +676,6 @@ class PlanExecutor:
             self.state = AgentState.DECIDING
         else:
             yield _format_sse({"step": "Thinking about the next action...", "details": f"Analyzing result from the `{tool_name}` tool to decide the next step."})
-            # Pass charting_intent_detected to LLM call
             async for event in self._get_next_action_from_llm(
                 tool_result_str=tool_result_str, 
                 reason="Deciding next action based on tool result.",
@@ -773,7 +748,6 @@ class PlanExecutor:
             yield _format_sse({"step": f"Tool Execution Result for column: {specific_column}", "details": col_result, "tool_name": tool_name}, "tool_result")
             self._add_to_structured_data(col_result)
             self.last_tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": col_result})
-            # --- NEW: Store the result of the column iteration in the new variable ---
             self.last_tool_output = col_result
             self.state = AgentState.DECIDING
             return
@@ -848,7 +822,6 @@ class PlanExecutor:
 
         self._add_to_structured_data(all_column_results)
         self.last_tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": all_column_results})
-        # --- NEW: Store the final output of the column iteration in the new variable ---
         self.last_tool_output = {"metadata": {"tool_name": tool_name}, "results": all_column_results, "status": "success"}
         self.state = AgentState.DECIDING
 
@@ -882,10 +855,8 @@ class PlanExecutor:
             )
             final_prompt_to_llm = prompt_for_next_step
         else:
-            # --- MODIFIED: Adjust prompt for charting intent, especially during recovery ---
             charting_guidance = ""
             if charting_intent_detected:
-                # Check if the previous tool result is a successful data-gathering tool
                 is_data_tool_success = False
                 tool_name_from_result = None
                 if tool_result_str:
@@ -893,37 +864,20 @@ class PlanExecutor:
                         tool_output = json.loads(tool_result_str).get("tool_output", {})
                         if tool_output.get("status") == "success" and tool_output.get("results"):
                             tool_name_from_result = tool_output.get("metadata", {}).get("tool_name")
-                            # List of tools that typically produce chartable data
                             data_gathering_tools = ["qlty_distinctCategories", "base_databaseList", "base_readQuery"]
                             if tool_name_from_result in data_gathering_tools:
                                 is_data_tool_success = True
                     except json.JSONDecodeError:
-                        pass # tool_result_str might not be valid JSON if it's an error message
+                        pass 
 
                 if is_data_tool_success:
-                    # Construct a highly directive prompt for charting
                     charting_guidance = (
                         "**CRITICAL CHARTING DIRECTIVE**: The user explicitly requested a chart, and you have successfully gathered relevant data from the previous tool call using the `{tool_name_from_result}` tool. Your **NEXT ACTION MUST BE TO CALL `viz_createChart`**. Do NOT re-call data gathering tools. Use the `results` array from the 'Data from Last Tool Call' directly as the `data` argument for `viz_createChart`. Focus solely on creating the requested visualization.\n"
-                        "For example, if the previous tool result was `{{\"results\": [{{\"Category\": \"A\", \"Value\": 10}}, {{\"Category\": \"B\", \"Value\": 20}}]}}` and the user wants a bar chart, your response should be:\n"
-                        "```json\n"
-                        "{{\n"
-                        "  \"tool_name\": \"viz_createChart\",\n"
-                        "  \"arguments\": {{\n"
-                        "    \"chart_type\": \"bar\",\n"
-                        "    \"title\": \"Example Chart Title\",\n"
-                        "    \"data\": [{{\"Category\": \"A\", \"Value\": 10}}, {{\"Category\": \"B\", \"Value\": 20}}],\n"
-                        "    \"mapping\": {{\"x_axis\": \"Category\", \"y_axis\": \"Value\"}}\n"
-                        "  }}\n"
-                        "}}\n"
-                        "```\n"
                     ).format(tool_name_from_result=tool_name_from_result or "data-gathering")
                 else:
-                    # If charting intent but previous tool was not a successful data tool,
-                    # or if it was an error, still guide towards charting but less forcefully.
                     charting_guidance = (
                         "**CRITICAL CHARTING DIRECTIVE**: The user explicitly requested a chart. If the 'Data from Last Tool Call' is suitable for a chart, your **next action MUST be to call `viz_createChart`**. Do NOT re-call data gathering tools. Focus on creating the requested visualization.\n"
                     )
-
 
             prompt_for_next_step = (
                 f"You are an assistant that has just received data from a tool call. Your task is to decide if this data is enough to answer the user's original question, or if another step is needed.\n\n"
@@ -931,11 +885,11 @@ class PlanExecutor:
                 f"'{self.original_user_input}'\n\n"
                 f"--- Data from Last Tool Call ---\n"
                 f"{tool_result_str}\n\n"
-                f"{charting_guidance}" # Insert the charting guidance here
+                f"{charting_guidance}"
                 "--- Your Decision Process ---\n"
                 "1.  **Analyze the Data:** Does the data above directly and completely answer the user's original question?\n"
                 "2.  **Choose Your Action:**\n"
-                "    -   If the data IS sufficient, your response **MUST** be a final answer to the user. Start your response with `FINAL_ANSWER:` and provide a brief summary.\n"
+                "    -   If the data IS sufficient, your response **MUST** be only the exact string `FINAL_ANSWER:`. Do not add any summary text. The system will generate the final summary.\n"
                 "    -   If the data is NOT sufficient and you need more information, call another tool or prompt by providing the appropriate JSON block.\n"
                 "    -   If the last tool call resulted in an error, you MUST attempt to recover.\n"
             )
@@ -950,7 +904,7 @@ class PlanExecutor:
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
             yield _format_sse({
-                "statement_input": statement_input_tokens, "statement_output": statement_output_tokens, # Corrected: used statement_output_tokens
+                "statement_input": statement_input_tokens, "statement_output": statement_output_tokens,
                 "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)
             }, "token_update")
         
@@ -959,55 +913,47 @@ class PlanExecutor:
         self.state = AgentState.DECIDING
 
     def _prepare_data_for_final_summary(self) -> str:
-        summary_lines = []
-        # Ensure data_to_summarize correctly reflects workflow structure
-        # If it's a workflow, we expect structured_collected_data to hold the relevant items.
-        # If structured_collected_data is empty or not a dict, default to an empty dict for safe iteration.
-        data_to_summarize = self.structured_collected_data if self.is_workflow and isinstance(self.structured_collected_data, dict) else {}
+        """
+        Prepares the collected data for the final summarization prompt.
+        This now serializes the actual data results into a JSON string.
+        """
+        data_source = self.structured_collected_data if self.is_workflow else self.collected_data
+        
+        items_to_process = []
+        if isinstance(data_source, dict):
+            for item_list in data_source.values():
+                items_to_process.extend(item_list)
+        else:
+            items_to_process = data_source
 
-        # Add a default key if the structured data is empty but collected_data has items
-        if not data_to_summarize and self.collected_data:
-            data_to_summarize = {"Overall Workflow Results": self.collected_data}
-
-
-        for context_key, items in data_to_summarize.items():
-            summary_lines.append(f"- For context: `{context_key}`:")
-            for item in items:
-                if isinstance(item, list) and item and isinstance(item[0], dict):
-                    tool_name = item[0].get("metadata", {}).get("tool_name", "Column-based tool")
-                    summary_lines.append(f"  - Executed `{tool_name}`.")
-                elif isinstance(item, dict):
-                    tool_name = item.get("metadata", {}).get("tool_name")
-                    status = item.get("status")
-                    if status == "success" and "results" in item:
-                        summary_lines.append(f"  - Tool `{tool_name}` succeeded with {len(item['results'])} results.")
-                    elif status == "error":
-                        summary_lines.append(f"  - Tool `{tool_name}` failed.")
-        return "\n".join(summary_lines)
+        successful_results = []
+        for item in items_to_process:
+            if isinstance(item, list):
+                for sub_item in item:
+                    if isinstance(sub_item, dict) and sub_item.get("status") == "success" and "results" in sub_item:
+                        successful_results.append(sub_item)
+            elif isinstance(item, dict) and item.get("status") == "success" and "results" in item:
+                successful_results.append(item)
+        
+        if not successful_results:
+            return "No data was collected from successful tool executions."
+            
+        return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
     async def _handle_summarizing(self):
-        # Ensure final_collected_data uses structured_collected_data for workflows
         final_collected_data = self.structured_collected_data if self.is_workflow else self.collected_data
         
         final_summary_text = ""
-        # Prioritize plain text FINAL_ANSWER, then JSON, then raw text
-        # 1. Try to extract plain text FINAL_ANSWER:
         final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
-        # --- MODIFIED: Add a check for markdown formatting to determine if the response is "pre-formatted"
-        has_markdown_formatting = bool(re.search(r'\n\*|\n-|\*{2,}|#', final_answer_match.group(1) if final_answer_match else "", re.DOTALL))
 
-        # --- MODIFIED: Refactored logic to handle pre-formatted FINAL_ANSWER
         if final_answer_match:
-            # If a FINAL_ANSWER was already generated, use it directly.
-            # This is the fix for the reported issue.
-            final_summary_text = final_answer_match.group(1).strip()
-            app_logger.info("Using pre-existing FINAL_ANSWER from a workflow step. Bypassing LLM call.")
+            potential_summary = final_answer_match.group(1).strip()
+            if potential_summary:
+                 final_summary_text = potential_summary
+                 app_logger.info("Using pre-existing FINAL_ANSWER text provided by a workflow step.")
 
-        # --- MODIFIED: This entire conditional block is new
-        elif self.last_tool_output and self.last_tool_output.get("type") == "chart":
+        if self.last_tool_output and self.last_tool_output.get("type") == "chart":
             yield _format_sse({"step": "Chart generated", "details": "Generating final summary with data analysis."})
-            
-            # The data for the chart is typically the item before the chart in collected_data
             data_for_llm_analysis = None
             if self.collected_data and len(self.collected_data) >= 2:
                 data_for_llm_analysis = self.collected_data[-2]
@@ -1024,54 +970,54 @@ class PlanExecutor:
                     "You have successfully executed tools and collected the following data. Analyze this data to generate your response.\n"
                     f"```json\n{json.dumps(data_for_llm_analysis, indent=2)}\n```\n\n"
                     "--- YOUR INSTRUCTIONS ---\n"
-                    "1.  **Analyze the data:** Identify key findings, notable trends, or important facts from the raw data provided. For example, mention which category has the highest or lowest count, or if there is a significant imbalance.\n"
-                    "2.  **Provide context:** Briefly introduce the data source (e.g., table name, column) from the user's original question.\n"
+                    "1.  **Analyze the data:** Identify key findings, notable trends, or important facts from the raw data provided.\n"
+                    "2.  **Provide context:** Briefly introduce the data source from the user's original question.\n"
                     "3.  **DO NOT simply describe the chart's dimensions or appearance.** Go beyond "
                     "\"The chart shows the distribution...\" and provide actual insights like "
                     "\"The data reveals that females are the largest demographic...\"\n"
                     "4.  Your response **MUST** start with `FINAL_ANSWER:` and include a natural language summary followed by a brief statement indicating that the chart is shown below. Do not wrap this final response in a JSON object."
                 )
-            
                 yield _format_sse({"step": "Calling LLM", "details": "Generating final summary with data analysis."})
                 final_llm_response, _, _ = await llm_handler.call_llm_api(
                     self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies,
                     reason="Generating final summary with data analysis."
                 )
-                
                 final_answer_match = re.search(r'FINAL_ANSWER:(.*)', final_llm_response, re.DOTALL | re.IGNORECASE)
                 if final_answer_match:
                     final_summary_text = final_answer_match.group(1).strip()
                 else:
                     final_summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
-        # This block handles all other cases (non-chart outputs and workflows that didn't provide a FINAL_ANSWER)
-        elif not final_summary_text or self.is_workflow:
-            yield _format_sse({"step": "Workflow finished", "details": "Generating final summary."})
-            summarized_data_str = self._prepare_data_for_final_summary()
+        elif not final_summary_text:
+            yield _format_sse({"step": "Plan finished", "details": "Generating final, insightful summary."})
+            raw_data_str = self._prepare_data_for_final_summary()
             
             final_prompt = (
-                "You are a data analyst generating the final, user-facing summary of a complex task.\n\n"
-                f"--- COLLECTED DATA SUMMARY ---\n{summarized_data_str}\n\n"
-                "--- YOUR TASK ---\n"
-                f"Generate a final, comprehensive answer for the user's original request: '{self.original_user_input}'.\n"
-                "Your response MUST start with `FINAL_ANSWER:` and should not contain any other formatting or conversational text."
+                "You are an expert data analyst. Your task is to provide a final, comprehensive, and insightful summary for the user.\n\n"
+                f"--- USER'S ORIGINAL QUESTION ---\n"
+                f"'{self.original_user_input}'\n\n"
+                f"--- RELEVANT DATA COLLECTED ---\n"
+                "You have successfully executed tools and collected the following raw data. Your response MUST be based on an analysis of this data.\n"
+                f"```json\n{raw_data_str}\n```\n\n"
+                "--- YOUR INSTRUCTIONS ---\n"
+                "1.  **Analyze the data deeply.** Do not simply describe the columns or state that data is available. Find patterns, identify maximums/minimums, or summarize key trends relevant to the user's question.\n"
+                "2.  **Synthesize your findings** into a concise, natural language answer.\n"
+                "3.  **Do not mention the tool names** (e.g., `dba_resusageSummary`). The user is interested in the insights, not the tools used.\n"
+                "4.  Your entire response **MUST** start with the prefix `FINAL_ANSWER:` and nothing else."
             )
-            yield _format_sse({"step": "Calling LLM", "details": "Generating final workflow summary."})
+            yield _format_sse({"step": "Calling LLM", "details": "Generating final, insightful summary."})
             final_llm_response, _, _ = await llm_handler.call_llm_api(
                 self.dependencies['STATE']['llm'], final_prompt, self.session_id, dependencies=self.dependencies,
-                reason="Generating final workflow summary."
+                reason="Generating final, insightful summary."
             )
-            
             final_answer_match = re.search(r'FINAL_ANSWER:(.*)', final_llm_response, re.DOTALL | re.IGNORECASE)
             if final_answer_match:
                 final_summary_text = final_answer_match.group(1).strip()
             else:
                 final_summary_text = final_llm_response or "The agent finished its plan but did not provide a final summary."
 
-        # Fallback to catch any remaining cases where final_summary_text might be unset
         if not final_summary_text:
             final_summary_text = self.next_action_str.replace("FINAL_ANSWER:", "").strip()
-        # --- END MODIFIED ---
 
         formatter = OutputFormatter(
             llm_response_text=final_summary_text, 

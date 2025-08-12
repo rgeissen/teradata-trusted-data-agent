@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+from datetime import datetime
 
 from langchain_mcp_adapters.tools import load_mcp_tools
 from trusted_data_agent.llm import handler as llm_handler
@@ -41,6 +42,14 @@ VIZ_TOOL_DEFINITION = {
     }
 }
 
+UTIL_TOOL_DEFINITIONS = [
+    {
+        "name": "util_getCurrentDate",
+        "description": "Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.",
+        "args": {}
+    }
+]
+
 
 async def load_and_categorize_teradata_resources(STATE: dict):
     mcp_client = STATE.get('mcp_client')
@@ -58,6 +67,9 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         
         viz_tool_obj = SimpleTool(**VIZ_TOOL_DEFINITION)
         loaded_tools.append(viz_tool_obj)
+        
+        for util_tool_def in UTIL_TOOL_DEFINITIONS:
+            loaded_tools.append(SimpleTool(**util_tool_def))
 
         STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         STATE['tool_scopes'] = classify_tool_scopes(loaded_tools)
@@ -162,10 +174,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             STATE['structured_prompts'] = {}
             for category, prompt_names in categorized_prompts.items():
                 prompt_list = []
-                # --- FIX: Parse the name from the "name: description" string ---
                 for raw_name_from_llm in prompt_names:
-                    # Split at the first colon and take the part before it.
-                    # This handles cases where the description might also have a colon.
                     name = raw_name_from_llm.split(':', 1)[0].strip()
                     is_found = name in STATE['mcp_prompts']
                     
@@ -180,7 +189,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                             "arguments": [arg.model_dump() for arg in prompt_obj.arguments],
                             "disabled": is_disabled
                         })
-                # --- END FIX ---
                 STATE['structured_prompts'][category] = prompt_list
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
@@ -239,7 +247,6 @@ def _transform_chart_data(data: any) -> list[dict]:
         if isinstance(data.get('rows'), list):
             return data['rows']
     
-    # --- NEW: Rename 'ColumnName' to 'SourceColumnName' in qlty_distinctCategories output ---
     if isinstance(data, list) and data and isinstance(data[0], dict):
         if "ColumnName" in data[0] and "DistinctValue" in data[0] and "DistinctValueCount" in data[0]:
             app_logger.info("Detected qlty_distinctCategories output pattern. Renaming 'ColumnName' to 'SourceColumnName'.")
@@ -250,22 +257,16 @@ def _transform_chart_data(data: any) -> list[dict]:
                     new_row["SourceColumnName"] = new_row.pop("ColumnName")
                 transformed_data.append(new_row)
             return transformed_data
-    # --- END NEW ---
 
     return data
 
 def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
     """
     Constructs the G2Plot JSON specification from the LLM's request.
-    --- NEW LOGIC: Prioritize DistinctValue/DistinctValueCount for qlty_distinctCategories ---
-    This function now includes specific logic to correctly map data from
-    qlty_distinctCategories tool output to chart axes, overriding generic mapping
-    if that specific data structure is detected.
     """
     chart_type = args.get("chart_type", "").lower()
     mapping = args.get("mapping", {})
     
-    # Define canonical mappings for chart fields
     alias_map = {
         'xField': ['x', 'x_axis', 'category', 'categories', 'label'],
         'yField': ['y', 'y_axis', 'value', 'values', 'metric'],
@@ -279,28 +280,24 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
     source_columns = {}
     x_field_name_in_data = None 
 
-    # --- NEW: Prioritize specific mapping for qlty_distinctCategories output (now with SourceColumnName) ---
     if data and isinstance(data, list) and data[0] and \
        "DistinctValue" in data[0] and "DistinctValueCount" in data[0]:
         
         app_logger.info("Detected qlty_distinctCategories output. Forcing x_axis to 'DistinctValue' and y_axis to 'DistinctValueCount'.")
         
-        # Override mapping based on the known structure of qlty_distinctCategories
         options['xField'] = "DistinctValue"
         options['yField'] = "DistinctValueCount"
-        x_field_name_in_data = "DistinctValue" # Set for sorting
+        x_field_name_in_data = "DistinctValue"
         source_columns['xField'] = "DistinctValue"
         source_columns['yField'] = "DistinctValueCount"
         
-        # Adjust title to be more descriptive based on the actual distinct values
-        if "SourceColumnName" in data[0]: # Check for the renamed field
+        if "SourceColumnName" in data[0]:
             original_col_name = data[0]["SourceColumnName"]
             options["title"]["text"] = f"Distribution of {original_col_name} Categories"
         else:
             options["title"]["text"] = "Distribution of Distinct Categories"
 
     else:
-        # Existing generic mapping logic
         first_row_keys_lower = {k.lower(): k for k in data[0].keys()} if data and data[0] else {}
         for llm_key, data_col in mapping.items():
             canonical_key = reverse_alias_map.get(llm_key.lower())
@@ -312,37 +309,30 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
                 source_columns[canonical_key] = actual_col_name
                 if canonical_key == 'xField':
                     x_field_name_in_data = actual_col_name
-    # --- END NEW ---
 
     if chart_type == 'pie' and 'seriesField' in options:
         app_logger.info("Correcting chart property: Renaming 'seriesField' to 'colorField' for pie chart.")
         options['colorField'] = options.pop('seriesField')
 
     final_data = []
-    # Ensure data types are correct and build final_data based on source_columns
     for row in data:
         new_row = {}
         for key_role, actual_col_name in source_columns.items():
-            if actual_col_name in row: # Ensure the actual column name exists in the row
+            if actual_col_name in row:
                 new_row[actual_col_name] = row[actual_col_name]
-                # Convert numeric fields to float/int if necessary
                 if key_role in ['yField', 'angleField']:
                     try:
                         new_row[actual_col_name] = float(new_row[actual_col_name])
                     except (ValueError, TypeError):
                         app_logger.warning(f"Non-numeric value '{new_row[actual_col_name]}' encountered for numeric field '{actual_col_name}'. Attempting conversion failed.")
-                        # If conversion fails, keep as is or handle as appropriate (e.g., default to 0)
-                        # For now, keeping as is might lead to chart rendering issues if G2Plot expects numbers.
-                        # A more robust solution might involve filtering or explicit error handling.
             else:
                 app_logger.warning(f"Mapped column '{actual_col_name}' not found in data row: {row}. Skipping this field for this row.")
-        if new_row: # Only add row if it has relevant data
+        if new_row:
             final_data.append(new_row)
     
     if x_field_name_in_data:
         try:
-            # Sort by the actual column name found in the data
-            final_data.sort(key=lambda x: x.get(x_field_name_in_data, '')) # Use .get with default for robustness
+            final_data.sort(key=lambda x: x.get(x_field_name_in_data, ''))
             app_logger.info(f"Chart data successfully sorted by x-axis field: '{x_field_name_in_data}'.")
         except (KeyError, TypeError) as e:
             app_logger.warning(f"Could not sort chart data by x-axis field '{x_field_name_in_data}': {e}. Chart may appear unordered.")
@@ -360,15 +350,23 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_client = STATE.get('mcp_client')
+    tool_name = command.get("tool_name")
     
-    if command.get("tool_name") == "viz_createChart":
+    if tool_name == "util_getCurrentDate":
+        app_logger.info("Executing client-side tool: util_getCurrentDate")
+        current_date = datetime.now().strftime('%Y-%m-%d')
+        return {
+            "status": "success",
+            "metadata": {"tool_name": "util_getCurrentDate"},
+            "results": [{"current_date": current_date}]
+        }
+
+    if tool_name == "viz_createChart":
         app_logger.info(f"Handling abstract chart generation for: {command}")
         
         try:
             args = command.get("arguments", {})
             data = args.get("data")
-
-            # --- MODIFIED: Transform data BEFORE building G2Plot spec ---
             data = _transform_chart_data(data)
             
             if not isinstance(data, list) or not data:
@@ -385,7 +383,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     if "error" in validated_command:
         return validated_command
 
-    tool_name = validated_command.get("tool_name")
     args = validated_command.get("arguments", validated_command.get("parameters", {}))
     
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
