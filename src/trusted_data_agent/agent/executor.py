@@ -259,8 +259,8 @@ class PlanExecutor:
                         yield event
                 
                 elif self.state == AgentState.EXECUTING_TOOL:
-                    is_range_candidate, date_param_name = self._is_date_query_candidate()
-                    if is_range_candidate:
+                    is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate()
+                    if is_range_candidate and not tool_supports_range:
                         yield _format_sse({"step": "Calling LLM", "details": "Classifying date query."})
                         query_type, date_phrase = await self._classify_date_query_type()
                         if query_type == 'range':
@@ -299,14 +299,22 @@ class PlanExecutor:
             async for event in self._handle_summarizing():
                 yield event
 
-    def _is_date_query_candidate(self) -> tuple[bool, str]:
+    def _is_date_query_candidate(self) -> tuple[bool, str, bool]:
         if not self.current_command:
-            return False, None
+            return False, None, False
+
+        tool_name = self.current_command.get("tool_name")
+        tool_spec = self.dependencies['STATE'].get('mcp_tools', {}).get(tool_name)
+        if not tool_spec or not hasattr(tool_spec, 'args') or not isinstance(tool_spec.args, dict):
+            return False, None, False
+
+        tool_arg_names = set(tool_spec.args.keys())
+        tool_supports_range = 'start_date' in tool_arg_names and 'end_date' in tool_arg_names
         
         args = self.current_command.get("arguments", {})
         date_param_name = next((param for param in args if 'date' in param.lower()), None)
         
-        return bool(date_param_name), date_param_name
+        return bool(date_param_name), date_param_name, tool_supports_range
 
     async def _classify_date_query_type(self) -> tuple[str, str]:
         classification_prompt = (
@@ -335,11 +343,11 @@ class PlanExecutor:
             "type": "workaround"
         })
 
-        date_command = {"tool_name": "base_readQuery", "arguments": {"sql": "SELECT CURRENT_DATE"}}
+        date_command = {"tool_name": "util_getCurrentDate"}
         date_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], date_command)
         if not (date_result and date_result.get("status") == "success" and date_result.get("results")):
             raise RuntimeError("Date Range Orchestrator failed to fetch current date.")
-        current_date_str = date_result["results"][0].get("Date")
+        current_date_str = date_result["results"][0].get("current_date")
 
         conversion_prompt = (
             f"You are a date range calculation assistant. Given that the current date is {current_date_str}, "
@@ -997,13 +1005,13 @@ class PlanExecutor:
                 f"--- USER'S ORIGINAL QUESTION ---\n"
                 f"'{self.original_user_input}'\n\n"
                 f"--- RELEVANT DATA COLLECTED ---\n"
-                "You have successfully executed tools and collected the following raw data. Your response MUST be based on an analysis of this data.\n"
                 f"```json\n{raw_data_str}\n```\n\n"
                 "--- YOUR INSTRUCTIONS ---\n"
-                "1.  **Analyze the data deeply.** Do not simply describe the columns or state that data is available. Find patterns, identify maximums/minimums, or summarize key trends relevant to the user's question.\n"
-                "2.  **Synthesize your findings** into a concise, natural language answer.\n"
-                "3.  **Do not mention the tool names** (e.g., `dba_resusageSummary`). The user is interested in the insights, not the tools used.\n"
-                "4.  Your entire response **MUST** start with the prefix `FINAL_ANSWER:` and nothing else."
+                "1.  **First, critically evaluate if the `RELEVANT DATA COLLECTED` actually satisfies the `USER'S ORIGINAL QUESTION`.** Pay close attention to constraints like dates (e.g., 'today', 'this week').\n"
+                "2.  **If the data DOES NOT satisfy the request** (e.g., the user asked for 'today' but the data is for the whole week), you MUST state this limitation clearly in your answer. For example: 'I could not retrieve data specifically for today, but here are the insights from the last 7 days.'\n"
+                "3.  **Analyze the data deeply.** Find patterns, identify maximums/minimums, or summarize key trends relevant to the user's question.\n"
+                "4.  **Synthesize your findings** into a concise, natural language answer, including any limitations you identified.\n"
+                "5.  Your entire response **MUST** start with the prefix `FINAL_ANSWER:` and nothing else."
             )
             yield _format_sse({"step": "Calling LLM", "details": "Generating final, insightful summary."})
             final_llm_response, _, _ = await llm_handler.call_llm_api(
