@@ -5,7 +5,7 @@ load_dotenv()
 
 class AppConfig:
     ALL_MODELS_UNLOCKED = False
-    CHARTING_ENABLED = True
+    CHARTING_ENABLED = False
     TERADATA_MCP_CONNECTED = False
     CHART_MCP_CONNECTED = False
     CURRENT_PROVIDER = None
