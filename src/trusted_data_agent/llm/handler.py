@@ -1,4 +1,4 @@
-# trusted_data_agent/llm/handler.py
+# src/trusted_data_agent/llm/handler.py
 import asyncio
 import json
 import logging
@@ -69,19 +69,16 @@ def _extract_final_answer_from_json(text: str) -> str:
     This makes the agent more robust to common LLM formatting errors.
     """
     try:
-        # Use a robust regex to find json, possibly with markdown wrappers.
         json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*?\})", text, re.DOTALL)
         if not json_match:
             return text
 
-        # Prioritize the markdown block match if it exists, otherwise use the raw json match.
         json_str = json_match.group(1) or json_match.group(2)
         if not json_str:
             return text
             
         data = json.loads(json_str.strip())
 
-        # Recursively search for a string value containing the FINAL_ANSWER directive.
         def find_answer_in_values(d):
             if isinstance(d, dict):
                 for value in d.values():
@@ -101,11 +98,9 @@ def _extract_final_answer_from_json(text: str) -> str:
 
         if final_answer_value:
             app_logger.warning(f"LLM hallucination detected and corrected. Extracted FINAL_ANSWER from JSON.")
-            # Return the extracted string so the rest of the system can process it normally.
             return final_answer_value
 
     except (json.JSONDecodeError, AttributeError):
-        # If parsing fails or it's not a structure we can search, it's not the target hallucination.
         return text
     
     return text
@@ -156,10 +151,11 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
         elif 'chat_object' in session_data:
              history_for_log = [f"[{msg.get('role')}]: {msg.get('content')}" for msg in session_data.get('chat_object', [])]
 
+    # --- MODIFIED: Replaced chr(10) with standard newline character ---
     full_log_message = (
         f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
         f"--- REASON FOR CALL ---\n{reason}\n\n"
-        f"--- History ---\n{chr(10).join(history_for_log)}\n\n"
+        f"--- History ---\n{'\n'.join(history_for_log)}\n\n"
         f"--- Current User Prompt (with System Prompt) ---\n"
         f"SYSTEM PROMPT:\n{system_prompt}\n\n"
         f"USER PROMPT:\n{prompt}\n"
