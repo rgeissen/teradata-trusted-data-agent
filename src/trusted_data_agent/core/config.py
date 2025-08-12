@@ -21,8 +21,8 @@ class AppConfig:
 APP_CONFIG = AppConfig()
 
 CERTIFIED_GOOGLE_MODELS = ["*gemini-2.0-flash"]
-CERTIFIED_ANTHROPIC_MODELS = ["*claude-sonnet-4*"]
+CERTIFIED_ANTHROPIC_MODELS = ["*claude-3-7-sonnet*"]
 CERTIFIED_AMAZON_MODELS = ["*amazon.nova-pro-v1*"]
 CERTIFIED_AMAZON_PROFILES = ["*amazon.nova-pro-v1*"]
 CERTIFIED_OLLAMA_MODELS = ["llama2"] 
-CERTIFIED_OPENAI_MODELS = ["*gpt-4.1"]
+CERTIFIED_OPENAI_MODELS = ["*gpt-4.1-mini-2025*"]
