@@ -44,11 +44,11 @@ PROVIDER_SYSTEM_PROMPTS = {
 
 
 G2PLOT_GUIDELINES = """
-- **Core Concept**: You create charts by mapping columns from the data you have received to visual properties.
+- **Core Concept**: You create charts by mapping columns from the data you have received to visual roles.
 - **CRITICAL CHARTING RULE**: When you call the `viz_createChart` tool, you **MUST** provide the `data` argument. The value for this argument **MUST BE THE EXACT `results` ARRAY** from the previous successful tool call. Do not modify or re-create it.
 - **Your Task**: You must provide the `chart_type`, a `title`, the `data` from the previous step, and the `mapping` argument.
 - **The `mapping` Argument**: This is the most important part. It tells the system how to draw the chart.
-  - The `mapping` dictionary keys are the visual roles (e.g., `x_axis`, `y_axis`, `color`).
+  - The `mapping` dictionary keys **MUST be one of the following visual roles**: `x_axis`, `y_axis`, `color`, `angle`.
   - The `mapping` dictionary values **MUST BE THE EXACT COLUMN NAMES** from the data you are passing.
 
 - **Example Interaction (Single Series)**:

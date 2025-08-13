@@ -167,7 +167,8 @@ class OutputFormatter:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
         
-        table_html = "" # This variable is correctly initialized here
+        # FIX: Corrected variable name from `html` to `table_html`
+        table_html = "" 
         results = table_data.get("results")
         if isinstance(results, list) and results and all(isinstance(item, dict) for item in results):
             headers = results[0].keys()
@@ -316,4 +317,3 @@ class OutputFormatter:
             return "<p>The agent completed its work but did not produce a visible output.</p>"
             
         return final_html
-
