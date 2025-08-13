@@ -150,7 +150,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
             prompt_list_for_prompt = "\n".join([f"- {p.name}: {p.description or 'No description available.'}" for p in loaded_prompts])
             
-            # --- MODIFIED: Escaped the json backticks to prevent formatting errors ---
             categorization_prompt_for_prompts = (
                 "You are a JSON formatting expert. Your task is to categorize the following list of Teradata system prompts into a single JSON object."
                 "\n\n**CRITICAL RULES:**"

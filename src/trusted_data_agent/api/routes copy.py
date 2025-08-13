@@ -26,23 +26,6 @@ from trusted_data_agent.agent.shims.prompt_shims import PROMPT_SHIMS
 api_bp = Blueprint('api', __name__)
 app_logger = logging.getLogger("quart.app")
 
-# --- NEW: Define local dummy classes to avoid invalid imports ---
-# This uses duck typing to create objects that are structurally
-# compatible with what the MCP library expects, without relying on
-# the library's internal, non-public class structure.
-
-class _DummyContent:
-    """A duck-typed object to stand in for the MCP Content class."""
-    def __init__(self, text=""):
-        self.text = text
-
-class _DummyMessage:
-    """A duck-typed object to stand in for the MCP Message class."""
-    def __init__(self, role="user", content=None):
-        self.role = role
-        self.content = content if content is not None else _DummyContent()
-
-
 def unwrap_exception(e: BaseException) -> BaseException:
     """Recursively unwraps ExceptionGroups to find the root cause."""
     if isinstance(e, ExceptionGroup) and e.exceptions:
@@ -299,10 +282,13 @@ async def get_prompt_content(prompt_name):
             shim_content = PROMPT_SHIMS[prompt_name]
             # Defensively ensure the nested structure exists before modifying it.
             if not hasattr(prompt_obj, 'messages') or not prompt_obj.messages:
-                prompt_obj.messages = [_DummyMessage()]
+                from langchain_mcp_adapters.protocol import Message, Content
+                prompt_obj.messages = [Message(role="user", content=Content(text=""))]
             if not hasattr(prompt_obj.messages[0], 'content') or prompt_obj.messages[0].content is None:
-                prompt_obj.messages[0].content = _DummyContent()
+                 from langchain_mcp_adapters.protocol import Content
+                 prompt_obj.messages[0].content = Content(text="")
             prompt_obj.messages[0].content.text = shim_content
+            # --- THIS IS THE NOTIFICATION YOU REQUESTED ---
             app_logger.info(f"SHIM APPLIED (on-demand): Overriding content for prompt '{prompt_name}' for UI display.")
 
         # 3. Robustly extract the text content.

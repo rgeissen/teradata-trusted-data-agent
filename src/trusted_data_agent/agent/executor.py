@@ -9,6 +9,7 @@ from trusted_data_agent.agent.formatter import OutputFormatter
 from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
+from trusted_data_agent.agent.workflow_manager import WorkflowManager
 
 app_logger = logging.getLogger("quart.app")
 
@@ -18,70 +19,6 @@ class AgentState(Enum):
     SUMMARIZING = auto()
     DONE = auto()
     ERROR = auto()
-
-class WorkflowManager:
-    """
-    Parses and manages the state of a multi-step workflow prompt.
-    """
-    def __init__(self, prompt_text: str, arguments: dict):
-        self.steps = self._parse_steps(prompt_text)
-        self.current_step_index = 0 if self.steps and "Phase 0" in self.steps[0].get("title", "") else -1
-        self.arguments = arguments
-        app_logger.info(f"WorkflowManager initialized with {len(self.steps)} steps. Starting at index {self.current_step_index + 1}.")
-
-    def _parse_steps(self, prompt_text: str) -> list[dict]:
-        """
-        Parses the prompt text into a list of steps based on '## Phase X' headers.
-        """
-        step_pattern = re.compile(r"^##\s+(?:Phase|Step)\s+\d+\s*[:\-]\s*(.*)", re.MULTILINE)
-        steps = []
-        matches = list(step_pattern.finditer(prompt_text))
-        
-        for i, match in enumerate(matches):
-            step_title = match.group(1).strip()
-            start_pos = match.end()
-            end_pos = matches[i + 1].start() if i + 1 < len(matches) else len(prompt_text)
-            step_content = prompt_text[start_pos:end_pos].strip()
-            
-            steps.append({
-                "title": f"Phase {i} - {step_title}", # Standardize title for checks
-                "content": step_content
-            })
-        return steps
-
-    def _find_tool_in_step(self, step_content: str) -> str | None:
-        """
-        Finds an explicitly mentioned tool in the step's content.
-        This version makes the backticks around the tool name optional to be more robust.
-        """
-        tool_match = re.search(r"Use the `?(\w+)`?\sfunction", step_content)
-        return tool_match.group(1) if tool_match else None
-
-    def get_next_action(self) -> dict | None:
-        """
-        Determines the next action to take in the workflow.
-        """
-        self.current_step_index += 1
-        if self.current_step_index >= len(self.steps):
-            return None
-
-        next_step = self.steps[self.current_step_index]
-        app_logger.info(f"WorkflowManager advancing to step {self.current_step_index}: {next_step['title']}")
-        tool_name = self._find_tool_in_step(next_step['content'])
-
-        if tool_name:
-            return {
-                "type": "tool_call",
-                "command": {
-                    "tool_name": tool_name,
-                    "arguments": self.arguments
-                }
-            }
-        else:
-            return {
-                "type": "llm_prompt",
-                "prompt_content": next_step['content']
-            }
 
 def _format_sse(data: dict, event: str = None) -> str:
     msg = f"data: {json.dumps(data)}\n"
@@ -122,7 +59,6 @@ class PlanExecutor:
         self.tool_constraints_cache = {}
         self.globally_failed_tools = set()
         self.is_workflow = False
-        self.workflow_manager = None
         self.last_tool_result_str = None
         self.context_stack = []
         self.structured_collected_data = {}
@@ -130,6 +66,12 @@ class PlanExecutor:
         self.charting_intent_detected = self._detect_charting_intent(original_user_input)
         self.last_tool_output = None
         self.temp_data_holder = None
+        # --- NEW: Attributes for new workflow engine ---
+        self.workflow_plan = None
+        self.prompt_arguments = {}
+        self.workflow_pointer = []
+        self.workflow_loop_stack = []
+
 
     async def _call_llm_and_update_tokens(self, prompt: str, reason: str, system_prompt_override: str = None, raise_on_error: bool = False) -> tuple[str, int, int]:
         """
@@ -268,60 +210,151 @@ class PlanExecutor:
     async def run(self):
         # Main execution loop for tool calls and decisions.
         for i in range(self.max_steps):
-            # If a terminal state is reached, break the loop to proceed to summarization.
             if self.state in [AgentState.SUMMARIZING, AgentState.DONE, AgentState.ERROR]:
                 break
             try:
-                if self.state == AgentState.DECIDING:
+                if self.is_workflow:
+                    async for event in self._execute_workflow_step():
+                        yield event
+                elif self.state == AgentState.DECIDING:
                     yield _format_sse({"step": "LLM has decided on an action", "details": self.next_action_str}, "llm_thought")
                     async for event in self._handle_deciding():
                         yield event
-                
                 elif self.state == AgentState.EXECUTING_TOOL:
-                    is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate()
-                    if is_range_candidate and not tool_supports_range:
-                        
-                        self.temp_data_holder = None
-                        async for event in self._classify_date_query_type():
-                            yield event
-                        
-                        classification_result = self.temp_data_holder
-                        self.temp_data_holder = None
+                    async for event in self._execute_tool_with_orchestrators():
+                        yield event
 
-                        if classification_result and classification_result.get('type') == 'range':
-                            date_phrase = classification_result.get('phrase')
-                            async for event in self._execute_date_range_orchestrator(date_param_name, date_phrase):
-                                yield event
-                            continue
-                    
-                    tool_name = self.current_command.get("tool_name")
-                    if tool_name in self.globally_failed_tools:
-                        yield _format_sse({
-                            "step": f"Skipping Globally Failed Tool: {tool_name}",
-                            "details": f"The tool '{tool_name}' has been identified as non-functional for this session and will be skipped.",
-                            "type": "workaround"
-                        })
-                        self.last_tool_result_str = json.dumps({ "tool_name": tool_name, "tool_output": { "status": "error", "error_message": "Skipped because tool is globally non-functional." } })
-                        self.state = AgentState.DECIDING
-                        continue
-
-                    tool_scopes = self.dependencies['STATE'].get('tool_scopes', {})
-                    if tool_scopes.get(tool_name) == 'column':
-                        async for event in self._execute_column_iteration():
-                            yield event
-                    else:
-                        async for event in self._execute_standard_tool():
-                            yield event
             except Exception as e:
                 app_logger.error(f"Error in state {self.state.name}: {e}", exc_info=True)
-                self.state = AgentState.ERROR
-                yield _format_sse({"error": "An error occurred during execution.", "details": str(e)}, "error")
+                if self.is_workflow:
+                    async for event in self._recover_with_llm(f"The plan failed with this error: {e}"):
+                        yield event
+                else:
+                    self.state = AgentState.ERROR
+                    yield _format_sse({"error": "An error occurred during execution.", "details": str(e)}, "error")
         
         if self.state == AgentState.SUMMARIZING:
             async for event in self._generate_final_summary():
                 yield event
         elif self.state == AgentState.ERROR:
              yield _format_sse({"error": "Execution stopped due to an error.", "details": "The agent entered an unrecoverable error state."}, "error")
+
+    def _get_next_action_node(self):
+        """Navigates the workflow_plan tree and returns the current action node."""
+        if not self.workflow_plan or not self.workflow_pointer:
+            return None
+
+        current_level_nodes = self.workflow_plan
+        
+        for i in range(len(self.workflow_pointer) - 1):
+            node_index = self.workflow_pointer[i]
+            if node_index >= len(current_level_nodes): return None
+            current_level_nodes = current_level_nodes[node_index].get("steps", [])
+        
+        final_index = self.workflow_pointer[-1]
+        if final_index >= len(current_level_nodes):
+            return None
+            
+        return current_level_nodes[final_index]
+
+    def _advance_workflow_pointer(self):
+        """Increments the pointer to the next step, handling nested structures."""
+        if not self.workflow_plan or not self.workflow_pointer:
+            return
+        
+        self.workflow_pointer[-1] += 1
+        
+    async def _execute_workflow_step(self):
+        action_node = self._get_next_action_node()
+
+        if not action_node:
+            app_logger.info("Workflow execution complete.")
+            self.state = AgentState.SUMMARIZING
+            return
+
+        node_type = action_node.get("type")
+        yield _format_sse({"step": f"Executing: {action_node.get('title') or action_node.get('content')}", "details": f"Node Type: {node_type}"})
+
+        if node_type == "phase":
+            self.workflow_pointer.append(0)
+        
+        elif node_type == "loop":
+            source_list_name = action_node['source_list_name']
+            item_list = []
+            if self.last_tool_output and isinstance(self.last_tool_output.get('results'), list):
+                 item_list = self.last_tool_output['results']
+            
+            if not item_list:
+                yield _format_sse({"step": "Validation Failure", "details": f"Loop '{source_list_name}' has no items to process. Attempting recovery."})
+                async for event in self._recover_with_llm(f"The plan expected a list of '{source_list_name}' to loop over, but the previous step returned an empty list."):
+                    yield event
+                return
+            
+            self.workflow_loop_stack.append({
+                "steps": action_node["steps"],
+                "items": item_list,
+                "item_name": action_node["item_name"],
+                "index": -1
+            })
+            self.workflow_pointer.append(0)
+
+        elif node_type == "tool_call":
+            args = self.prompt_arguments.copy()
+            if self.workflow_loop_stack:
+                loop_context = self.workflow_loop_stack[-1]
+                if 0 <= loop_context['index'] < len(loop_context['items']):
+                    current_item = loop_context['items'][loop_context['index']]
+                    args.update(current_item)
+            
+            self.current_command = {
+                "tool_name": action_node["tool_name"],
+                "arguments": args
+            }
+            async for event in self._execute_standard_tool(is_workflow_step=True):
+                yield event
+            self._advance_workflow_pointer()
+
+        elif node_type == "llm_prompt":
+            self.state = AgentState.SUMMARIZING
+            return
+        
+        if node_type != "tool_call":
+             self._advance_workflow_pointer()
+
+    async def _recover_with_llm(self, error_message: str):
+        recovery_prompt = (
+            "You are an expert troubleshooter for a multi-step workflow. The plan has failed. Your job is to get the plan back on track.\n\n"
+            f"--- ORIGINAL GOAL ---\n{self.original_user_input}\n\n"
+            f"--- THE FAILED STEP ---\n{json.dumps(self.current_command)}\n\n"
+            f"--- THE ERROR ---\n{error_message}\n\n"
+            "--- INSTRUCTIONS ---\n"
+            "Analyze the error. Decide on a single, immediate action to recover. This is likely a new tool call with corrected parameters. Your response MUST be a single JSON object for a tool call."
+        )
+        reason = "Recovering from workflow error."
+        yield _format_sse({"step": "Calling LLM for Recovery", "details": reason})
+        response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=recovery_prompt, reason=reason)
+        
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            yield _format_sse({"statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
+
+        self.next_action_str = response_text
+        self.is_workflow = False
+        self.state = AgentState.DECIDING
+
+    async def _execute_tool_with_orchestrators(self):
+        is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate()
+        if is_range_candidate and not tool_supports_range:
+            async for event in self._classify_date_query_type(): yield event
+            if self.temp_data_holder and self.temp_data_holder.get('type') == 'range':
+                async for event in self._execute_date_range_orchestrator(date_param_name, self.temp_data_holder.get('phrase')): yield event
+                return
+
+        tool_name = self.current_command.get("tool_name")
+        if self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name) == 'column' and not self.current_command.get("arguments", {}).get("col_name"):
+            async for event in self._execute_column_iteration(): yield event
+        else:
+            async for event in self._execute_standard_tool(): yield event
 
     def _is_date_query_candidate(self) -> tuple[bool, str, bool]:
         if not self.current_command:
@@ -491,20 +524,14 @@ class PlanExecutor:
         return enriched_args, events_to_yield
 
     async def _handle_deciding(self):
-        if self.is_workflow and self.workflow_manager:
-            next_action = self.workflow_manager.get_next_action()
-            if next_action:
-                if next_action['type'] == 'tool_call':
-                    self.current_command = next_action['command']
-                    self.state = AgentState.EXECUTING_TOOL
-                elif next_action['type'] == 'llm_prompt':
-                    async for event in self._get_next_action_from_llm(scoped_prompt_content=next_action['prompt_content'], reason="Executing workflow step."):
-                        yield event
-            else:
-                app_logger.info("WorkflowManager reports all steps are complete.")
-                self.state = AgentState.SUMMARIZING
+        # This is the single entry point for deciding the next action
+        # It now correctly routes to the new workflow handler or the original LLM handler
+        if self.is_workflow:
+            async for event in self._execute_workflow_step():
+                yield event
             return
 
+        # --- ORIGINAL NON-WORKFLOW LOGIC PRESERVED BELOW ---
         if "SYSTEM_ACTION_COMPLETE" in self.next_action_str:
             self.state = AgentState.SUMMARIZING
             return
@@ -525,109 +552,20 @@ class PlanExecutor:
         if not command_str:
             self.state = AgentState.SUMMARIZING
             return
-
-        try:
-            potential_command = json.loads(command_str)
-            if potential_command.get("tool_name") == "viz_createChart":
-                if self.last_tool_output and self.last_tool_output.get("type") == "chart":
-                    app_logger.warning("DETERMINISTIC GUARDRAIL: LLM requested a second chart, but a chart has already been successfully generated. Forcing to summary state.")
-                    self.next_action_str = "FINAL_ANSWER: The chart has been generated and is displayed below."
-                    self.state = AgentState.SUMMARIZING
-                    return
-        except (json.JSONDecodeError, TypeError):
-            self.state = AgentState.SUMMARIZING
-            return 
-
-        if command_str == self.last_command_str:
-            app_logger.warning(f"LOOP DETECTED: The LLM is trying to repeat the exact same command. Command: {command_str}")
-            
-            is_data_tool_success = False
-            tool_name_from_result = None
-            if self.charting_intent_detected and self.last_tool_result_str:
-                try:
-                    last_tool_output = json.loads(self.last_tool_result_str).get("tool_output", {})
-                    if last_tool_output.get("status") == "success" and last_tool_output.get("results"):
-                        tool_name_from_result = last_tool_output.get("metadata", {}).get("tool_name")
-                        data_gathering_tools = ["qlty_distinctCategories", "base_databaseList", "base_readQuery"]
-                        if tool_name_from_result in data_gathering_tools:
-                            is_data_tool_success = True
-                except json.JSONDecodeError:
-                    pass
-
-            if self.charting_intent_detected and is_data_tool_success:
-                app_logger.info("Deterministic action: Forcing viz_createChart due to repetitive data tool call with charting intent.")
-                chart_data = last_tool_output["results"]
-                x_axis_field = None
-                y_axis_field = None
-                if chart_data and isinstance(chart_data, list) and chart_data[0]:
-                    for key, value in chart_data[0].items():
-                        if isinstance(value, str) and not x_axis_field:
-                            x_axis_field = key
-                        try:
-                            float(value)
-                            if not y_axis_field:
-                                y_axis_field = key
-                        except (ValueError, TypeError):
-                            pass
-                    
-                    if not x_axis_field and len(chart_data[0]) >= 1:
-                        x_axis_field = list(chart_data[0].keys())[0]
-                    if not y_axis_field and len(chart_data[0]) >= 2:
-                        y_axis_field = list(chart_data[0].keys())[1]
-
-                if x_axis_field and y_axis_field:
-                    chart_command = {
-                        "tool_name": "viz_createChart",
-                        "arguments": {
-                            "chart_type": "bar",
-                            "title": f"Distribution of {x_axis_field} by {y_axis_field}",
-                            "data": chart_data,
-                            "mapping": {
-                                "x_axis": x_axis_field,
-                                "y_axis": y_axis_field
-                            }
-                        }
-                    }
-                    self.next_action_str = json.dumps(chart_command, indent=2)
-                    self.last_command_str = None
-                    self.state = AgentState.DECIDING 
-                    return
-                else:
-                    app_logger.warning(f"Could not infer sufficient mapping for chart from data: {chart_data}. Falling back to LLM recovery.")
-            
-            error_message = f"Repetitive action detected. The agent tried to call the same tool with the same arguments twice in a row. This usually indicates the tool is not behaving as expected or the agent's plan is flawed."
-            tool_result_str = json.dumps({
-                "tool_input": json.loads(command_str), 
-                "tool_output": {"status": "error", "error_message": error_message}
-            })
-            yield _format_sse({"step": "System Error", "details": error_message, "type": "error"}, "tool_result")
-            self.last_command_str = None 
-            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Recovering from repetitive action error."):
-                yield event
-            return
         
-        self.last_command_str = command_str
-        
+        # --- Start of new workflow trigger logic ---
         command = json.loads(command_str)
-            
-        if "tool_name" in command:
-            t_name = command["tool_name"]
-            if t_name not in self.dependencies['STATE'].get('mcp_tools', {}) and t_name in self.dependencies['STATE'].get('mcp_prompts', {}):
-                command["prompt_name"] = command.pop("tool_name")
-            
-        self.current_command = command
-        
         if "prompt_name" in command:
-            prompt_name = command.get("prompt_name")
-            self.active_prompt_name = prompt_name
+            self.is_workflow = True
+            self.active_prompt_name = command.get("prompt_name")
             
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
             async with mcp_client.session("teradata_mcp_server") as temp_session:
-                get_prompt_result = await temp_session.get_prompt(name=prompt_name)
+                get_prompt_result = await temp_session.get_prompt(name=self.active_prompt_name)
             
-            if get_prompt_result is None: raise ValueError(f"Prompt '{prompt_name}' could not be retrieved.")
+            if get_prompt_result is None: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be retrieved.")
             
             prompt_text = ""
             if hasattr(get_prompt_result, 'messages') and get_prompt_result.messages:
@@ -636,48 +574,44 @@ class PlanExecutor:
                     prompt_text = first_message.content.text
             
             if not prompt_text:
-                raise ValueError(f"Could not extract text content from prompt '{prompt_name}'.")
+                raise ValueError(f"Could not extract text content from prompt '{self.active_prompt_name}'.")
 
             arguments = command.get("arguments", {})
             enriched_arguments, events_to_yield = self._enrich_arguments_from_history(prompt_text, arguments)
             for event in events_to_yield: yield event
+            self.prompt_arguments = enriched_arguments
             
-            required_placeholders = set(re.findall(r'{(\w+)}', prompt_text))
-            provided_keys = set(enriched_arguments.keys())
-            missing_args = required_placeholders - provided_keys
-
-            if missing_args:
-                app_logger.error(f"LLM failed to provide required arguments for prompt '{prompt_name}'. Missing: {missing_args}")
-                error_message = f"Prompt execution failed. The following required arguments were not provided: {list(missing_args)}"
-                tool_result_str = json.dumps({
-                    "tool_input": command, 
-                    "tool_output": {"status": "error", "error_message": error_message}
-                })
-                yield _format_sse({"step": "System Error", "details": error_message, "type": "error"}, "tool_result")
-                
-                async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Recovering from missing arguments."):
-                    yield event
-                return 
-            
-            self.workflow_manager = WorkflowManager(prompt_text, enriched_arguments)
-            self.is_workflow = True
-            self.active_prompt_plan = prompt_text.format(**enriched_arguments)
-
+            self.workflow_plan = WorkflowManager(prompt_text).execution_tree
+            self.active_prompt_plan = prompt_text # Store cleartext for status update
             yield _format_sse({
-                "step": f"Executing Prompt as a Workflow: {prompt_name}",
+                "step": f"Executing Prompt as a Workflow: {self.active_prompt_name}",
                 "details": self.active_prompt_plan,
-                "prompt_name": prompt_name
+                "prompt_name": self.active_prompt_name
             }, "prompt_selected")
-            
-            async for event in self._handle_deciding():
-                yield event
+            self.workflow_pointer = [0] # Start at the first phase
+            return
+        # --- End of new workflow trigger logic ---
 
-        elif "tool_name" in command:
+        # --- Original non-workflow logic continues below ---
+        if command_str == self.last_command_str:
+            app_logger.warning(f"LOOP DETECTED: The LLM is trying to repeat the exact same command. Command: {command_str}")
+            error_message = f"Repetitive action detected."
+            tool_result_str = json.dumps({"tool_input": json.loads(command_str), "tool_output": {"status": "error", "error_message": error_message}})
+            yield _format_sse({"step": "System Error", "details": error_message, "type": "error"}, "tool_result")
+            self.last_command_str = None 
+            async for event in self._get_next_action_from_llm(tool_result_str=tool_result_str, reason="Recovering from repetitive action error."):
+                yield event
+            return
+        
+        self.last_command_str = command_str
+        self.current_command = command
+            
+        if "tool_name" in command:
             self.state = AgentState.EXECUTING_TOOL
         else:
             self.state = AgentState.SUMMARIZING
 
-    async def _execute_standard_tool(self):
+    async def _execute_standard_tool(self, is_workflow_step=False):
         corrected_command, guardrail_events = self._apply_context_guardrail(self.current_command)
         for event in guardrail_events: yield event
         self.current_command = corrected_command
@@ -718,10 +652,7 @@ class PlanExecutor:
 
         yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
         
-        if self.is_workflow:
-            self.last_tool_result_str = tool_result_str
-            self.state = AgentState.DECIDING
-        else:
+        if not is_workflow_step:
             async for event in self._get_next_action_from_llm(
                 tool_result_str=tool_result_str, 
                 reason="Deciding next action based on tool result."
@@ -764,7 +695,7 @@ class PlanExecutor:
         self.tool_constraints_cache[tool_name] = constraints
         return constraints
 
-    async def _execute_column_iteration(self, column_subset: list = None):
+    async def _execute_column_iteration(self):
         base_command = self.current_command
         tool_name = base_command.get("tool_name")
         base_args = base_command.get("arguments", {})
@@ -795,45 +726,17 @@ class PlanExecutor:
             self.state = AgentState.DECIDING
             return
 
-        all_columns_metadata = []
-        if column_subset:
-            all_columns_metadata = [{"ColumnName": col_name, "DataType": "UNKNOWN"} for col_name in column_subset]
-        else:
-            context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
-            reused_metadata = False
-            if context_key and context_key in self.structured_collected_data:
-                for item in reversed(self.structured_collected_data[context_key]):
-                    if isinstance(item, dict) and item.get("status") == "success" and item.get("metadata", {}).get("tool_name") in ["qlty_columnSummary", "base_columnDescription"]:
-                        all_columns_metadata = item.get("results", [])
-                        reused_metadata = True
-                        break
-            
-            if not reused_metadata:
-                cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
-                yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-                cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
-                yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-                if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
-                    raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
-                all_columns_metadata = cols_result.get('results', [])
-                self._add_to_structured_data(cols_result)
+        cols_command = {"tool_name": "base_columnDescription", "arguments": {"db_name": db_name, "obj_name": table_name}}
+        yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
+        cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
+        yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
+        if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
+            raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
+        all_columns_metadata = cols_result.get('results', [])
+        self._add_to_structured_data(cols_result)
 
         all_column_results = []
         
-        first_column_to_try = next((col.get("ColumnName") for col in all_columns_metadata), None)
-        if first_column_to_try and tool_name not in self.globally_failed_tools:
-            preflight_command = {"tool_name": tool_name, "arguments": {**base_args, 'col_name': first_column_to_try}}
-            try:
-                yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-                preflight_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], preflight_command)
-                yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-                if isinstance(preflight_result, dict) and "error" in preflight_result and "Function" in str(preflight_result.get("data", "")):
-                    self.globally_failed_tools.add(tool_name)
-                    yield _format_sse({ "step": f"Halting iteration for globally failed tool: {tool_name}", "type": "error" })
-            except Exception as e:
-                self.globally_failed_tools.add(tool_name)
-                yield _format_sse({ "step": f"Halting iteration for problematic tool: {tool_name}", "details": str(e), "type": "error" })
-
         reason="Determining tool constraints."
         yield _format_sse({"step": "Calling LLM", "details": reason})
         tool_constraints = await self._get_tool_constraints(tool_name)
@@ -853,12 +756,6 @@ class PlanExecutor:
 
             iter_command = {"tool_name": tool_name, "arguments": {**base_args, 'col_name': col_name}}
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
-            
-            if isinstance(col_result, dict) and "error" in col_result and "Function" in str(col_result.get("data", "")):
-                self.globally_failed_tools.add(tool_name)
-                all_column_results.append({ "status": "error", "reason": f"Tool '{tool_name}' is non-functional."})
-                break
-            
             all_column_results.append(col_result)
         yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
 
@@ -867,49 +764,21 @@ class PlanExecutor:
         self.last_tool_output = {"metadata": {"tool_name": tool_name}, "results": all_column_results, "status": "success"}
         self.state = AgentState.DECIDING
 
-    def _build_just_in_time_context_prompt(self) -> str:
-        if not self.context_stack: return ""
-        context_lines = ["You are executing a nested plan." if len(self.context_stack) > 1 else "You are executing a plan that iterates over a list."]
-        for i, context in enumerate(self.context_stack):
-            context_type = context['type'].replace('_name', '').capitalize()
-            current_item = f"`{context['list'][context['index']]}` (Item {context['index'] + 1} of {len(context['list'])})" if 0 <= context['index'] < len(context['list']) else "N/A"
-            context_lines.append(f"{'  ' * i}- **Loop ({context_type}s)**: - **Current Item**: {current_item}")
-        final_instruction = "Your immediate task is to continue the sub-plan for the **innermost current item**."
-        return "\n--- **CURRENT LOOP STATE** ---\n" + "\n".join(context_lines) + "\n" + final_instruction + "\n---------------------------\n"
-
-    async def _get_next_action_from_llm(self, tool_result_str: str | None = None, scoped_prompt_content: str | None = None, reason: str = "No reason provided."):
-        prompt_for_next_step = "" 
-        
-        if self.is_workflow:
-            app_logger.info("Applying deterministic, workflow-driven reasoning for next step.")
-            current_step_info = self.workflow_manager.steps[self.workflow_manager.current_step_index]
-            prompt_for_next_step = (
-                "You are an expert assistant executing one specific step of a larger plan.\n\n"
-                f"--- CURRENT TASK: {current_step_info['title']} ---\n"
-                f"{scoped_prompt_content or ''}\n\n"
-                "--- CONTEXT FROM PREVIOUS STEP ---\n"
-                "The last action returned the following data. Use this information to complete your current task.\n"
-                f"```json\n{self.last_tool_result_str or 'No previous tool result.'}\n```\n\n"
-                "--- YOUR INSTRUCTIONS ---\n"
-                "1.  **Analyze the provided data** and the task description above.\n"
-                "2.  **Fulfill the task.** If the task is to describe or analyze something, provide that analysis directly.\n"
-                "3.  Your response **MUST** start with `FINAL_ANSWER:`."
-            )
-        else:
-            charting_guidance = ""
-            if self.charting_intent_detected:
-                is_data_tool_success = False
-                tool_name_from_result = None
-                if tool_result_str:
-                    try:
-                        tool_output = json.loads(tool_result_str).get("tool_output", {})
-                        if tool_output.get("status") == "success" and tool_output.get("results"):
-                            tool_name_from_result = tool_output.get("metadata", {}).get("tool_name")
-                            data_gathering_tools = ["qlty_distinctCategories", "base_databaseList", "base_readQuery"]
-                            if tool_name_from_result in data_gathering_tools:
-                                is_data_tool_success = True
-                    except json.JSONDecodeError:
-                        pass 
+    async def _get_next_action_from_llm(self, tool_result_str: str | None = None, reason: str = "No reason provided."):
+        charting_guidance = ""
+        if self.charting_intent_detected:
+            is_data_tool_success = False
+            tool_name_from_result = None
+            if tool_result_str:
+                try:
+                    tool_output = json.loads(tool_result_str).get("tool_output", {})
+                    if tool_output.get("status") == "success" and tool_output.get("results"):
+                        tool_name_from_result = tool_output.get("metadata", {}).get("tool_name")
+                        data_gathering_tools = ["qlty_distinctCategories", "base_databaseList", "base_readQuery"]
+                        if tool_name_from_result in data_gathering_tools:
+                            is_data_tool_success = True
+                except json.JSONDecodeError:
+                    pass 
 
                 if is_data_tool_success:
                     charting_guidance = (
@@ -920,20 +789,20 @@ class PlanExecutor:
                         "**CRITICAL CHARTING DIRECTIVE**: The user explicitly requested a chart. If the 'Data from Last Tool Call' is suitable for a chart, your **next action MUST be to call `viz_createChart`**. Do NOT re-call data gathering tools. Focus on creating the requested visualization.\n"
                     )
 
-            prompt_for_next_step = (
-                f"You are an assistant that has just received data from a tool call. Your task is to decide if this data is enough to answer the user's original question, or if another step is needed.\n\n"
-                f"--- User's Original Question ---\n"
-                f"'{self.original_user_input}'\n\n"
-                f"--- Data from Last Tool Call ---\n"
-                f"{tool_result_str}\n\n"
-                f"{charting_guidance}"
-                "--- Your Decision Process ---\n"
-                "1.  **Analyze the Data:** Does the data above directly and completely answer the user's original question?\n"
-                "2.  **Choose Your Action:**\n"
-                "    -   If the data IS sufficient, your response **MUST** be only the exact string `SYSTEM_ACTION_COMPLETE`. Do not add any summary text.\n"
-                "    -   If the data is NOT sufficient and you need more information, call another tool or prompt by providing the appropriate JSON block.\n"
-                "    -   If the last tool call resulted in an error, you MUST attempt to recover.\n"
-            )
+        prompt_for_next_step = (
+            f"You are an assistant that has just received data from a tool call. Your task is to decide if this data is enough to answer the user's original question, or if another step is needed.\n\n"
+            f"--- User's Original Question ---\n"
+            f"'{self.original_user_input}'\n\n"
+            f"--- Data from Last Tool Call ---\n"
+            f"{tool_result_str}\n\n"
+            f"{charting_guidance}"
+            "--- Your Decision Process ---\n"
+            "1.  **Analyze the Data:** Does the data above directly and completely answer the user's original question?\n"
+            "2.  **Choose Your Action:**\n"
+            "    -   If the data IS sufficient, your response **MUST** be only the exact string `SYSTEM_ACTION_COMPLETE`. Do not add any summary text.\n"
+            "    -   If the data is NOT sufficient and you need more information, call another tool or prompt by providing the appropriate JSON block.\n"
+            "    -   If the last tool call resulted in an error, you MUST attempt to recover.\n"
+        )
         
         yield _format_sse({"step": "Calling LLM", "details": reason})
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=prompt_for_next_step, reason=reason)
@@ -946,34 +815,6 @@ class PlanExecutor:
         if not self.next_action_str: raise ValueError("LLM failed to provide a response.")
         
         self.state = AgentState.DECIDING
-
-    def _prepare_data_for_final_summary(self) -> str:
-        """
-        Prepares the collected data for the final summarization prompt.
-        This now serializes the actual data results into a JSON string.
-        """
-        data_source = self.structured_collected_data if self.is_workflow else self.collected_data
-        
-        items_to_process = []
-        if isinstance(data_source, dict):
-            for item_list in data_source.values():
-                items_to_process.extend(item_list)
-        else:
-            items_to_process = data_source
-
-        successful_results = []
-        for item in items_to_process:
-            if isinstance(item, list):
-                for sub_item in item:
-                    if isinstance(sub_item, dict) and sub_item.get("status") == "success" and "results" in sub_item:
-                        successful_results.append(sub_item)
-            elif isinstance(item, dict) and item.get("status") == "success" and "results" in item:
-                successful_results.append(item)
-        
-        if not successful_results:
-            return "No data was collected from successful tool executions."
-            
-        return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
     async def _generate_final_summary(self):
         final_collected_data = self.structured_collected_data if self.is_workflow else self.collected_data
@@ -1076,3 +917,31 @@ class PlanExecutor:
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield _format_sse({"final_answer": final_html}, "final_answer")
         self.state = AgentState.DONE
+
+    def _prepare_data_for_final_summary(self) -> str:
+        """
+        Prepares the collected data for the final summarization prompt.
+        This now serializes the actual data results into a JSON string.
+        """
+        data_source = self.structured_collected_data if self.is_workflow else self.collected_data
+        
+        items_to_process = []
+        if isinstance(data_source, dict):
+            for item_list in data_source.values():
+                items_to_process.extend(item_list)
+        else:
+            items_to_process = data_source
+
+        successful_results = []
+        for item in items_to_process:
+            if isinstance(item, list):
+                for sub_item in item:
+                    if isinstance(sub_item, dict) and sub_item.get("status") == "success" and "results" in sub_item:
+                        successful_results.append(sub_item)
+            elif isinstance(item, dict) and item.get("status") == "success" and "results" in item:
+                successful_results.append(item)
+        
+        if not successful_results:
+            return "No data was collected from successful tool executions."
+            
+        return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
