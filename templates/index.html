@@ -1409,9 +1409,14 @@
                                     <ul class="space-y-2 text-xs">`;
                     resource.arguments.forEach(arg => {
                         const requiredText = arg.required ? '<span class="text-red-400 font-bold">Required</span>' : '<span class="text-gray-400">Optional</span>';
+                        const typeText = arg.type && arg.type !== 'unknown' ? `<span class="font-mono text-xs text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded-md">${arg.type}</span>` : '';
+                        
                         argsHTML += `<li class="p-2 bg-black/20 rounded-md">
                                         <div class="flex justify-between items-center">
-                                            <code class="font-semibold text-teradata-orange">${arg.name}</code>
+                                            <div class="flex items-center gap-x-2">
+                                                <code class="font-semibold text-teradata-orange">${arg.name}</code>
+                                                ${typeText}
+                                            </div>
                                             ${requiredText}
                                         </div>
                                         <p class="text-gray-400 mt-1">${arg.description}</p>
