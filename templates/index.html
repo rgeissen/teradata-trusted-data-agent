@@ -1846,7 +1846,11 @@
                 if (res.ok) {
                     viewPromptModalText.textContent = data.content;
                 } else {
-                    throw new Error(data.error || 'Failed to fetch prompt content.');
+                    if (data.error === 'dynamic_prompt_error') {
+                        viewPromptModalText.textContent = `Info: ${data.message}`;
+                    } else {
+                        throw new Error(data.error || 'Failed to fetch prompt content.');
+                    }
                 }
             } catch (error) {
                 viewPromptModalText.textContent = `Error: ${error.message}`;

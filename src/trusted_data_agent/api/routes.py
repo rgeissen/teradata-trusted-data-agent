@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 import google.generativeai as genai
 import boto3
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from mcp.shared.exceptions import McpError
 
 from trusted_data_agent.core.config import APP_CONFIG
 from trusted_data_agent.core import session_manager
@@ -287,17 +288,14 @@ async def get_prompt_content(prompt_name):
         return jsonify({"error": "MCP client not configured."}), 400
     
     try:
-        # 1. Fetch the FULL prompt object from the server.
         async with mcp_client.session("teradata_mcp_server") as temp_session:
             prompt_obj = await temp_session.get_prompt(name=prompt_name)
         
         if not prompt_obj:
             return jsonify({"error": f"Prompt '{prompt_name}' not found."}), 404
         
-        # 2. Apply the shim if it exists for this prompt.
         if prompt_name in PROMPT_SHIMS:
             shim_content = PROMPT_SHIMS[prompt_name]
-            # Defensively ensure the nested structure exists before modifying it.
             if not hasattr(prompt_obj, 'messages') or not prompt_obj.messages:
                 prompt_obj.messages = [_DummyMessage()]
             if not hasattr(prompt_obj.messages[0], 'content') or prompt_obj.messages[0].content is None:
@@ -305,7 +303,6 @@ async def get_prompt_content(prompt_name):
             prompt_obj.messages[0].content.text = shim_content
             app_logger.info(f"SHIM APPLIED (on-demand): Overriding content for prompt '{prompt_name}' for UI display.")
 
-        # 3. Robustly extract the text content.
         prompt_text = "Prompt content is not available."
         if (hasattr(prompt_obj, 'messages') and 
             isinstance(prompt_obj.messages, list) and 
@@ -317,9 +314,19 @@ async def get_prompt_content(prompt_name):
             prompt_text = prompt_obj.text
 
         return jsonify({"name": prompt_name, "content": prompt_text})
+    
     except Exception as e:
+        root_exception = unwrap_exception(e)
+        
+        if isinstance(root_exception, McpError) and "Missing required arguments" in str(root_exception):
+            app_logger.warning(f"Handled dynamic prompt error for '{prompt_name}': {root_exception}")
+            return jsonify({
+                "error": "dynamic_prompt_error",
+                "message": "This is a dynamic prompt. Its content is generated at runtime and cannot be previewed."
+            }), 400
+        
         app_logger.error(f"Error fetching prompt content for '{prompt_name}': {e}", exc_info=True)
-        return jsonify({"error": "An error occurred while fetching the prompt."}), 500
+        return jsonify({"error": "An unexpected error occurred while fetching the prompt."}), 500
 
 
 @api_bp.route("/resources")
