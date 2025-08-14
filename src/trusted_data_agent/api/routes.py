@@ -22,7 +22,6 @@ from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS, CHARTING_I
 from trusted_data_agent.agent.executor import PlanExecutor, _format_sse
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.mcp import adapter as mcp_adapter
-from trusted_data_agent.agent.shims.prompt_shims import PROMPT_SHIMS
 
 api_bp = Blueprint('api', __name__)
 app_logger = logging.getLogger("quart.app")
@@ -288,21 +287,14 @@ async def get_prompt_content(prompt_name):
         return jsonify({"error": "MCP client not configured."}), 400
     
     try:
+        # 1. Fetch the FULL prompt object from the server.
         async with mcp_client.session("teradata_mcp_server") as temp_session:
             prompt_obj = await temp_session.get_prompt(name=prompt_name)
         
         if not prompt_obj:
             return jsonify({"error": f"Prompt '{prompt_name}' not found."}), 404
         
-        if prompt_name in PROMPT_SHIMS:
-            shim_content = PROMPT_SHIMS[prompt_name]
-            if not hasattr(prompt_obj, 'messages') or not prompt_obj.messages:
-                prompt_obj.messages = [_DummyMessage()]
-            if not hasattr(prompt_obj.messages[0], 'content') or prompt_obj.messages[0].content is None:
-                prompt_obj.messages[0].content = _DummyContent()
-            prompt_obj.messages[0].content.text = shim_content
-            app_logger.info(f"SHIM APPLIED (on-demand): Overriding content for prompt '{prompt_name}' for UI display.")
-
+        # 2. Robustly extract the text content.
         prompt_text = "Prompt content is not available."
         if (hasattr(prompt_obj, 'messages') and 
             isinstance(prompt_obj.messages, list) and 
@@ -316,8 +308,10 @@ async def get_prompt_content(prompt_name):
         return jsonify({"name": prompt_name, "content": prompt_text})
     
     except Exception as e:
+        # Unwrap the exception to find the root cause, especially for ExceptionGroups
         root_exception = unwrap_exception(e)
         
+        # Check if the root cause is the specific McpError we want to handle
         if isinstance(root_exception, McpError) and "Missing required arguments" in str(root_exception):
             app_logger.warning(f"Handled dynamic prompt error for '{prompt_name}': {root_exception}")
             return jsonify({
@@ -325,6 +319,7 @@ async def get_prompt_content(prompt_name):
                 "message": "This is a dynamic prompt. Its content is generated at runtime and cannot be previewed."
             }), 400
         
+        # Handle all other errors generically
         app_logger.error(f"Error fetching prompt content for '{prompt_name}': {e}", exc_info=True)
         return jsonify({"error": "An unexpected error occurred while fetching the prompt."}), 500
 
