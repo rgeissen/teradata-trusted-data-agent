@@ -14,7 +14,7 @@ from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.agent.workflow_manager import WorkflowManager
-from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT
+from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT, NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT
 
 app_logger = logging.getLogger("quart.app")
 
@@ -107,6 +107,10 @@ class PlanExecutor:
         self.workflow_mode = 0  # 0: None, 1: Non-Deterministic, 2: Deterministic
         self.workflow_goal_prompt = ""
         self.workflow_history = []
+        # --- NEW: Attribute to track last command in a non-deterministic workflow ---
+        self.last_command_in_workflow = None
+        # --- NEW: Debugging attribute to log every LLM response ---
+        self.llm_debug_history = []
 
 
     async def _call_llm_and_update_tokens(self, prompt: str, reason: str, system_prompt_override: str = None, raise_on_error: bool = False) -> tuple[str, int, int]:
@@ -123,6 +127,10 @@ class PlanExecutor:
             system_prompt_override=system_prompt_override,
             raise_on_error=raise_on_error
         )
+        # --- NEW: Add every LLM response to a debug history for analysis ---
+        self.llm_debug_history.append({"reason": reason, "response": response_text})
+        app_logger.info(f"LLM RESPONSE (DEBUG): Reason='{reason}', Response='{response_text}'")
+        # --- END NEW: Debugging code ---
         return response_text, statement_input_tokens, statement_output_tokens
 
     def _detect_charting_intent(self, user_input: str) -> bool:
@@ -286,60 +294,76 @@ class PlanExecutor:
 
     async def _execute_nondeterministic_step(self):
         """
-        Manages a single step of a non-deterministic workflow. It calls the LLM
-        to decide the next action based on the overall goal and the last tool result.
+        Manages a single step of a non-deterministic workflow.
+        It orchestrates the decision-making and execution in a single loop step.
         """
-        # If this is the very first step, the initial command might just be the prompt invocation.
-        # We need to get the first real tool call from the LLM.
-        if self.current_command and "prompt_name" in self.current_command and not self.last_tool_result_str:
-            pass # The initial prompt has been set as the goal, now we get the first tool call
-        # Otherwise, execute the command decided in the previous step.
-        elif self.next_action_str:
+        # --- START: RESTRUCTURED CONTROL FLOW (FIXED) ---
+        # 1. Handle a pending action if one exists.
+        if self.next_action_str:
+            # Check for a repetitive loop based on the raw response string
+            if self.last_command_in_workflow and self.next_action_str == self.last_command_in_workflow:
+                error_message = "Repetitive action detected in non-deterministic workflow."
+                tool_result_str = json.dumps({"tool_input": self.next_action_str, "tool_output": {"status": "error", "error_message": error_message}})
+                yield _format_sse({"step": "System Error: Repetitive Action Detected", "details": error_message, "type": "error"}, "tool_result")
+                app_logger.warning(f"LOOP DETECTED: Non-deterministic workflow is trying to repeat the same command: {self.next_action_str}")
+                
+                async for event in self._recover_from_loop(tool_result_str):
+                    yield event
+                return
+            
+            # This is the critical update: We act on the LLM's response now.
+            self.last_command_in_workflow = self.next_action_str
+            
             async for event in self._handle_deciding():
                 yield event
+            
             if self.state == AgentState.EXECUTING_TOOL:
                 async for event in self._execute_tool_with_orchestrators():
                     yield event
-        
-        # New logic to handle the transition to final answer.
-        # Check if the last tool result is a final output for this workflow.
-        # We assume a tool call that returns a dict with a specific `type` like "business_description"
-        # or a final text response signals completion of a phase.
+            
+            # Reset the action string after handling it, so the next loop will call the LLM again.
+            self.next_action_str = None
+            return
+
+        # 2. If no pending action, check for final answer or get one from the LLM.
+        # This part of the code is now only executed if self.next_action_str is None,
+        # which prevents the endless loop.
+
         if self.last_tool_output and isinstance(self.last_tool_output, dict) and self.last_tool_output.get("type") == "business_description":
-             self.state = AgentState.SUMMARIZING
-             # We set next_action_str here to tell the final summary step that we have the final answer.
-             self.next_action_str = f"FINAL_ANSWER: {self.last_tool_output.get('description', 'No description provided.')}"
-             return
-        
-        # Now, get the next action from the LLM based on the result.
+            self.state = AgentState.SUMMARIZING
+            self.next_action_str = f"FINAL_ANSWER: {self.last_tool_output.get('description', 'No description provided.')}"
+            return
+
+        # Prepare the prompt for the next LLM call
         if self.workflow_history:
             history_items = [f"- Executed tool `{item.get('tool_name')}` with arguments `{item.get('arguments', {})}`." for item in self.workflow_history]
             workflow_history_str = "\n".join(history_items)
         else:
             workflow_history_str = "No actions have been taken yet."
-
+        
         prompt_for_next_step = NON_DETERMINISTIC_WORKFLOW_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input,
             workflow_history_str=workflow_history_str,
             tool_result_str=self.last_tool_result_str or "No tool has been run yet. This is the first step."
         )
-
         reason = "Deciding next step in non-deterministic workflow."
         yield _format_sse({"step": "Calling LLM", "details": reason})
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=prompt_for_next_step, reason=reason)
-
+        
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
             yield _format_sse({
                 "statement_input": input_tokens, "statement_output": output_tokens,
                 "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)
             }, "token_update")
-
+        
         self.next_action_str = response_text
-        if not self.next_action_str: raise ValueError("LLM failed to provide a response for the workflow.")
+        if not self.next_action_str:
+            raise ValueError("LLM failed to provide a response for the workflow.")
 
         self.state = AgentState.DECIDING
+        # --- END: RESTRUCTURED CONTROL FLOW ---
 
 
     def _get_next_action_node(self):
@@ -375,6 +399,35 @@ class PlanExecutor:
         return
         yield
 
+    # --- START: NEW RECOVERY LOGIC FOR LOOPS ---
+    async def _recover_from_loop(self, tool_result_str: str):
+        """
+        Attempts to recover from a detected repetitive action loop in non-deterministic workflow mode.
+        """
+        recovery_prompt = NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT.format(
+            original_goal=self.workflow_goal_prompt,
+            original_user_input=self.original_user_input,
+            last_command=self.last_command_in_workflow
+        )
+        
+        reason = "Recovering from repetitive action loop in non-deterministic workflow."
+        yield _format_sse({"step": "Calling LLM for Recovery", "details": reason})
+        response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
+            prompt=recovery_prompt, 
+            reason=reason,
+            system_prompt_override="You are a tool-use assistant.",
+            raise_on_error=True
+        )
+
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            yield _format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+            
+        self.next_action_str = response_text
+        self.state = AgentState.DECIDING
+        self.last_command_in_workflow = None # Reset the last command to avoid immediate re-triggering of the loop detection
+    # --- END: NEW RECOVERY LOGIC FOR LOOPS ---
+
     async def _recover_with_llm(self, error_message: str):
         recovery_prompt = (
             "You are an expert troubleshooter for a multi-step workflow. The plan has failed. Your job is to get the plan back on track.\n\n"
@@ -408,7 +461,7 @@ class PlanExecutor:
         # --- FIX: Check for the 'qlty_distinctCategories' tool specifically and ensure it's handled correctly ---
         if tool_name == 'qlty_distinctCategories':
             # This tool should always be run as a standard tool call, not an iteration
-            # We don't need to check for the presence of col_name here because the LLM is expected to provide it
+            # We don't need to check for the presence of column_name here because the LLM is expected to provide it
             async for event in self._execute_standard_tool():
                 yield event
         elif self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name) == 'column' and not self.current_command.get("arguments", {}).get("column_name"):
@@ -751,12 +804,12 @@ class PlanExecutor:
         if tool_definition:
             prompt_modifier = ""
             if any(k in tool_name.lower() for k in ["univariate", "standarddeviation", "negativevalues"]):
-                prompt_modifier = "This tool is for quantitative analysis and requires a 'numeric' data type for `col_name`."
+                prompt_modifier = "This tool is for quantitative analysis and requires a 'numeric' data type for `column_name`."
             elif any(k in tool_name.lower() for k in ["distinctcategories"]):
-                prompt_modifier = "This tool is for categorical analysis and requires a 'character' data type for `col_name`."
+                prompt_modifier = "This tool is for categorical analysis and requires a 'character' data type for `column_name`."
 
             prompt = (
-                f"Analyze the tool to determine if its `col_name` argument is for 'numeric', 'character', or 'any' type.\n"
+                f"Analyze the tool to determine if its `column_name` argument is for 'numeric', 'character', or 'any' type.\n"
                 f"Tool: `{tool_definition.name}`\nDescription: \"{tool_definition.description}\"\nHint: {prompt_modifier}\n"
                 "Respond with a single JSON object: {\"dataType\": \"numeric\" | \"character\" | \"any\"}"
             )
@@ -786,7 +839,7 @@ class PlanExecutor:
         if table_name and '.' in table_name and not db_name:
             db_name, table_name = table_name.split('.', 1)
 
-        specific_column = base_args.get("col_name")
+        specific_column = base_args.get("column_name")
         if specific_column:
             yield _format_sse({"step": "Tool Execution Intent", "details": base_command}, "tool_result")
             yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
@@ -826,17 +879,17 @@ class PlanExecutor:
 
         yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
         for column_info in all_columns_metadata:
-            col_name = column_info.get("ColumnName")
+            column_name = column_info.get("ColumnName")
             col_type = next((v for k, v in column_info.items() if "type" in k.lower()), "").upper()
 
             if required_type and col_type != "UNKNOWN":
                 is_numeric = any(t in col_type for t in ["INT", "NUMERIC", "DECIMAL", "FLOAT"])
                 is_char = any(t in col_type for t in ["CHAR", "VARCHAR", "TEXT"])
                 if (required_type == "numeric" and not is_numeric) or (required_type == "character" and not is_char):
-                    all_column_results.append({"status": "skipped", "reason": f"Tool requires {required_type}, but '{col_name}' is {col_type}."})
+                    all_column_results.append({"status": "skipped", "reason": f"Tool requires {required_type}, but '{column_name}' is {col_type}."})
                     continue
 
-            iter_command = {"tool_name": tool_name, "arguments": {**base_args, 'col_name': col_name}}
+            iter_command = {"tool_name": tool_name, "arguments": {**base_args, 'column_name': column_name}}
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
             all_column_results.append(col_result)
         yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
@@ -948,38 +1001,6 @@ class PlanExecutor:
                         final_summary_text = final_answer_match.group(1).strip()
                     else:
                         final_summary_text = final_llm_response
-        
-        elif not final_summary_text:
-            raw_data_str = self._prepare_data_for_final_summary()
-            
-            final_prompt = (
-                "You are an expert data analyst. Your task is to provide a final, comprehensive, and insightful summary for the user.\n\n"
-                f"--- USER'S ORIGINAL QUESTION ---\n"
-                f"'{self.original_user_input}'\n\n"
-                f"--- RELEVANT DATA COLLECTED ---\n"
-                f"```json\n{raw_data_str}\n```\n\n"
-                "--- YOUR INSTRUCTIONS ---\n"
-                "1.  **First, critically evaluate if the `RELEVANT DATA COLLECTED` actually satisfies the `USER'S ORIGINAL QUESTION`.** Pay close attention to constraints like dates (e.g., 'today', 'this week').\n"
-                "2.  **If the data DOES NOT satisfy the request** (e.g., the user asked for 'today' but the data is for the whole week), you MUST state this limitation clearly in your answer. For example: 'I could not retrieve data specifically for today, but here are the insights from the last 7 days.'\n"
-                "3.  **Analyze the data deeply.** Find patterns, identify maximums/minimums, or summarize key trends relevant to the user's question.\n"
-                "4.  **Synthesize your findings** into a concise, natural language answer, including any limitations you identified.\n"
-                "5.  Your entire response **MUST** start with the prefix `FINAL_ANSWER:` and nothing else."
-            )
-
-            reason = "Generating final, insightful summary."
-            yield _format_sse({"step": "Calling LLM", "details": reason})
-            final_llm_response, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=final_prompt, reason=reason)
-
-            updated_session = session_manager.get_session(self.session_id)
-            if updated_session:
-                yield _format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
-
-            if final_llm_response:
-                final_answer_match = re.search(r'FINAL_ANSWER:(.*)', final_llm_response, re.DOTALL | re.IGNORECASE)
-                if final_answer_match:
-                    final_summary_text = final_answer_match.group(1).strip()
-                else:
-                    final_summary_text = final_llm_response
 
         if not final_summary_text:
             final_summary_text = "The agent has completed its work, but no summary was generated."
@@ -1027,3 +1048,20 @@ class PlanExecutor:
             return "No data was collected from successful tool executions."
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
+
+    def _safe_parse_json(self, text):
+        """Safely extracts and parses a JSON object from a string, handling markdown."""
+        markdown_match = re.search(r"```json\s*\n(.*?)\n\s*```", text, re.DOTALL)
+        if markdown_match:
+            try:
+                return json.loads(markdown_match.group(1).strip())
+            except json.JSONDecodeError:
+                return None
+        else:
+            json_like_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_like_match:
+                try:
+                    return json.loads(json_like_match.group(0))
+                except json.JSONDecodeError:
+                    return None
+        return None

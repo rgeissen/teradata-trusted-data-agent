@@ -35,34 +35,6 @@ Your response MUST be a single JSON object for a tool/prompt call OR a single pl
 {prompts_context}
 """
 
-# --- NEW: Prompt for the non-deterministic workflow ---
-NON_DETERMINISTIC_WORKFLOW_PROMPT = """
-You are a step-by-step workflow assistant. Your task is to achieve a high-level goal by calling one tool at a time.
-
---- Overall Goal ---
-This is the main objective you must achieve:
-"{workflow_goal}"
-
---- Original User Request ---
-This was the initial request from the user that triggered this workflow:
-"{original_user_input}"
-
---- Actions Taken So Far ---
-This is the history of the tools you have already called in this workflow. Review it to understand your progress.
-{workflow_history_str}
-
---- Data from Last Tool Call ---
-{tool_result_str}
-
---- Your Decision Process ---
-1.  **Analyze the Goal, History, and Data:** Review the "Overall Goal", see what "Actions [have been] Taken So Far", and analyze the "Data from Last Tool Call".
-2.  **Determine Next Action:**
-    -   If you have enough information to fully achieve the goal, your response **MUST** be only the text `FINAL_ANSWER:`, followed by a summary for the user.
-    -   If you need more information, you **MUST** call another tool to make progress. Based on the actions you've already completed, decide the next logical step. **DO NOT** repeat an action from the history unless it is critical to solving the user's request.
-    -   If the last tool call resulted in an error, you **MUST** attempt to recover by calling the same or a different tool with corrected parameters.
-"""
-
-
 PROVIDER_SYSTEM_PROMPTS = {
     "Google": MASTER_SYSTEM_PROMPT,
     "Anthropic": MASTER_SYSTEM_PROMPT,
@@ -151,3 +123,40 @@ CHARTING_INSTRUCTIONS = {
         f"{G2PLOT_GUIDELINES}"
     )
 }
+
+NON_DETERMINISTIC_WORKFLOW_PROMPT = """
+You are a highly skilled workflow assistant. Your task is to complete a multi-step workflow defined by the prompt below.
+You MUST analyze the results of the last tool call to determine the next best action.
+
+--- WORKFLOW GOAL ---
+{workflow_goal}
+
+--- CONTEXT & HISTORY ---
+- User's Original Question: {original_user_input}
+- Workflow History:
+{workflow_history_str}
+- Data from Last Tool Call:
+{tool_result_str}
+
+--- INSTRUCTIONS ---
+Based on the workflow goal, the context, and the results from the last tool call, decide on the single best next action.
+Your response MUST be a single JSON object for a tool call. Do not include any other text or reasoning.
+"""
+
+NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT = """
+A repetitive action has been detected in the workflow. The last tool call was the same as the previous one, which is causing a loop.
+You need to analyze the situation and select a new, different action to move the workflow forward.
+
+--- ORIGINAL GOAL ---
+{original_goal}
+
+--- USER'S ORIGINAL QUESTION ---
+{original_user_input}
+
+--- REPETITIVE ACTION ---
+The last action taken was a repeat of the one before it. The last command was:
+{last_command}
+
+--- INSTRUCTIONS ---
+Your next action MUST be different from the repetitive action. Analyze the original goal and the last action to determine a new, more productive step. Your response MUST be a single JSON object for a tool call.
+"""
