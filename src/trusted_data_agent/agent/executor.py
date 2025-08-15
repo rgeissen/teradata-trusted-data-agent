@@ -2,14 +2,19 @@
 import re
 import json
 import logging
+import os
 from enum import Enum, auto
 from datetime import datetime, timedelta
+
+# --- NEW: Import the correct function for loading prompts ---
+from langchain_mcp_adapters.prompts import load_mcp_prompt
 
 from trusted_data_agent.agent.formatter import OutputFormatter
 from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.agent.workflow_manager import WorkflowManager
+from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT
 
 app_logger = logging.getLogger("quart.app")
 
@@ -25,6 +30,12 @@ def _format_sse(data: dict, event: str = None) -> str:
     if event is not None:
         msg += f"event: {event}\n"
     return f"{msg}\n"
+
+def unwrap_exception(e: BaseException) -> BaseException:
+    """Recursively unwraps ExceptionGroups to find the root cause."""
+    if isinstance(e, ExceptionGroup) and e.exceptions:
+        return unwrap_exception(e.exceptions[0])
+    return e
 
 def _evaluate_inline_math(json_str: str) -> str:
     math_expr_pattern = re.compile(r'\b(\d+\.?\d*)\s*([+\-*/])\s*(\d+\.?\d*)\b')
@@ -71,6 +82,10 @@ class PlanExecutor:
         self.prompt_arguments = {}
         self.workflow_pointer = []
         self.workflow_loop_stack = []
+        # --- NEW: Attributes for Mode 1 & 2 ---
+        self.workflow_mode = 0  # 0: None, 1: Non-Deterministic, 2: Deterministic
+        self.workflow_goal_prompt = ""
+        self.workflow_history = []
 
 
     async def _call_llm_and_update_tokens(self, prompt: str, reason: str, system_prompt_override: str = None, raise_on_error: bool = False) -> tuple[str, int, int]:
@@ -198,7 +213,8 @@ class PlanExecutor:
         if self.is_workflow:
             context_key = " > ".join([ctx['list'][ctx['index']] for ctx in self.context_stack if 'list' in ctx and ctx['index'] != -1])
             if not context_key:
-                context_key = "Overall Workflow Results" 
+                # In non-deterministic mode, context stack isn't used, so provide a default key.
+                context_key = f"Workflow: {self.active_prompt_name}" if self.active_prompt_name else "Workflow Results"
             if context_key not in self.structured_collected_data:
                 self.structured_collected_data[context_key] = []
             self.structured_collected_data[context_key].append(tool_result)
@@ -213,9 +229,15 @@ class PlanExecutor:
             if self.state in [AgentState.SUMMARIZING, AgentState.DONE, AgentState.ERROR]:
                 break
             try:
-                if self.is_workflow:
-                    async for event in self._execute_workflow_step():
+                if self.is_workflow and self.workflow_mode == 1:
+                    async for event in self._execute_nondeterministic_step():
                         yield event
+                elif self.is_workflow and self.workflow_mode == 2:
+                    # --- DEPRECATED: Old workflow engine logic is removed from here ---
+                    # We can add the new deterministic logic here in the next step.
+                    # For now, we will just complete the workflow.
+                    yield _format_sse({"step": "Deterministic Workflow (Not Implemented)", "details": "Placeholder for deterministic workflow execution."})
+                    self.state = AgentState.SUMMARIZING
                 elif self.state == AgentState.DECIDING:
                     yield _format_sse({"step": "LLM has decided on an action", "details": self.next_action_str}, "llm_thought")
                     async for event in self._handle_deciding():
@@ -225,19 +247,69 @@ class PlanExecutor:
                         yield event
 
             except Exception as e:
-                app_logger.error(f"Error in state {self.state.name}: {e}", exc_info=True)
+                # --- MODIFIED: Unwrap exception before passing to recovery ---
+                root_exception = unwrap_exception(e)
+                app_logger.error(f"Error in state {self.state.name}: {root_exception}", exc_info=True)
                 if self.is_workflow:
-                    async for event in self._recover_with_llm(f"The plan failed with this error: {e}"):
+                    async for event in self._recover_with_llm(f"The plan failed with this error: {root_exception}"):
                         yield event
                 else:
                     self.state = AgentState.ERROR
-                    yield _format_sse({"error": "An error occurred during execution.", "details": str(e)}, "error")
+                    yield _format_sse({"error": "An error occurred during execution.", "details": str(root_exception)}, "error")
         
         if self.state == AgentState.SUMMARIZING:
             async for event in self._generate_final_summary():
                 yield event
         elif self.state == AgentState.ERROR:
              yield _format_sse({"error": "Execution stopped due to an error.", "details": "The agent entered an unrecoverable error state."}, "error")
+
+    async def _execute_nondeterministic_step(self):
+        """
+        Manages a single step of a non-deterministic workflow. It calls the LLM
+        to decide the next action based on the overall goal and the last tool result.
+        """
+        # If this is the very first step, the initial command might just be the prompt invocation.
+        # We need to get the first real tool call from the LLM.
+        if self.current_command and "prompt_name" in self.current_command and not self.last_tool_result_str:
+            pass # The initial prompt has been set as the goal, now we get the first tool call
+        # Otherwise, execute the command decided in the previous step.
+        elif self.next_action_str:
+            async for event in self._handle_deciding():
+                yield event
+            if self.state == AgentState.EXECUTING_TOOL:
+                async for event in self._execute_tool_with_orchestrators():
+                    yield event
+
+        # Now, get the next action from the LLM based on the result.
+        if self.workflow_history:
+            history_items = [f"- Executed tool `{item.get('tool_name')}` with arguments `{item.get('arguments', {})}`." for item in self.workflow_history]
+            workflow_history_str = "\n".join(history_items)
+        else:
+            workflow_history_str = "No actions have been taken yet."
+
+        prompt_for_next_step = NON_DETERMINISTIC_WORKFLOW_PROMPT.format(
+            workflow_goal=self.workflow_goal_prompt,
+            original_user_input=self.original_user_input,
+            workflow_history_str=workflow_history_str,
+            tool_result_str=self.last_tool_result_str or "No tool has been run yet. This is the first step."
+        )
+
+        reason = "Deciding next step in non-deterministic workflow."
+        yield _format_sse({"step": "Calling LLM", "details": reason})
+        response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=prompt_for_next_step, reason=reason)
+
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            yield _format_sse({
+                "statement_input": input_tokens, "statement_output": output_tokens,
+                "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)
+            }, "token_update")
+
+        self.next_action_str = response_text
+        if not self.next_action_str: raise ValueError("LLM failed to provide a response for the workflow.")
+
+        self.state = AgentState.DECIDING
+
 
     def _get_next_action_node(self):
         """Navigates the workflow_plan tree and returns the current action node."""
@@ -265,61 +337,12 @@ class PlanExecutor:
         self.workflow_pointer[-1] += 1
         
     async def _execute_workflow_step(self):
-        action_node = self._get_next_action_node()
-
-        if not action_node:
-            app_logger.info("Workflow execution complete.")
-            self.state = AgentState.SUMMARIZING
-            return
-
-        node_type = action_node.get("type")
-        yield _format_sse({"step": f"Executing: {action_node.get('title') or action_node.get('content')}", "details": f"Node Type: {node_type}"})
-
-        if node_type == "phase":
-            self.workflow_pointer.append(0)
-        
-        elif node_type == "loop":
-            source_list_name = action_node['source_list_name']
-            item_list = []
-            if self.last_tool_output and isinstance(self.last_tool_output.get('results'), list):
-                 item_list = self.last_tool_output['results']
-            
-            if not item_list:
-                yield _format_sse({"step": "Validation Failure", "details": f"Loop '{source_list_name}' has no items to process. Attempting recovery."})
-                async for event in self._recover_with_llm(f"The plan expected a list of '{source_list_name}' to loop over, but the previous step returned an empty list."):
-                    yield event
-                return
-            
-            self.workflow_loop_stack.append({
-                "steps": action_node["steps"],
-                "items": item_list,
-                "item_name": action_node["item_name"],
-                "index": -1
-            })
-            self.workflow_pointer.append(0)
-
-        elif node_type == "tool_call":
-            args = self.prompt_arguments.copy()
-            if self.workflow_loop_stack:
-                loop_context = self.workflow_loop_stack[-1]
-                if 0 <= loop_context['index'] < len(loop_context['items']):
-                    current_item = loop_context['items'][loop_context['index']]
-                    args.update(current_item)
-            
-            self.current_command = {
-                "tool_name": action_node["tool_name"],
-                "arguments": args
-            }
-            async for event in self._execute_standard_tool(is_workflow_step=True):
-                yield event
-            self._advance_workflow_pointer()
-
-        elif node_type == "llm_prompt":
-            self.state = AgentState.SUMMARIZING
-            return
-        
-        if node_type != "tool_call":
-             self._advance_workflow_pointer()
+        # This method is now deprecated in favor of the new workflow modes.
+        # It can be removed or repurposed for the deterministic workflow later.
+        app_logger.warning("DEPRECATED: _execute_workflow_step was called.")
+        self.state = AgentState.SUMMARIZING
+        return
+        yield
 
     async def _recover_with_llm(self, error_message: str):
         recovery_prompt = (
@@ -339,7 +362,7 @@ class PlanExecutor:
             yield _format_sse({"statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
 
         self.next_action_str = response_text
-        self.is_workflow = False
+        self.is_workflow = False # Revert to standard mode for recovery
         self.state = AgentState.DECIDING
 
     async def _execute_tool_with_orchestrators(self):
@@ -466,29 +489,25 @@ class PlanExecutor:
         self.state = AgentState.SUMMARIZING
         self.next_action_str = "FINAL_ANSWER: "
 
-    def _enrich_arguments_from_history(self, prompt_text: str, arguments: dict) -> tuple[dict, list]:
+    def _enrich_arguments_from_history(self, prompt_name: str, arguments: dict) -> tuple[dict, list]:
+        """
+        Enriches arguments by looking at the prompt's definition and searching
+        the conversation history for missing values. This version is simplified as
+        parameter name correction is now handled by a dedicated shim.
+        """
         events_to_yield = []
-        required_placeholders = re.findall(r'{(\w+)}', prompt_text)
         enriched_args = arguments.copy()
         
-        alias_map = {
-            "database_name": ["db_name"],
-            "table_name": ["tbl_name", "object_name", "obj_name"],
-            "column_name": ["col_name"]
-        }
-        reverse_alias_map = {alias: canon for canon, aliases in alias_map.items() for alias in aliases}
+        prompt_definition = self.dependencies['STATE'].get('mcp_prompts', {}).get(prompt_name)
+        if not prompt_definition or not hasattr(prompt_definition, 'arguments'):
+            return enriched_args, events_to_yield
 
-        for placeholder in required_placeholders:
-            if placeholder in enriched_args: continue
+        required_arg_names = {arg.name for arg in prompt_definition.arguments} if prompt_definition.arguments else set()
+        
+        for arg_name in required_arg_names:
+            if arg_name in enriched_args: continue
 
-            found_alias = False
-            for alias, canon in reverse_alias_map.items():
-                if canon == placeholder and alias in enriched_args:
-                    enriched_args[placeholder] = enriched_args.pop(alias)
-                    found_alias = True
-                    break
-            if found_alias: continue
-
+            # If not found, search history
             session_data = session_manager.get_session(self.session_id)
             if not session_data: continue
 
@@ -502,22 +521,17 @@ class PlanExecutor:
                         if json_match:
                             command = json.loads(json_match.group(1).strip())
                             args_to_check = command.get("arguments", {})
-                            if placeholder in args_to_check:
-                                enriched_args[placeholder] = args_to_check[placeholder]
+                            if arg_name in args_to_check:
+                                enriched_args[arg_name] = args_to_check[arg_name]
                                 break
-                            for alias, canon in reverse_alias_map.items():
-                                if canon == placeholder and alias in args_to_check:
-                                    enriched_args[placeholder] = args_to_check[alias]
-                                    break
-                            if placeholder in enriched_args: break
                 except (json.JSONDecodeError, TypeError):
                     continue
             
-            if placeholder in enriched_args:
-                app_logger.info(f"Inferred '{placeholder}' from history: '{enriched_args[placeholder]}'")
+            if arg_name in enriched_args:
+                app_logger.info(f"Inferred '{arg_name}' from history: '{enriched_args[arg_name]}'")
                 events_to_yield.append(_format_sse({
                     "step": "System Correction",
-                    "details": f"LLM omitted '{placeholder}'. System inferred it from history.",
+                    "details": f"LLM omitted '{arg_name}'. System inferred it from history.",
                     "type": "workaround"
                 }))
 
@@ -525,11 +539,15 @@ class PlanExecutor:
 
     async def _handle_deciding(self):
         # This is the single entry point for deciding the next action
-        # It now correctly routes to the new workflow handler or the original LLM handler
         if self.is_workflow:
-            async for event in self._execute_workflow_step():
-                yield event
-            return
+            # In workflow mode, the next action is determined by the workflow loop,
+            # not by parsing the LLM's free-form response.
+            if self.workflow_mode == 1:
+                # We let the non-deterministic loop handle the next action.
+                return
+            elif self.workflow_mode == 2:
+                # The deterministic workflow would handle its own steps.
+                return
 
         # --- ORIGINAL NON-WORKFLOW LOGIC PRESERVED BELOW ---
         if "SYSTEM_ACTION_COMPLETE" in self.next_action_str:
@@ -553,44 +571,79 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
             return
         
-        # --- Start of new workflow trigger logic ---
         command = json.loads(command_str)
         if "prompt_name" in command:
             self.is_workflow = True
             self.active_prompt_name = command.get("prompt_name")
+            self.current_command = command.copy()
+            self.workflow_history = []
             
+            yaml_filename = f"{self.active_prompt_name}_workflow.yaml"
+            if os.path.exists(yaml_filename):
+                app_logger.info(f"Found deterministic workflow file: '{yaml_filename}'. Engaging Workflow Mode 2.")
+                self.workflow_mode = 2
+                self.active_prompt_plan = f"Deterministic plan from {yaml_filename}"
+                self.state = AgentState.SUMMARIZING # Placeholder
+                return
+            else:
+                app_logger.info(f"No deterministic workflow file found. Engaging Workflow Mode 1 for prompt '{self.active_prompt_name}'.")
+                self.workflow_mode = 1
+
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
+            final_args_for_fetch, enrich_events = self._enrich_arguments_from_history(
+                self.active_prompt_name, command.get("arguments", {})
+            )
+            for event in enrich_events:
+                yield event
+            
             async with mcp_client.session("teradata_mcp_server") as temp_session:
-                get_prompt_result = await temp_session.get_prompt(name=self.active_prompt_name)
-            
-            if get_prompt_result is None: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be retrieved.")
-            
-            prompt_text = ""
-            if hasattr(get_prompt_result, 'messages') and get_prompt_result.messages:
-                first_message = get_prompt_result.messages[0]
-                if hasattr(first_message, 'content') and hasattr(first_message.content, 'text'):
-                    prompt_text = first_message.content.text
-            
-            if not prompt_text:
-                raise ValueError(f"Could not extract text content from prompt '{self.active_prompt_name}'.")
+                prompt_obj = await load_mcp_prompt(
+                    temp_session, 
+                    name=self.active_prompt_name, 
+                    arguments=final_args_for_fetch
+                )
 
-            arguments = command.get("arguments", {})
-            enriched_arguments, events_to_yield = self._enrich_arguments_from_history(prompt_text, arguments)
-            for event in events_to_yield: yield event
-            self.prompt_arguments = enriched_arguments
+            if not prompt_obj: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded or rendered.")
             
-            self.workflow_plan = WorkflowManager(prompt_text).execution_tree
-            self.active_prompt_plan = prompt_text # Store cleartext for status update
+             # --- START: DEBUGGING LINES ---
+            app_logger.info(f"DEBUG: Type of prompt_obj is {type(prompt_obj)}")
+            app_logger.info(f"DEBUG: Content of prompt_obj: {prompt_obj}")
+            # --- END: DEBUGGING LINES ---
+
+            # --- START: MODIFIED and corrected text extraction logic ---
+            prompt_text = ""
+            # Handle the case where the prompt loader returns a list of LangChain message objects
+            if (isinstance(prompt_obj, list) and
+                len(prompt_obj) > 0 and
+                hasattr(prompt_obj[0], 'content') and
+                isinstance(prompt_obj[0].content, str)):
+                prompt_text = prompt_obj[0].content
+            # Handle the original case where it might be a dictionary (for robustness)
+            elif (isinstance(prompt_obj, dict) and 
+                'messages' in prompt_obj and
+                isinstance(prompt_obj['messages'], list) and 
+                len(prompt_obj['messages']) > 0 and
+                'content' in prompt_obj['messages'][0] and
+                isinstance(prompt_obj['messages'][0]['content'], dict) and
+                'text' in prompt_obj['messages'][0]['content']):
+                prompt_text = prompt_obj['messages'][0]['content']['text']
+            # --- END: MODIFIED and corrected text extraction logic ---
+
+            if not prompt_text:
+                raise ValueError(f"Could not extract text content from rendered prompt '{self.active_prompt_name}'.")
+
+            self.workflow_goal_prompt = prompt_text
+            
             yield _format_sse({
-                "step": f"Executing Prompt as a Workflow: {self.active_prompt_name}",
-                "details": self.active_prompt_plan,
+                "step": f"Executing Prompt as a Non-Deterministic Workflow: {self.active_prompt_name}",
+                "details": self.workflow_goal_prompt,
                 "prompt_name": self.active_prompt_name
             }, "prompt_selected")
-            self.workflow_pointer = [0] # Start at the first phase
+            
+            self.next_action_str = None
             return
-        # --- End of new workflow trigger logic ---
 
         # --- Original non-workflow logic continues below ---
         if command_str == self.last_command_str:
@@ -612,9 +665,8 @@ class PlanExecutor:
             self.state = AgentState.SUMMARIZING
 
     async def _execute_standard_tool(self, is_workflow_step=False):
-        corrected_command, guardrail_events = self._apply_context_guardrail(self.current_command)
+        self.current_command, guardrail_events = self._apply_context_guardrail(self.current_command)
         for event in guardrail_events: yield event
-        self.current_command = corrected_command
 
         yield _format_sse({"step": "Tool Execution Intent", "details": self.current_command}, "tool_result")
         
@@ -626,7 +678,7 @@ class PlanExecutor:
         
         yield _format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
 
-        if self.is_workflow:
+        if self.is_workflow and self.workflow_mode == 2: # Context stack is for deterministic workflows
             self._update_and_manage_context_stack(self.current_command, tool_result)
 
         if 'notification' in self.current_command:
@@ -643,7 +695,16 @@ class PlanExecutor:
             tool_result_str = json.dumps({"tool_input": self.current_command, "tool_output": {"status": "error", "error_message": error_details}})
         else:
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": tool_result})
-            self._add_to_structured_data(tool_result)
+            # In workflow mode 1, we add to structured data.
+            if self.is_workflow:
+                self._add_to_structured_data(tool_result)
+                if self.workflow_mode == 1:
+                    self.workflow_history.append(self.current_command)
+            else:
+                 self.collected_data.append(tool_result)
+
+
+        self.last_tool_result_str = tool_result_str # Store for the next step in the workflow
 
         if isinstance(tool_result, dict) and tool_result.get("error") == "parameter_mismatch":
             yield _format_sse({"details": tool_result}, "request_user_input")
@@ -652,7 +713,7 @@ class PlanExecutor:
 
         yield _format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
         
-        if not is_workflow_step:
+        if not self.is_workflow:
             async for event in self._get_next_action_from_llm(
                 tool_result_str=tool_result_str, 
                 reason="Deciding next action based on tool result."

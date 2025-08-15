@@ -9,12 +9,6 @@ from trusted_data_agent.llm import handler as llm_handler
 
 app_logger = logging.getLogger("quart.app")
 
-PARAMETER_ALIASES = {
-    "database_name": ["db_name", "database"],
-    "table_name": ["tbl_name", "object_name", "obj_name"],
-    "column_name": ["col_name", "column"]
-}
-
 VIZ_TOOL_DEFINITION = {
     "name": "viz_createChart",
     "description": "Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.",
@@ -160,17 +154,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         if loaded_prompts:
             STATE['mcp_prompts'] = {prompt.name: prompt for prompt in loaded_prompts}
             
-            disabled_prompts_list = STATE.get("disabled_prompts", [])
-            enabled_prompts = [
-                p for p in loaded_prompts 
-                if p.name not in disabled_prompts_list
-            ]
-            
-            if enabled_prompts:
-                STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description or 'No description available.'}" for p in enabled_prompts])
-            else:
-                STATE['prompts_context'] = "--- No Prompts Available ---"
-
             prompt_list_for_prompt = "\n".join([f"- {p.name}: {p.description or 'No description available.'}" for p in loaded_prompts])
             
             categorization_prompt_for_prompts = (
@@ -195,6 +178,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             categorized_prompts = json.loads(cleaned_str_prompts)
             
             STATE['structured_prompts'] = {}
+            disabled_prompts_list = STATE.get("disabled_prompts", [])
             for category, prompt_names in categorized_prompts.items():
                 prompt_list = []
                 for raw_name_from_llm in prompt_names:
@@ -224,46 +208,42 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                             "disabled": is_disabled
                         })
                 STATE['structured_prompts'][category] = prompt_list
+
+            enabled_prompts = [
+                p for p in loaded_prompts 
+                if p.name not in disabled_prompts_list
+            ]
+            
+            if enabled_prompts:
+                prompt_details_list = []
+                for p in enabled_prompts:
+                    prompt_str = f"- `{p.name}`: {p.description or 'No description available.'}"
+                    
+                    prompt_args = []
+                    for category_list in STATE['structured_prompts'].values():
+                        for structured_prompt in category_list:
+                            if structured_prompt['name'] == p.name:
+                                prompt_args = structured_prompt.get('arguments', [])
+                                break
+                        if prompt_args: break
+                    
+                    if prompt_args:
+                        prompt_str += "\n  - Arguments:"
+                        for arg_details in prompt_args:
+                            arg_name = arg_details.get('name', 'unknown')
+                            arg_type = arg_details.get('type', 'any')
+                            is_required = arg_details.get('required', False)
+                            req_str = "required" if is_required else "optional"
+                            arg_desc = arg_details.get('description', 'No description.')
+                            prompt_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+                    prompt_details_list.append(prompt_str)
+                STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_details_list)
+            else:
+                STATE['prompts_context'] = "--- No Prompts Available ---"
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
             STATE['structured_prompts'] = {}
 
-
-async def validate_and_correct_parameters(STATE: dict, command: dict) -> dict:
-    """
-    Corrects common LLM parameter hallucinations by translating between
-    canonical names (e.g., 'database_name') and tool-specific aliases (e.g., 'db_name').
-    """
-    mcp_tools = STATE.get('mcp_tools', {})
-    tool_name = command.get("tool_name")
-    if not tool_name or tool_name not in mcp_tools:
-        return command
-
-    args = command.get("arguments", {})
-    tool_spec = mcp_tools[tool_name]
-    spec_arg_names = set(tool_spec.args.keys() if isinstance(tool_spec.args, dict) else [])
-    
-    corrected_args = args.copy()
-    
-    reverse_alias_map = {alias: canon for canon, aliases in PARAMETER_ALIASES.items() for alias in aliases}
-
-    for arg_name in list(corrected_args.keys()):
-        if arg_name in reverse_alias_map:
-            canonical_name = reverse_alias_map[arg_name]
-            if canonical_name not in corrected_args:
-                app_logger.info(f"SHIM APPLIED (Pre-Correction): Translating provided alias '{arg_name}' to canonical '{canonical_name}' for tool '{tool_name}'.")
-                corrected_args[canonical_name] = corrected_args.pop(arg_name)
-
-    for canonical_name, aliases in PARAMETER_ALIASES.items():
-        if canonical_name in corrected_args:
-            for alias in aliases:
-                if alias in spec_arg_names and alias not in corrected_args:
-                    app_logger.info(f"SHIM APPLIED (Post-Correction): Translating canonical '{canonical_name}' to required alias '{alias}' for tool '{tool_name}'.")
-                    corrected_args[alias] = corrected_args.pop(canonical_name)
-                    break 
-    
-    command['arguments'] = corrected_args
-    return command
 
 def _transform_chart_data(data: any) -> list[dict]:
     """
@@ -402,11 +382,7 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
             return {"error": "Chart Generation Failed", "data": str(e)}
 
-    validated_command = await validate_and_correct_parameters(STATE, command)
-    if "error" in validated_command:
-        return validated_command
-
-    args = validated_command.get("arguments", validated_command.get("parameters", {}))
+    args = command.get("arguments", command.get("parameters", {}))
     
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
     try:
