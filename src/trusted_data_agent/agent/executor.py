@@ -18,6 +18,27 @@ from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT
 
 app_logger = logging.getLogger("quart.app")
 
+def get_prompt_text_content(prompt_obj):
+    """
+    Extracts the text content from a loaded prompt object, handling different
+    potential formats returned by the MCP adapter.
+    """
+    if (isinstance(prompt_obj, list) and
+        len(prompt_obj) > 0 and
+        hasattr(prompt_obj[0], 'content') and
+        isinstance(prompt_obj[0].content, str)):
+        return prompt_obj[0].content
+    elif (isinstance(prompt_obj, dict) and 
+        'messages' in prompt_obj and
+        isinstance(prompt_obj['messages'], list) and 
+        len(prompt_obj['messages']) > 0 and
+        'content' in prompt_obj['messages'][0] and
+        isinstance(prompt_obj['messages'][0]['content'], dict) and
+        'text' in prompt_obj['messages'][0]['content']):
+        return prompt_obj['messages'][0]['content']['text']
+    
+    return ""
+
 class AgentState(Enum):
     DECIDING = auto()
     EXECUTING_TOOL = auto()
@@ -279,7 +300,17 @@ class PlanExecutor:
             if self.state == AgentState.EXECUTING_TOOL:
                 async for event in self._execute_tool_with_orchestrators():
                     yield event
-
+        
+        # New logic to handle the transition to final answer.
+        # Check if the last tool result is a final output for this workflow.
+        # We assume a tool call that returns a dict with a specific `type` like "business_description"
+        # or a final text response signals completion of a phase.
+        if self.last_tool_output and isinstance(self.last_tool_output, dict) and self.last_tool_output.get("type") == "business_description":
+             self.state = AgentState.SUMMARIZING
+             # We set next_action_str here to tell the final summary step that we have the final answer.
+             self.next_action_str = f"FINAL_ANSWER: {self.last_tool_output.get('description', 'No description provided.')}"
+             return
+        
         # Now, get the next action from the LLM based on the result.
         if self.workflow_history:
             history_items = [f"- Executed tool `{item.get('tool_name')}` with arguments `{item.get('arguments', {})}`." for item in self.workflow_history]
@@ -374,7 +405,13 @@ class PlanExecutor:
                 return
 
         tool_name = self.current_command.get("tool_name")
-        if self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name) == 'column' and not self.current_command.get("arguments", {}).get("col_name"):
+        # --- FIX: Check for the 'qlty_distinctCategories' tool specifically and ensure it's handled correctly ---
+        if tool_name == 'qlty_distinctCategories':
+            # This tool should always be run as a standard tool call, not an iteration
+            # We don't need to check for the presence of col_name here because the LLM is expected to provide it
+            async for event in self._execute_standard_tool():
+                yield event
+        elif self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name) == 'column' and not self.current_command.get("arguments", {}).get("column_name"):
             async for event in self._execute_column_iteration(): yield event
         else:
             async for event in self._execute_standard_tool(): yield event
@@ -613,23 +650,7 @@ class PlanExecutor:
             # --- END: DEBUGGING LINES ---
 
             # --- START: MODIFIED and corrected text extraction logic ---
-            prompt_text = ""
-            # Handle the case where the prompt loader returns a list of LangChain message objects
-            if (isinstance(prompt_obj, list) and
-                len(prompt_obj) > 0 and
-                hasattr(prompt_obj[0], 'content') and
-                isinstance(prompt_obj[0].content, str)):
-                prompt_text = prompt_obj[0].content
-            # Handle the original case where it might be a dictionary (for robustness)
-            elif (isinstance(prompt_obj, dict) and 
-                'messages' in prompt_obj and
-                isinstance(prompt_obj['messages'], list) and 
-                len(prompt_obj['messages']) > 0 and
-                'content' in prompt_obj['messages'][0] and
-                isinstance(prompt_obj['messages'][0]['content'], dict) and
-                'text' in prompt_obj['messages'][0]['content']):
-                prompt_text = prompt_obj['messages'][0]['content']['text']
-            # --- END: MODIFIED and corrected text extraction logic ---
+            prompt_text = get_prompt_text_content(prompt_obj)
 
             if not prompt_text:
                 raise ValueError(f"Could not extract text content from rendered prompt '{self.active_prompt_name}'.")
