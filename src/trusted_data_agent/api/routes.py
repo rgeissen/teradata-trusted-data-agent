@@ -80,7 +80,9 @@ def _regenerate_contexts():
         for tool in enabled_tools:
             tool_str = f"- `{tool.name}`: {tool.description}"
             args_dict = tool.args if isinstance(tool.args, dict) else {}
-            if args_dict:
+            
+            # Only add arguments from tool.args if not already in the description.
+            if args_dict and "Arguments:" not in tool.description:
                 tool_str += "\n  - Arguments:"
                 for arg_name, arg_details in args_dict.items():
                     arg_type = arg_details.get('type', 'any')

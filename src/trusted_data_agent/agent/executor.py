@@ -268,7 +268,6 @@ class PlanExecutor:
                     yield _format_sse({"step": "Deterministic Workflow (Not Implemented)", "details": "Placeholder for deterministic workflow execution."})
                     self.state = AgentState.SUMMARIZING
                 elif self.state == AgentState.DECIDING:
-                    yield _format_sse({"step": "LLM has decided on an action", "details": self.next_action_str}, "llm_thought")
                     async for event in self._handle_deciding():
                         yield event
                 elif self.state == AgentState.EXECUTING_TOOL:
@@ -640,6 +639,11 @@ class PlanExecutor:
                 return
 
         # --- ORIGINAL NON-WORKFLOW LOGIC PRESERVED BELOW ---
+        is_final_answer = "FINAL_ANSWER:" in self.next_action_str.upper() or "SYSTEM_ACTION_COMPLETE" in self.next_action_str
+        
+        if not is_final_answer:
+            yield _format_sse({"step": "LLM has decided on an action", "details": self.next_action_str}, "llm_thought")
+
         if "SYSTEM_ACTION_COMPLETE" in self.next_action_str:
             self.state = AgentState.SUMMARIZING
             return
@@ -925,18 +929,18 @@ class PlanExecutor:
                     )
 
         prompt_for_next_step = (
-            f"You are an assistant that has just received data from a tool call. Your task is to decide if this data is enough to answer the user's original question, or if another step is needed.\n\n"
+            "You are an assistant responsible for coordinating a data gathering plan. Your task is to decide if enough data has been collected to answer the user's question.\n\n"
             f"--- User's Original Question ---\n"
             f"'{self.original_user_input}'\n\n"
             f"--- Data from Last Tool Call ---\n"
             f"{tool_result_str}\n\n"
             f"{charting_guidance}"
             "--- Your Decision Process ---\n"
-            "1.  **Analyze the Data:** Does the data above directly and completely answer the user's original question?\n"
+            "1.  **Analyze the situation:** Your primary goal is to gather all necessary data to comprehensively answer the user's original question. You may need to call several tools in sequence.\n"
             "2.  **Choose Your Action:**\n"
-            "    -   If the data IS sufficient, your response **MUST** be only the exact string `SYSTEM_ACTION_COMPLETE`. Do not add any summary text.\n"
-            "    -   If the data is NOT sufficient and you need more information, call another tool or prompt by providing the appropriate JSON block.\n"
-            "    -   If the last tool call resulted in an error, you MUST attempt to recover.\n"
+            "    -   If you need more information to answer the question, call another tool or prompt by providing the appropriate JSON block.\n"
+            "    -   If you are confident that you have now gathered **all** the necessary data from this and any previous tool calls, your response **MUST** be only the exact string `SYSTEM_ACTION_COMPLETE`. This will signal the final report writer to begin.\n"
+            "    -   If the last tool call resulted in an error, you MUST attempt to recover by calling a corrected tool.\n"
         )
         
         yield _format_sse({"step": "Calling LLM", "details": reason})
@@ -957,20 +961,22 @@ class PlanExecutor:
         final_summary_text = ""
         final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
 
-        if final_answer_match:
-            potential_summary = final_answer_match.group(1).strip()
-            if potential_summary:
-                final_summary_text = potential_summary
-                app_logger.info("Using pre-existing FINAL_ANSWER text provided by a workflow step.")
-
-        if self.last_tool_output and self.last_tool_output.get("type") == "chart":
+        # Path 1: Use a pre-existing summary if the decision-making step already created one.
+        if final_answer_match and final_answer_match.group(1).strip():
+            yield _format_sse({"step": "Finalizing Report", "details": "Using pre-existing summary from the final reasoning step."}, "llm_thought")
+            final_summary_text = self.next_action_str
+            app_logger.info("Using pre-existing FINAL_ANSWER text from the decision-making step.")
+        
+        # Path 2: Generate a summary for a chart.
+        elif self.last_tool_output and self.last_tool_output.get("type") == "chart":
+            yield _format_sse({"step": "Finalizing Report", "details": "Invoking chart-specific report writer to analyze visualization data."}, "llm_thought")
             data_for_llm_analysis = None
             if self.collected_data and len(self.collected_data) >= 2:
                 data_for_llm_analysis = self.collected_data[-2]
             
             if not data_for_llm_analysis:
                 app_logger.warning("Could not find source data for chart analysis. Reverting to simple summary.")
-                final_summary_text = "The chart has been generated and is displayed below."
+                final_summary_text = "FINAL_ANSWER: The chart has been generated and is displayed below."
             else:
                 final_prompt = (
                     "You are an expert data analyst. Your task is to provide a final, comprehensive, and insightful summary of the user's request.\n\n"
@@ -995,15 +1001,37 @@ class PlanExecutor:
                 if updated_session:
                     yield _format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
                 
-                if final_llm_response:
-                    final_answer_match = re.search(r'FINAL_ANSWER:(.*)', final_llm_response, re.DOTALL | re.IGNORECASE)
-                    if final_answer_match:
-                        final_summary_text = final_answer_match.group(1).strip()
-                    else:
-                        final_summary_text = final_llm_response
+                final_summary_text = final_llm_response
+        
+        # Path 3: Invoke the general-purpose report writer.
+        else:
+            yield _format_sse({"step": "Finalizing Report", "details": "Invoking general report writer to synthesize all collected data."}, "llm_thought")
+            data_for_summary = self._prepare_data_for_final_summary()
+            
+            final_prompt = (
+                "You are the final report writer for a database assistant. Your task is to synthesize all the collected data into a clear, concise, and user-friendly final answer.\n\n"
+                f"--- USER'S ORIGINAL QUESTION ---\n"
+                f"'{self.original_user_input}'\n\n"
+                f"--- ALL RELEVANT DATA COLLECTED ---\n"
+                "The following data was gathered from one or more tool calls to answer the user's question. Analyze this data to generate your response.\n"
+                f"```json\n{data_for_summary}\n```\n\n"
+                "--- YOUR INSTRUCTIONS ---\n"
+                "1.  **Synthesize, Don't Just Repeat:** Analyze the data to directly answer the user's question. For example, if the user asked 'how many databases?' and the data includes a list of 48 databases, your answer should state 'There are 48 databases on the system.'\n"
+                "2.  **Be Concise:** Provide a direct answer without unnecessary conversational text.\n"
+                "3.  **CRITICAL:** Your entire response **MUST** begin with the exact prefix `FINAL_ANSWER:`, followed by your natural language summary. Do not add any other text before this prefix.\n"
+            )
+            reason="Generating final summary from collected tool data."
+            yield _format_sse({"step": "Calling LLM to write final report", "details": reason})
+            final_llm_response, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=final_prompt, reason=reason)
+            
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                yield _format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+            
+            final_summary_text = final_llm_response
 
-        if not final_summary_text:
-            final_summary_text = "The agent has completed its work, but no summary was generated."
+        if not final_summary_text or "FINAL_ANSWER:" not in final_summary_text:
+             final_summary_text = f"FINAL_ANSWER: The agent has completed its work. The collected data is displayed below."
 
         yield _format_sse({
             "step": "LLM has generated the final answer",

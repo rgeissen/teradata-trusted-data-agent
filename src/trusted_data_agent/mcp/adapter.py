@@ -75,74 +75,10 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         raise Exception("MCP or LLM client not initialized.")
 
     async with mcp_client.session("teradata_mcp_server") as temp_session:
-        app_logger.info("--- Loading Teradata tools and prompts... ---")
+        app_logger.info("--- Loading and classifying Teradata tools and prompts... ---")
+
+        # Step 1: Load all capabilities (tools and prompts) from the server
         loaded_tools = await load_mcp_tools(temp_session)
-
-        class SimpleTool:
-            def __init__(self, **kwargs):
-                self.__dict__.update(kwargs)
-        
-        viz_tool_obj = SimpleTool(**VIZ_TOOL_DEFINITION)
-        loaded_tools.append(viz_tool_obj)
-        
-        for util_tool_def in UTIL_TOOL_DEFINITIONS:
-            loaded_tools.append(SimpleTool(**util_tool_def))
-
-        STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
-        STATE['tool_scopes'] = classify_tool_scopes(loaded_tools)
-        
-        disabled_tools_list = STATE.get("disabled_tools", [])
-        enabled_tools = [t for t in loaded_tools if t.name not in disabled_tools_list]
-
-        tool_details_list = []
-        for tool in enabled_tools:
-            tool_str = f"- `{tool.name}`: {tool.description}"
-            args_dict = tool.args if isinstance(tool.args, dict) else {}
-            if args_dict:
-                tool_str += "\n  - Arguments:"
-                for arg_name, arg_details in args_dict.items():
-                    arg_type = arg_details.get('type', 'any')
-                    is_required = arg_details.get('required', False)
-                    req_str = "required" if is_required else "optional"
-                    arg_desc = arg_details.get('description', 'No description.')
-                    tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
-            tool_details_list.append(tool_str)
-        
-        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
-        
-        tool_list_for_prompt = "\n".join([f"- {tool.name}: {tool.description}" for tool in loaded_tools])
-        categorization_prompt = (
-            "You are a helpful assistant that organizes lists of technical tools for a **Teradata database system** into logical categories for a user interface. "
-            "Your response MUST be a single, valid JSON object. The keys should be the category names, "
-            f"and the values should be an array of tool names belonging to that category.\n\n"
-            f"--- Tool List ---\n{tool_list_for_prompt}"
-        )
-        categorization_system_prompt = "You are a helpful assistant that organizes lists into JSON format."
-        categorized_tools_str, _, _ = await llm_handler.call_llm_api(
-            llm_instance, categorization_prompt, raise_on_error=True,
-            system_prompt_override=categorization_system_prompt
-        )
-        
-        match = re.search(r'\{.*\}', categorized_tools_str, re.DOTALL)
-        if match is None:
-            raise ValueError(f"LLM failed to return a valid JSON for tool categorization. Response: '{categorized_tools_str}'")
-        cleaned_str = match.group(0)
-        categorized_tools = json.loads(cleaned_str)
-
-        STATE['structured_tools'] = {}
-        for category, tool_names in categorized_tools.items():
-            tool_list = []
-            for name in tool_names:
-                if name in STATE['mcp_tools']:
-                    tool_obj = STATE['mcp_tools'][name]
-                    is_disabled = name in disabled_tools_list
-                    tool_list.append({
-                        "name": tool_obj.name,
-                        "description": tool_obj.description,
-                        "disabled": is_disabled
-                    })
-            STATE['structured_tools'][category] = tool_list
-
         loaded_prompts = []
         try:
             list_prompts_result = await temp_session.list_prompts()
@@ -151,85 +87,138 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         except Exception as e:
             app_logger.error(f"CRITICAL ERROR while loading prompts: {e}", exc_info=True)
 
+        class SimpleTool:
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+        
+        viz_tool_obj = SimpleTool(**VIZ_TOOL_DEFINITION)
+        loaded_tools.append(viz_tool_obj)
+        for util_tool_def in UTIL_TOOL_DEFINITIONS:
+            loaded_tools.append(SimpleTool(**util_tool_def))
+
+        STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         if loaded_prompts:
             STATE['mcp_prompts'] = {prompt.name: prompt for prompt in loaded_prompts}
-            
-            prompt_list_for_prompt = "\n".join([f"- {p.name}: {p.description or 'No description available.'}" for p in loaded_prompts])
-            
-            categorization_prompt_for_prompts = (
-                "You are a JSON formatting expert. Your task is to categorize the following list of Teradata system prompts into a single JSON object."
-                "\n\n**CRITICAL RULES:**"
-                "\n1. Your entire response MUST be a single, raw JSON object."
-                "\n2. DO NOT include ```{json} markdown wrappers, conversational text, or any explanations."
-                "\n3. The JSON keys MUST be the category names."
-                "\n4. The JSON values MUST be an array of the prompt names."
-                f"\n\n--- Prompt List to Categorize ---\n{prompt_list_for_prompt}"
-            )
 
-            categorized_prompts_str, _, _ = await llm_handler.call_llm_api(
-                llm_instance, categorization_prompt_for_prompts, raise_on_error=True,
-                system_prompt_override=categorization_system_prompt
-            )
-            
-            match_prompts = re.search(r'\{.*\}', categorized_prompts_str, re.DOTALL)
-            if match_prompts is None:
-                raise ValueError(f"LLM failed to return valid JSON for prompt categorization. Response: '{categorized_prompts_str}'")
-            cleaned_str_prompts = match_prompts.group(0)
-            categorized_prompts = json.loads(cleaned_str_prompts)
-            
-            STATE['structured_prompts'] = {}
-            disabled_prompts_list = STATE.get("disabled_prompts", [])
-            for category, prompt_names in categorized_prompts.items():
-                prompt_list = []
-                for raw_name_from_llm in prompt_names:
-                    name = raw_name_from_llm.split(':', 1)[0].strip()
-                    is_found = name in STATE['mcp_prompts']
-                    
-                    app_logger.debug(f"Categorization Check: Raw='{raw_name_from_llm}', Parsed='{name}', Found? -> {is_found}")
+        # Step 2: Prepare a single list of all capabilities for the LLM
+        all_capabilities = []
+        all_capabilities.extend([f"- {tool.name} (tool): {tool.description}" for tool in loaded_tools])
+        all_capabilities.extend([f"- {p.name} (prompt): {p.description or 'No description available.'}" for p in loaded_prompts])
+        capabilities_list_str = "\n".join(all_capabilities)
 
-                    if is_found:
-                        prompt_obj = STATE['mcp_prompts'][name]
-                        is_disabled = name in disabled_prompts_list
-                        
-                        processed_args = []
-                        if hasattr(prompt_obj, 'arguments') and prompt_obj.arguments:
-                            for arg in prompt_obj.arguments:
-                                arg_dict = arg.model_dump()
-                                cleaned_desc, arg_type = _extract_and_clean_description(arg_dict.get("description"))
-                                
-                                arg_dict['description'] = cleaned_desc
-                                arg_dict['type'] = arg_type
-                                processed_args.append(arg_dict)
+        # Step 3: Create a single, unified prompt for categorization and scope inference
+        classification_prompt = (
+            "You are a helpful assistant that analyzes a list of technical capabilities (tools and prompts) for a Teradata database system and classifies them. "
+            "For each capability, you must determine two things: a user-friendly 'category' for a UI, and its operational 'scope'.\n\n"
+            "The 'scope' must be one of the following exact values: 'database', 'table', 'column', or 'none'.\n"
+            " - Use 'database' for capabilities that operate on the entire database or list databases.\n"
+            " - Use 'table' for capabilities that primarily operate on a specific table.\n"
+            " - Use 'column' for capabilities that require a specific column name to function.\n"
+            " - Use 'none' for utilities or general prompts that don't operate on a specific database object.\n\n"
+            "Your response MUST be a single, valid JSON object. The keys of this object must be the capability names, "
+            "and the value for each key must be another JSON object containing the 'category' and 'scope' you determined.\n\n"
+            "Example format:\n"
+            "{\n"
+            '  "capability_name_1": {"category": "Some Category", "scope": "table"},\n'
+            '  "capability_name_2": {"category": "Another Category", "scope": "database"}\n'
+            "}\n\n"
+            f"--- Capability List ---\n{capabilities_list_str}"
+        )
+        categorization_system_prompt = "You are an expert assistant that only responds with valid JSON."
+        
+        # Step 4: Make a single LLM call for all classifications
+        classified_capabilities_str, _, _ = await llm_handler.call_llm_api(
+            llm_instance, classification_prompt, raise_on_error=True,
+            system_prompt_override=categorization_system_prompt
+        )
+        
+        match = re.search(r'\{.*\}', classified_capabilities_str, re.DOTALL)
+        if match is None:
+            raise ValueError(f"LLM failed to return a valid JSON for capability classification. Response: '{classified_capabilities_str}'")
+        
+        cleaned_str = match.group(0)
+        classified_data = json.loads(cleaned_str)
 
-                        prompt_list.append({
-                            "name": prompt_obj.name,
-                            "description": prompt_obj.description or "No description available.",
-                            "arguments": processed_args,
-                            "disabled": is_disabled
-                        })
-                STATE['structured_prompts'][category] = prompt_list
+        # Step 5: Process the unified response for Tools
+        STATE['structured_tools'] = {}
+        STATE['tool_scopes'] = {}
+        tool_details_list = []
+        disabled_tools_list = STATE.get("disabled_tools", [])
 
-            enabled_prompts = [
-                p for p in loaded_prompts 
-                if p.name not in disabled_prompts_list
-            ]
-            
-            if enabled_prompts:
-                prompt_details_list = []
-                for p in enabled_prompts:
-                    prompt_str = f"- `{p.name}`: {p.description or 'No description available.'}"
-                    
-                    prompt_args = []
-                    for category_list in STATE['structured_prompts'].values():
-                        for structured_prompt in category_list:
-                            if structured_prompt['name'] == p.name:
-                                prompt_args = structured_prompt.get('arguments', [])
-                                break
-                        if prompt_args: break
-                    
-                    if prompt_args:
+        for tool in loaded_tools:
+            classification = classified_data.get(tool.name, {})
+            category = classification.get("category", "Uncategorized")
+            scope = classification.get("scope")
+
+            if category not in STATE['structured_tools']:
+                STATE['structured_tools'][category] = []
+
+            is_disabled = tool.name in disabled_tools_list
+            STATE['structured_tools'][category].append({
+                "name": tool.name, "description": tool.description, "disabled": is_disabled
+            })
+
+            if not is_disabled:
+                description_prefix = f"(scope: {scope}) " if scope and scope != 'none' else ""
+                if scope and scope in ['database', 'table', 'column']:
+                    STATE['tool_scopes'][tool.name] = scope
+
+                tool_str = f"- `{tool.name}`: {description_prefix}{tool.description}"
+                args_dict = tool.args if isinstance(tool.args, dict) else {}
+
+                # Only add arguments from tool.args if not already in the description, to prevent duplicates.
+                if args_dict and "Arguments:" not in tool.description:
+                    tool_str += "\n  - Arguments:"
+                    for arg_name, arg_details in args_dict.items():
+                        arg_type = arg_details.get('type', 'any')
+                        is_required = arg_details.get('required', False)
+                        req_str = "required" if is_required else "optional"
+                        arg_desc = arg_details.get('description', 'No description.')
+                        tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+                tool_details_list.append(tool_str)
+        
+        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
+
+        # Step 6: Process the unified response for Prompts
+        STATE['structured_prompts'] = {}
+        prompt_details_list = []
+        disabled_prompts_list = STATE.get("disabled_prompts", [])
+        
+        if loaded_prompts:
+            for prompt_obj in loaded_prompts:
+                classification = classified_data.get(prompt_obj.name, {})
+                category = classification.get("category", "Uncategorized")
+                scope = classification.get("scope")
+                
+                if category not in STATE['structured_prompts']:
+                    STATE['structured_prompts'][category] = []
+
+                is_disabled = prompt_obj.name in disabled_prompts_list
+                
+                processed_args = []
+                if hasattr(prompt_obj, 'arguments') and prompt_obj.arguments:
+                    for arg in prompt_obj.arguments:
+                        arg_dict = arg.model_dump()
+                        cleaned_desc, arg_type = _extract_and_clean_description(arg_dict.get("description"))
+                        arg_dict['description'] = cleaned_desc; arg_dict['type'] = arg_type
+                        processed_args.append(arg_dict)
+                
+                STATE['structured_prompts'][category].append({
+                    "name": prompt_obj.name,
+                    "description": prompt_obj.description or "No description available.",
+                    "arguments": processed_args,
+                    "disabled": is_disabled
+                })
+
+                if not is_disabled:
+                    description_prefix = f"(scope: {scope}) " if scope and scope != 'none' else ""
+                    prompt_description = prompt_obj.description or "No description available."
+                    prompt_str = f"- `{prompt_obj.name}`: {description_prefix}{prompt_description}"
+
+                    # Only add arguments if not already in the description, to prevent duplicates.
+                    if processed_args and "Arguments:" not in prompt_description:
                         prompt_str += "\n  - Arguments:"
-                        for arg_details in prompt_args:
+                        for arg_details in processed_args:
                             arg_name = arg_details.get('name', 'unknown')
                             arg_type = arg_details.get('type', 'any')
                             is_required = arg_details.get('required', False)
@@ -237,12 +226,11 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                             arg_desc = arg_details.get('description', 'No description.')
                             prompt_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
                     prompt_details_list.append(prompt_str)
-                STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_details_list)
-            else:
-                STATE['prompts_context'] = "--- No Prompts Available ---"
+
+        if prompt_details_list:
+            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_details_list)
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
-            STATE['structured_prompts'] = {}
 
 
 def _transform_chart_data(data: any) -> list[dict]:
