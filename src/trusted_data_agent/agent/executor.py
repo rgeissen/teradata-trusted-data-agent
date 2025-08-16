@@ -263,7 +263,6 @@ class PlanExecutor:
                         yield event
                 elif self.is_workflow and self.workflow_mode == 2:
                     # --- DEPRECATED: Old workflow engine logic is removed from here ---
-                    # We can add the new deterministic logic here in the next step.
                     # For now, we will just complete the workflow.
                     yield _format_sse({"step": "Deterministic Workflow (Not Implemented)", "details": "Placeholder for deterministic workflow execution."})
                     self.state = AgentState.SUMMARIZING
@@ -904,7 +903,6 @@ class PlanExecutor:
         self.last_tool_output = {"metadata": {"tool_name": tool_name}, "results": all_column_results, "status": "success"}
         self.state = AgentState.DECIDING
 
-    # --- NEW: Helper function to summarize all collected data for the LLM's prompt. ---
     def _prepare_data_for_prompt(self) -> str:
         """
         Gathers all successful tool results and formats them into a concise, readable string.
@@ -1063,17 +1061,23 @@ class PlanExecutor:
             
             final_summary_text = final_llm_response
 
-        if not final_summary_text or "FINAL_ANSWER:" not in final_summary_text:
-             final_summary_text = f"FINAL_ANSWER: The agent has completed its work. The collected data is displayed below."
+        # --- MODIFIED: The FINAL_ANSWER term is removed here.
+        if final_summary_text.strip().upper().startswith("FINAL_ANSWER:"):
+            clean_summary = final_summary_text.strip()[len("FINAL_ANSWER:"):].strip()
+        else:
+            clean_summary = final_summary_text
+        
+        if not clean_summary:
+             clean_summary = "The agent has completed its work. The collected data is displayed below."
 
         yield _format_sse({
             "step": "LLM has generated the final answer",
-            "details": final_summary_text
+            "details": clean_summary
         }, "llm_thought")
 
         formatter = OutputFormatter(
-            llm_response_text=final_summary_text, 
-            collected_data=final_collected_data, 
+            llm_response_text=clean_summary,
+            collected_data=final_collected_data,
             is_workflow=self.is_workflow
         )
         final_html = formatter.render()
