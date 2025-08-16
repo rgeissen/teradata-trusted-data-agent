@@ -103,7 +103,20 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         # Step 2: Prepare a single list of all capabilities for the LLM
         all_capabilities = []
         all_capabilities.extend([f"- {tool.name} (tool): {tool.description}" for tool in loaded_tools])
-        all_capabilities.extend([f"- {p.name} (prompt): {p.description or 'No description available.'}" for p in loaded_prompts])
+        
+        # --- MODIFIED: Enhance prompt descriptions with their arguments for better classification ---
+        for p in loaded_prompts:
+            prompt_str = f"- {p.name} (prompt): {p.description or 'No description available.'}"
+            # Check if the prompt has arguments and append them to the description string
+            if hasattr(p, 'arguments') and p.arguments:
+                prompt_str += "\n  - Arguments:"
+                for arg in p.arguments:
+                    arg_dict = arg.model_dump()
+                    arg_name = arg_dict.get('name', 'unknown_arg')
+                    prompt_str += f"\n    - `{arg_name}`"
+            all_capabilities.append(prompt_str)
+        # --- END MODIFICATION ---
+
         capabilities_list_str = "\n".join(all_capabilities)
 
         # Step 3: Create a single, unified prompt for categorization and scope inference
@@ -111,9 +124,9 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             "You are a helpful assistant that analyzes a list of technical capabilities (tools and prompts) for a Teradata database system and classifies them. "
             "For each capability, you must determine two things: a user-friendly 'category' for a UI, and its operational 'scope'.\n\n"
             "The 'scope' must be one of the following exact values: 'database', 'table', 'column', or 'none'.\n"
-            " - Use 'database' for capabilities that operate on the entire database or list databases.\n"
-            " - Use 'table' for capabilities that primarily operate on a specific table.\n"
-            " - Use 'column' for capabilities that require a specific column name to function.\n"
+            " - Use 'database' for capabilities that operate on the entire database or list databases. A capability has a 'database' scope if it takes a `database_name` or `db_name` argument but no `table_name` or `column_name`.\n"
+            " - Use 'table' for capabilities that primarily operate on a specific table. A capability has a 'table' scope if it takes a `table_name` or `obj_name` argument.\n"
+            " - Use 'column' for capabilities that require a specific column name to function. A capability has a 'column' scope if it takes a `column_name` argument.\n"
             " - Use 'none' for utilities or general prompts that don't operate on a specific database object.\n\n"
             "Your response MUST be a single, valid JSON object. The keys of this object must be the capability names, "
             "and the value for each key must be another JSON object containing the 'category' and 'scope' you determined.\n\n"
