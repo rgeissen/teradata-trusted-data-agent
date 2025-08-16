@@ -14,7 +14,7 @@ from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.agent.workflow_manager import WorkflowManager
-from trusted_data_agent.agent.prompts_old import NON_DETERMINISTIC_WORKFLOW_PROMPT, NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT
+from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT, NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT, FINAL_ANSWER_PROMPT
 
 app_logger = logging.getLogger("quart.app")
 
@@ -904,7 +904,34 @@ class PlanExecutor:
         self.last_tool_output = {"metadata": {"tool_name": tool_name}, "results": all_column_results, "status": "success"}
         self.state = AgentState.DECIDING
 
+    # --- NEW: Helper function to summarize all collected data for the LLM's prompt. ---
+    def _prepare_data_for_prompt(self) -> str:
+        """
+        Gathers all successful tool results and formats them into a concise, readable string.
+        """
+        successful_results = []
+        for item in self.collected_data:
+            if isinstance(item, dict) and item.get("status") == "success" and "results" in item:
+                # Exclude the chart tool output as it doesn't contain useful raw data.
+                if item.get("type") != "chart":
+                    successful_results.append(item)
+        
+        if not successful_results:
+            return "No data has been successfully collected yet."
+            
+        summary_list = []
+        for result in successful_results:
+            tool_name = result.get("metadata", {}).get("tool_name", "Unknown Tool")
+            result_count = len(result.get("results", []))
+            summary_list.append(f"• Tool `{tool_name}` returned {result_count} rows of data.")
+            
+        return "\n".join(summary_list)
+
     async def _get_next_action_from_llm(self, tool_result_str: str | None = None, reason: str = "No reason provided."):
+        
+        # --- MODIFIED: Prepare the summary of ALL collected data. ---
+        all_collected_data_str = self._prepare_data_for_prompt()
+
         charting_guidance = ""
         if self.charting_intent_detected:
             is_data_tool_success = False
@@ -929,10 +956,13 @@ class PlanExecutor:
                         "**CRITICAL CHARTING DIRECTIVE**: The user explicitly requested a chart. If the 'Data from Last Tool Call' is suitable for a chart, your **next action MUST be to call `viz_createChart`**. Do NOT re-call data gathering tools. Focus on creating the requested visualization.\n"
                     )
 
+        # --- MODIFIED: Added a new section for ALL Collected Data. ---
         prompt_for_next_step = (
             "You are an assistant responsible for coordinating a data gathering plan. Your task is to decide if enough data has been collected to answer the user's question.\n\n"
             f"--- User's Original Question ---\n"
             f"'{self.original_user_input}'\n\n"
+            f"--- All Data Collected So Far ---\n"
+            f"{all_collected_data_str}\n\n"
             f"--- Data from Last Tool Call ---\n"
             f"{tool_result_str}\n\n"
             f"{charting_guidance}"

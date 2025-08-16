@@ -34,6 +34,9 @@ To select the correct capability, you MUST follow this two-step process, governe
 - **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
 - **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
 - **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
+
+**CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
+
 {charting_instructions_section}
 # Capabilities
 {tools_context}
@@ -98,6 +101,9 @@ Here are examples of the correct thinking process:
 - **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
 - **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
 - **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
+
+**CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
+
 {charting_instructions_section}
 # Capabilities
 {tools_context}
@@ -229,4 +235,19 @@ The last action taken was a repeat of the one before it. The last command was:
 
 --- INSTRUCTIONS ---
 Your next action MUST be different from the repetitive action. Analyze the original goal and the last action to determine a new, more productive step. Your response MUST be a single JSON object for a tool call.
+"""
+
+# --- NEW: This prompt is for the termination check logic. It is separate from the main system prompt. ---
+FINAL_ANSWER_PROMPT = """
+--- CONTEXT FOR YOUR DECISION ---
+- Original Question: {original_question}
+- All Data Collected So Far:
+{all_collected_data}
+- Data from Last Tool Call:
+{last_tool_result}
+
+--- INSTRUCTIONS ---
+Analyze the context above.
+Is this enough information to fully answer the original question?
+Respond only with the word 'YES' or 'NO'. Do not provide any other text.
 """
