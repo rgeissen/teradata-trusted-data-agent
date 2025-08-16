@@ -466,7 +466,8 @@ class PlanExecutor:
         elif self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name) == 'column' and not self.current_command.get("arguments", {}).get("column_name"):
             async for event in self._execute_column_iteration(): yield event
         else:
-            async for event in self._execute_standard_tool(): yield event
+            async for event in self._execute_standard_tool():
+                yield event
 
     def _is_date_query_candidate(self) -> tuple[bool, str, bool]:
         if not self.current_command:
@@ -1008,17 +1009,19 @@ class PlanExecutor:
             yield _format_sse({"step": "Finalizing Report", "details": "Invoking general report writer to synthesize all collected data."}, "llm_thought")
             data_for_summary = self._prepare_data_for_final_summary()
             
+            # --- MODIFIED: The final summarization prompt is enhanced to be a better data analyst. ---
             final_prompt = (
-                "You are the final report writer for a database assistant. Your task is to synthesize all the collected data into a clear, concise, and user-friendly final answer.\n\n"
+                "You are an expert data analyst. Your task is to synthesize all collected data into a clear, concise, and insightful final answer for the user.\n\n"
                 f"--- USER'S ORIGINAL QUESTION ---\n"
                 f"'{self.original_user_input}'\n\n"
                 f"--- ALL RELEVANT DATA COLLECTED ---\n"
-                "The following data was gathered from one or more tool calls to answer the user's question. Analyze this data to generate your response.\n"
+                "The following data was gathered from one or more tool calls. Analyze this data to generate your response.\n"
                 f"```json\n{data_for_summary}\n```\n\n"
                 "--- YOUR INSTRUCTIONS ---\n"
-                "1.  **Synthesize, Don't Just Repeat:** Analyze the data to directly answer the user's question. For example, if the user asked 'how many databases?' and the data includes a list of 48 databases, your answer should state 'There are 48 databases on the system.'\n"
-                "2.  **Be Concise:** Provide a direct answer without unnecessary conversational text.\n"
-                "3.  **CRITICAL:** Your entire response **MUST** begin with the exact prefix `FINAL_ANSWER:`, followed by your natural language summary. Do not add any other text before this prefix.\n"
+                "1.  **Adopt the Persona of a Data Analyst:** Your goal is to provide a holistic analysis and deliver actionable insights, not just report numbers.\n"
+                "2.  **Go Beyond the Obvious:** Start with the primary findings (like data completeness or null counts), but then scrutinize the data for secondary insights, patterns, or anomalies. For a data quality assessment, this could include looking for unexpected distributions, a lack of negative values in numeric columns where appropriate, or other indicators of high-quality data.\n"
+                "3.  **Structure Your Answer:** Begin with a high-level summary that directly answers the user's question. Then, if applicable, use bullet points to highlight key, specific observations from the data.\n"
+                "4.  **CRITICAL:** Your entire response **MUST** begin with the exact prefix `FINAL_ANSWER:`, followed by your natural language summary. Do not add any other text before this prefix.\n"
             )
             reason="Generating final summary from collected tool data."
             yield _format_sse({"step": "Calling LLM to write final report", "details": reason})

@@ -62,74 +62,89 @@ def _regenerate_contexts():
     """
     print("\n--- Regenerating Agent Capability Contexts ---")
     
+    # --- MODIFIED: This function is simplified as scope is no longer tracked here ---
+    
     # Regenerate Tool Contexts
-    if STATE.get('mcp_tools'):
-        all_tools = list(STATE['mcp_tools'].values())
+    if STATE.get('mcp_tools') and STATE.get('structured_tools'):
+        all_tools = STATE['mcp_tools']
         disabled_tools_list = STATE.get("disabled_tools", [])
-        enabled_tools = [t for t in all_tools if t.name not in disabled_tools_list]
+        
+        enabled_count = sum(1 for category in STATE['structured_tools'].values() for t in category if not t['disabled'])
         
         print(f"\n[ Tools Status ]")
-        print(f"  - Active: {len(enabled_tools)}")
-        for tool in enabled_tools:
-            print(f"    - {tool.name}")
+        print(f"  - Active: {enabled_count}")
         print(f"  - Inactive: {len(disabled_tools_list)}")
-        for tool_name in disabled_tools_list:
-            print(f"    - {tool_name}")
 
-        tool_details_list = []
-        for tool in enabled_tools:
-            tool_str = f"- `{tool.name}`: {tool.description}"
-            args_dict = tool.args if isinstance(tool.args, dict) else {}
-            
-            # Only add arguments from tool.args if not already in the description.
-            if args_dict and "Arguments:" not in tool.description:
-                tool_str += "\n  - Arguments:"
-                for arg_name, arg_details in args_dict.items():
-                    arg_type = arg_details.get('type', 'any')
-                    is_required = arg_details.get('required', False)
-                    req_str = "required" if is_required else "optional"
-                    arg_desc = arg_details.get('description', 'No description.')
-                    tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
-            tool_details_list.append(tool_str)
+        tool_context_parts = []
+        for category, tools in sorted(STATE['structured_tools'].items()):
+            # Check if there are any enabled tools in this category before adding the header
+            enabled_tools_in_category = [t for t in tools if not t['disabled']]
+            if not enabled_tools_in_category:
+                continue
+                
+            tool_context_parts.append(f"--- Category: {category} ---")
+            for tool_info in enabled_tools_in_category:
+                tool = all_tools[tool_info['name']]
+                tool_str = f"- `{tool.name}`: {tool.description}"
+                args_dict = tool.args if isinstance(tool.args, dict) else {}
+                
+                if args_dict and "Arguments:" not in tool.description:
+                    tool_str += "\n  - Arguments:"
+                    for arg_name, arg_details in args_dict.items():
+                        arg_type = arg_details.get('type', 'any')
+                        is_required = arg_details.get('required', False)
+                        req_str = "required" if is_required else "optional"
+                        arg_desc = arg_details.get('description', 'No description.')
+                        tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+                tool_context_parts.append(tool_str)
         
-        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
-        app_logger.info(f"Regenerated LLM tool context. {len(enabled_tools)} tools are active.")
+        STATE['tools_context'] = "\n".join(tool_context_parts)
+        app_logger.info(f"Regenerated LLM tool context. {enabled_count} tools are active.")
 
-        if STATE.get('structured_tools'):
-            for category, tool_list in STATE['structured_tools'].items():
-                for tool_info in tool_list:
-                    tool_info['disabled'] = tool_info['name'] in disabled_tools_list
-            app_logger.info("Updated 'disabled' status in structured tools for the UI.")
+        for category, tool_list in STATE['structured_tools'].items():
+            for tool_info in tool_list:
+                tool_info['disabled'] = tool_info['name'] in disabled_tools_list
+        app_logger.info("Updated 'disabled' status in structured tools for the UI.")
 
     # Regenerate Prompt Contexts
-    if STATE.get('mcp_prompts'):
-        all_prompts = list(STATE['mcp_prompts'].values())
+    if STATE.get('mcp_prompts') and STATE.get('structured_prompts'):
+        all_prompts = STATE['mcp_prompts']
         disabled_prompts_list = STATE.get("disabled_prompts", [])
-        enabled_prompts = [p for p in all_prompts if p.name not in disabled_prompts_list]
+        
+        enabled_count = sum(1 for category in STATE['structured_prompts'].values() for p in category if not p['disabled'])
         
         print(f"\n[ Prompts Status ]")
-        print(f"  - Active: {len(enabled_prompts)}")
-        for prompt in enabled_prompts:
-            print(f"    - {prompt.name}")
+        print(f"  - Active: {enabled_count}")
         print(f"  - Inactive: {len(disabled_prompts_list)}")
-        for prompt_name in disabled_prompts_list:
-            print(f"    - {prompt_name}")
+        
+        prompt_context_parts = []
+        for category, prompts in sorted(STATE['structured_prompts'].items()):
+            enabled_prompts_in_category = [p for p in prompts if not p['disabled']]
+            if not enabled_prompts_in_category:
+                continue
 
-        if enabled_prompts:
-            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join([f"- `{p.name}`: {p.description or 'No description available.'}" for p in enabled_prompts])
+            prompt_context_parts.append(f"--- Category: {category} ---")
+            for prompt_info in enabled_prompts_in_category:
+                prompt = all_prompts[prompt_info['name']]
+                prompt_details_list = []
+                prompt_str = f"- `{prompt.name}`: {prompt.description or 'No description available.'}"
+                prompt_context_parts.append(prompt_str)
+
+        if prompt_context_parts:
+            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_context_parts)
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
         
-        app_logger.info(f"Regenerated LLM prompt context. {len(enabled_prompts)} prompts are active.")
+        app_logger.info(f"Regenerated LLM prompt context. {enabled_count} prompts are active.")
 
-        if STATE.get('structured_prompts'):
-            for category, prompt_list in STATE['structured_prompts'].items():
-                for prompt_info in prompt_list:
-                    prompt_info['disabled'] = prompt_info['name'] in disabled_prompts_list
-            app_logger.info("Updated 'disabled' status in structured prompts for the UI.")
+        for category, prompt_list in STATE['structured_prompts'].items():
+            for prompt_info in prompt_list:
+                prompt_info['disabled'] = prompt_info['name'] in disabled_prompts_list
+        app_logger.info("Updated 'disabled' status in structured prompts for the UI.")
     
     print("\n" + "-"*44)
 
+# --- REMOVED: The _generate_filtered_contexts function is no longer needed. ---
 
 @api_bp.route("/")
 async def index():
@@ -361,6 +376,14 @@ async def new_session():
     if not STATE.get('llm') or not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     
+    try:
+        log_file_path = os.path.join("logs", "llm_conversations.log")
+        with open(log_file_path, 'w') as f:
+            pass 
+        app_logger.info(f"Purged {log_file_path} for new session.")
+    except Exception as e:
+        app_logger.error(f"Failed to purge llm_conversations.log: {e}", exc_info=True)
+
     data = await request.get_json()
     system_prompt_template = data.get("system_prompt")
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
@@ -509,14 +532,14 @@ async def ask_stream():
     session_id = data.get("session_id")
     
     async def stream_generator():
-        if not all([user_input, session_id]) or not session_manager.get_session(session_id):
+        session_data = session_manager.get_session(session_id)
+        if not all([user_input, session_id]) or not session_data:
             yield _format_sse({"error": "Missing 'message' or invalid 'session_id'"}, "error")
             return
 
         try:
             session_manager.add_to_history(session_id, 'user', user_input)
             
-            session_data = session_manager.get_session(session_id)
             if session_data['name'] == 'New Chat':
                 new_name = user_input[:40] + '...' if len(user_input) > 40 else user_input
                 session_manager.update_session_name(session_id, new_name)
@@ -528,7 +551,7 @@ async def ask_stream():
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
 
-            yield _format_sse({"step": "Assistant is thinking...", "details": "Analyzing request and selecting best action."})
+            # --- MODIFIED: All scope classification and filtering logic has been removed from this endpoint. ---
             
             yield _format_sse({"step": "Calling LLM", "details": "Analyzing user query to determine the first action."})
 
@@ -558,6 +581,7 @@ async def ask_stream():
         except Exception as e:
             app_logger.error(f"An unhandled error occurred in /ask_stream: {e}", exc_info=True)
             yield _format_sse({"error": "An unexpected server error occurred.", "details": str(e)}, "error")
+        
 
     return Response(stream_generator(), mimetype="text/event-stream")
 

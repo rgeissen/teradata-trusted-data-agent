@@ -104,10 +104,8 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         all_capabilities = []
         all_capabilities.extend([f"- {tool.name} (tool): {tool.description}" for tool in loaded_tools])
         
-        # --- MODIFIED: Enhance prompt descriptions with their arguments for better classification ---
         for p in loaded_prompts:
             prompt_str = f"- {p.name} (prompt): {p.description or 'No description available.'}"
-            # Check if the prompt has arguments and append them to the description string
             if hasattr(p, 'arguments') and p.arguments:
                 prompt_str += "\n  - Arguments:"
                 for arg in p.arguments:
@@ -115,25 +113,21 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                     arg_name = arg_dict.get('name', 'unknown_arg')
                     prompt_str += f"\n    - `{arg_name}`"
             all_capabilities.append(prompt_str)
-        # --- END MODIFICATION ---
 
         capabilities_list_str = "\n".join(all_capabilities)
 
-        # Step 3: Create a single, unified prompt for categorization and scope inference
+        # Step 3: Create a single, unified prompt for categorization
+        # --- MODIFIED: This prompt now ONLY asks for 'category' and nothing about 'scope'. ---
         classification_prompt = (
             "You are a helpful assistant that analyzes a list of technical capabilities (tools and prompts) for a Teradata database system and classifies them. "
-            "For each capability, you must determine two things: a user-friendly 'category' for a UI, and its operational 'scope'.\n\n"
-            "The 'scope' must be one of the following exact values: 'database', 'table', 'column', or 'none'.\n"
-            " - Use 'database' for capabilities that operate on the entire database or list databases. A capability has a 'database' scope if it takes a `database_name` or `db_name` argument but no `table_name` or `column_name`.\n"
-            " - Use 'table' for capabilities that primarily operate on a specific table. A capability has a 'table' scope if it takes a `table_name` or `obj_name` argument.\n"
-            " - Use 'column' for capabilities that require a specific column name to function. A capability has a 'column' scope if it takes a `column_name` argument.\n"
-            " - Use 'none' for utilities or general prompts that don't operate on a specific database object.\n\n"
+            "For each capability, you must determine a single user-friendly 'category' for a UI. "
+            "Example categories might be 'Data Quality', 'Table Management', 'Performance', 'Utilities', 'Database Information', etc. Be concise and consistent.\n\n"
             "Your response MUST be a single, valid JSON object. The keys of this object must be the capability names, "
-            "and the value for each key must be another JSON object containing the 'category' and 'scope' you determined.\n\n"
+            "and the value for each key must be another JSON object containing only the 'category' you determined.\n\n"
             "Example format:\n"
             "{\n"
-            '  "capability_name_1": {"category": "Some Category", "scope": "table"},\n'
-            '  "capability_name_2": {"category": "Another Category", "scope": "database"}\n'
+            '  "capability_name_1": {"category": "Some Category"},\n'
+            '  "capability_name_2": {"category": "Another Category"}\n'
             "}\n\n"
             f"--- Capability List ---\n{capabilities_list_str}"
         )
@@ -152,16 +146,14 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         cleaned_str = match.group(0)
         classified_data = json.loads(cleaned_str)
 
-        # Step 5: Process the unified response for Tools
+        # Step 5: Process the unified response for Tools and build the new categorized context
         STATE['structured_tools'] = {}
-        STATE['tool_scopes'] = {}
-        tool_details_list = []
         disabled_tools_list = STATE.get("disabled_tools", [])
-
+        
+        # First, populate the structured_tools for the UI, which needs a category
         for tool in loaded_tools:
             classification = classified_data.get(tool.name, {})
             category = classification.get("category", "Uncategorized")
-            scope = classification.get("scope")
 
             if category not in STATE['structured_tools']:
                 STATE['structured_tools'][category] = []
@@ -171,37 +163,36 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 "name": tool.name, "description": tool.description, "disabled": is_disabled
             })
 
-            if not is_disabled:
-                description_prefix = f"(scope: {scope}) " if scope and scope != 'none' else ""
-                if scope and scope in ['database', 'table', 'column']:
-                    STATE['tool_scopes'][tool.name] = scope
+        # --- NEW: Build the categorized context string for the main system prompt ---
+        tool_context_parts = []
+        for category, tools in sorted(STATE['structured_tools'].items()):
+            tool_context_parts.append(f"--- Category: {category} ---")
+            for tool_info in tools:
+                if not tool_info['disabled']:
+                    tool_obj = STATE['mcp_tools'][tool_info['name']]
+                    tool_str = f"- `{tool_obj.name}`: {tool_obj.description}"
+                    args_dict = tool_obj.args if isinstance(tool_obj.args, dict) else {}
 
-                tool_str = f"- `{tool.name}`: {description_prefix}{tool.description}"
-                args_dict = tool.args if isinstance(tool.args, dict) else {}
-
-                # Only add arguments from tool.args if not already in the description, to prevent duplicates.
-                if args_dict and "Arguments:" not in tool.description:
-                    tool_str += "\n  - Arguments:"
-                    for arg_name, arg_details in args_dict.items():
-                        arg_type = arg_details.get('type', 'any')
-                        is_required = arg_details.get('required', False)
-                        req_str = "required" if is_required else "optional"
-                        arg_desc = arg_details.get('description', 'No description.')
-                        tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
-                tool_details_list.append(tool_str)
+                    if args_dict and "Arguments:" not in tool_obj.description:
+                        tool_str += "\n  - Arguments:"
+                        for arg_name, arg_details in args_dict.items():
+                            arg_type = arg_details.get('type', 'any')
+                            is_required = arg_details.get('required', False)
+                            req_str = "required" if is_required else "optional"
+                            arg_desc = arg_details.get('description', 'No description.')
+                            tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+                    tool_context_parts.append(tool_str)
         
-        STATE['tools_context'] = "--- Available Tools ---\n" + "\n".join(tool_details_list)
+        STATE['tools_context'] = "\n".join(tool_context_parts)
 
-        # Step 6: Process the unified response for Prompts
+        # Step 6: Process the unified response for Prompts and build the new categorized context
         STATE['structured_prompts'] = {}
-        prompt_details_list = []
         disabled_prompts_list = STATE.get("disabled_prompts", [])
         
         if loaded_prompts:
             for prompt_obj in loaded_prompts:
                 classification = classified_data.get(prompt_obj.name, {})
                 category = classification.get("category", "Uncategorized")
-                scope = classification.get("scope")
                 
                 if category not in STATE['structured_prompts']:
                     STATE['structured_prompts'][category] = []
@@ -223,12 +214,17 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                     "disabled": is_disabled
                 })
 
-                if not is_disabled:
-                    description_prefix = f"(scope: {scope}) " if scope and scope != 'none' else ""
+        # --- NEW: Build the categorized context string for the main system prompt ---
+        prompt_context_parts = []
+        for category, prompts in sorted(STATE['structured_prompts'].items()):
+            prompt_context_parts.append(f"--- Category: {category} ---")
+            for prompt_info in prompts:
+                if not prompt_info['disabled']:
+                    prompt_obj = STATE['mcp_prompts'][prompt_info['name']]
                     prompt_description = prompt_obj.description or "No description available."
-                    prompt_str = f"- `{prompt_obj.name}`: {description_prefix}{prompt_description}"
+                    prompt_str = f"- `{prompt_obj.name}`: {prompt_description}"
 
-                    # Only add arguments if not already in the description, to prevent duplicates.
+                    processed_args = prompt_info['arguments']
                     if processed_args and "Arguments:" not in prompt_description:
                         prompt_str += "\n  - Arguments:"
                         for arg_details in processed_args:
@@ -238,10 +234,10 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                             req_str = "required" if is_required else "optional"
                             arg_desc = arg_details.get('description', 'No description.')
                             prompt_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
-                    prompt_details_list.append(prompt_str)
+                    prompt_context_parts.append(prompt_str)
 
-        if prompt_details_list:
-            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_details_list)
+        if prompt_context_parts:
+            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_context_parts)
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
 
@@ -403,15 +399,3 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
                 return {"error": "Tool returned non-JSON string", "data": text_content.text}
     
     raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
-
-def classify_tool_scopes(tools: list) -> dict:
-    scopes = {}
-    for tool in tools:
-        arg_names = set(tool.args.keys()) if isinstance(tool.args, dict) else set()
-        if 'col_name' in arg_names or 'column_name' in arg_names:
-            scopes[tool.name] = 'column'
-        elif 'table_name' in arg_names or 'obj_name' in arg_names:
-            scopes[tool.name] = 'table'
-        else:
-            scopes[tool.name] = 'database'
-    return scopes

@@ -125,13 +125,16 @@ def _get_full_system_prompt(session_data: dict, dependencies: dict, system_promp
         if chart_instructions_detail:
             charting_instructions_section = f"- **Charting Guidelines:** {chart_instructions_detail}"
     
-    # --- MODIFIED: Replaced fragile .format() with robust .replace() calls ---
+    # --- MODIFIED: The concept of filtered contexts is removed. Always use the full context. ---
+    tools_context = STATE.get('tools_context', '')
+    prompts_context = STATE.get('prompts_context', '')
+
     final_system_prompt = base_prompt_text.replace(
         '{charting_instructions_section}', charting_instructions_section
     ).replace(
-        '{tools_context}', STATE.get('tools_context', '')
+        '{tools_context}', tools_context
     ).replace(
-        '{prompts_context}', STATE.get('prompts_context', '')
+        '{prompts_context}', prompts_context
     )
     
     return final_system_prompt
