@@ -18,7 +18,7 @@ from mcp.shared.exceptions import McpError
 
 from trusted_data_agent.core.config import APP_CONFIG
 from trusted_data_agent.core import session_manager
-from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS, CHARTING_INSTRUCTIONS
+from trusted_data_agent.agent.prompts_old import PROVIDER_SYSTEM_PROMPTS, CHARTING_INSTRUCTIONS
 from trusted_data_agent.agent.executor import PlanExecutor, _format_sse
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.mcp import adapter as mcp_adapter

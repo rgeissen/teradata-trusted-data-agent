@@ -14,7 +14,7 @@ import boto3
 
 from trusted_data_agent.core.config import APP_CONFIG
 from trusted_data_agent.core.session_manager import get_session, update_token_count
-from trusted_data_agent.agent.prompts import CHARTING_INSTRUCTIONS, PROVIDER_SYSTEM_PROMPTS
+from trusted_data_agent.agent.prompts_old import CHARTING_INSTRUCTIONS, PROVIDER_SYSTEM_PROMPTS
 from trusted_data_agent.core.config import (
     CERTIFIED_GOOGLE_MODELS, CERTIFIED_ANTHROPIC_MODELS,
     CERTIFIED_AMAZON_MODELS, CERTIFIED_AMAZON_PROFILES,

@@ -4,7 +4,7 @@ from datetime import datetime
 
 # --- NEW: Import genai for type hinting and PROVIDER_SYSTEM_PROMPTS for provider-specific logic ---
 import google.generativeai as genai
-from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS
+from trusted_data_agent.agent.prompts_old import PROVIDER_SYSTEM_PROMPTS
 
 _SESSIONS = {}
 

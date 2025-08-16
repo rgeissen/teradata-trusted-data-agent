@@ -14,7 +14,7 @@ from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.agent.workflow_manager import WorkflowManager
-from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT, NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT
+from trusted_data_agent.agent.prompts_old import NON_DETERMINISTIC_WORKFLOW_PROMPT, NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT
 
 app_logger = logging.getLogger("quart.app")
 
