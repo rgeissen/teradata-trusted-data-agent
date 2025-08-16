@@ -2,14 +2,18 @@
 import uuid
 from datetime import datetime
 
-# --- NEW: Import genai for type hinting ---
+# --- NEW: Import genai for type hinting and PROVIDER_SYSTEM_PROMPTS for provider-specific logic ---
 import google.generativeai as genai
+from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS
 
 _SESSIONS = {}
 
-# --- MODIFIED: Updated function signature and logic ---
-def create_session(system_prompt_template: str, charting_intensity: str, provider: str, llm_instance: any) -> str:
+# --- MODIFIED: Updated function signature and logic to use the correct provider-specific prompt ---
+def create_session(provider: str, llm_instance: any, charting_intensity: str) -> str:
     session_id = str(uuid.uuid4())
+    
+    # Select the correct system prompt template based on the provider.
+    system_prompt_template = PROVIDER_SYSTEM_PROMPTS.get(provider, PROVIDER_SYSTEM_PROMPTS["Google"])
     
     chat_object = None
     # Google provider requires starting the chat with a history to set the system prompt.

@@ -144,8 +144,6 @@ def _regenerate_contexts():
     
     print("\n" + "-"*44)
 
-# --- REMOVED: The _generate_filtered_contexts function is no longer needed. ---
-
 @api_bp.route("/")
 async def index():
     """Serves the main HTML page."""
@@ -385,15 +383,14 @@ async def new_session():
         app_logger.error(f"Failed to purge llm_conversations.log: {e}", exc_info=True)
 
     data = await request.get_json()
-    system_prompt_template = data.get("system_prompt")
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
 
     try:
+        # --- MODIFIED: The call to create_session is updated to match the new function signature. ---
         session_id = session_manager.create_session(
-            system_prompt_template=system_prompt_template,
-            charting_intensity=charting_intensity,
             provider=APP_CONFIG.CURRENT_PROVIDER,
-            llm_instance=STATE.get('llm')
+            llm_instance=STATE.get('llm'),
+            charting_intensity=charting_intensity
         )
         app_logger.info(f"Created new session: {session_id} for provider {APP_CONFIG.CURRENT_PROVIDER}.")
         return jsonify({"session_id": session_id, "name": "New Chat"})
@@ -427,6 +424,7 @@ async def get_models():
 @api_bp.route("/system_prompt/<provider>/<model_name>", methods=["GET"])
 async def get_default_system_prompt(provider, model_name):
     """Gets the default system prompt for a given model."""
+    # --- MODIFIED: This now correctly returns the provider-specific prompt. ---
     base_prompt_template = PROVIDER_SYSTEM_PROMPTS.get(provider, PROVIDER_SYSTEM_PROMPTS["Google"])
     return jsonify({"status": "success", "system_prompt": base_prompt_template})
 
@@ -551,8 +549,6 @@ async def ask_stream():
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
 
-            # --- MODIFIED: All scope classification and filtering logic has been removed from this endpoint. ---
-            
             yield _format_sse({"step": "Calling LLM", "details": "Analyzing user query to determine the first action."})
 
             llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
