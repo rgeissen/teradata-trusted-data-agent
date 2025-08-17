@@ -19,17 +19,12 @@ from mcp.shared.exceptions import McpError
 from trusted_data_agent.core.config import APP_CONFIG
 from trusted_data_agent.core import session_manager
 from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS, CHARTING_INSTRUCTIONS
-from trusted_data_agent.agent.executor import PlanExecutor, _format_sse
+from trusted_data_agent.agent.executor import PlanExecutor
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.mcp import adapter as mcp_adapter
 
 api_bp = Blueprint('api', __name__)
 app_logger = logging.getLogger("quart.app")
-
-# --- NEW: Define local dummy classes to avoid invalid imports ---
-# This uses duck typing to create objects that are structurally
-# compatible with what the MCP library expects, without relying on
-# the library's internal, non-public class structure.
 
 class _DummyContent:
     """A duck-typed object to stand in for the MCP Content class."""
@@ -62,8 +57,6 @@ def _regenerate_contexts():
     """
     print("\n--- Regenerating Agent Capability Contexts ---")
     
-    # --- MODIFIED: This function is simplified as scope is no longer tracked here ---
-    
     # Regenerate Tool Contexts
     if STATE.get('mcp_tools') and STATE.get('structured_tools'):
         all_tools = STATE['mcp_tools']
@@ -77,7 +70,6 @@ def _regenerate_contexts():
 
         tool_context_parts = []
         for category, tools in sorted(STATE['structured_tools'].items()):
-            # Check if there are any enabled tools in this category before adding the header
             enabled_tools_in_category = [t for t in tools if not t['disabled']]
             if not enabled_tools_in_category:
                 continue
@@ -85,7 +77,8 @@ def _regenerate_contexts():
             tool_context_parts.append(f"--- Category: {category} ---")
             for tool_info in enabled_tools_in_category:
                 tool = all_tools[tool_info['name']]
-                tool_str = f"- `{tool.name}`: {tool.description}"
+                # --- MODIFIED: Add explicit '(tool)' label to the context string ---
+                tool_str = f"- `{tool.name}` (tool): {tool.description}"
                 args_dict = tool.args if isinstance(tool.args, dict) else {}
                 
                 if args_dict and "Arguments:" not in tool.description:
@@ -108,7 +101,6 @@ def _regenerate_contexts():
 
     # Regenerate Prompt Contexts
     if STATE.get('mcp_prompts') and STATE.get('structured_prompts'):
-        all_prompts = STATE['mcp_prompts']
         disabled_prompts_list = STATE.get("disabled_prompts", [])
         
         enabled_count = sum(1 for category in STATE['structured_prompts'].values() for p in category if not p['disabled'])
@@ -126,11 +118,9 @@ def _regenerate_contexts():
             prompt_context_parts.append(f"--- Category: {category} ---")
             for prompt_info in enabled_prompts_in_category:
                 prompt_description = prompt_info.get("description", "No description available.")
-                prompt_str = f"- `{prompt_info['name']}`: {prompt_description}"
+                # --- MODIFIED: Add explicit '(prompt)' label to the context string ---
+                prompt_str = f"- `{prompt_info['name']}` (prompt): {prompt_description}"
                 
-                # --- START: FIX ---
-                # This logic correctly adds the arguments to the context string,
-                # mirroring the logic from the initial load in mcp/adapter.py.
                 processed_args = prompt_info.get('arguments', [])
                 if processed_args:
                     prompt_str += "\n  - Arguments:"
@@ -141,8 +131,6 @@ def _regenerate_contexts():
                         req_str = "required" if is_required else "optional"
                         arg_desc = arg_details.get('description', 'No description.')
                         prompt_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
-                # --- END: FIX ---
-                
                 prompt_context_parts.append(prompt_str)
 
         if prompt_context_parts:
@@ -317,14 +305,12 @@ async def get_prompt_content(prompt_name):
         return jsonify({"error": "MCP client not configured."}), 400
     
     try:
-        # 1. Fetch the FULL prompt object from the server.
         async with mcp_client.session("teradata_mcp_server") as temp_session:
             prompt_obj = await temp_session.get_prompt(name=prompt_name)
         
         if not prompt_obj:
             return jsonify({"error": f"Prompt '{prompt_name}' not found."}), 404
         
-        # 2. Robustly extract the text content.
         prompt_text = "Prompt content is not available."
         if (hasattr(prompt_obj, 'messages') and 
             isinstance(prompt_obj.messages, list) and 
@@ -338,10 +324,8 @@ async def get_prompt_content(prompt_name):
         return jsonify({"name": prompt_name, "content": prompt_text})
     
     except Exception as e:
-        # Unwrap the exception to find the root cause, especially for ExceptionGroups
         root_exception = unwrap_exception(e)
         
-        # Check if the root cause is the specific McpError we want to handle
         if isinstance(root_exception, McpError) and "Missing required arguments" in str(root_exception):
             app_logger.warning(f"Handled dynamic prompt error for '{prompt_name}': {root_exception}")
             return jsonify({
@@ -349,7 +333,6 @@ async def get_prompt_content(prompt_name):
                 "message": "This is a dynamic prompt. Its content is generated at runtime and cannot be previewed."
             }), 400
         
-        # Handle all other errors generically
         app_logger.error(f"Error fetching prompt content for '{prompt_name}': {e}", exc_info=True)
         return jsonify({"error": "An unexpected error occurred while fetching the prompt."}), 500
 
@@ -401,7 +384,6 @@ async def new_session():
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
 
     try:
-        # --- MODIFIED: The call to create_session is updated to match the new function signature. ---
         session_id = session_manager.create_session(
             provider=APP_CONFIG.CURRENT_PROVIDER,
             llm_instance=STATE.get('llm'),
@@ -439,7 +421,6 @@ async def get_models():
 @api_bp.route("/system_prompt/<provider>/<model_name>", methods=["GET"])
 async def get_default_system_prompt(provider, model_name):
     """Gets the default system prompt for a given model."""
-    # --- MODIFIED: This now correctly returns the provider-specific prompt. ---
     base_prompt_template = PROVIDER_SYSTEM_PROMPTS.get(provider, PROVIDER_SYSTEM_PROMPTS["Google"])
     return jsonify({"status": "success", "system_prompt": base_prompt_template})
 
@@ -547,7 +528,7 @@ async def ask_stream():
     async def stream_generator():
         session_data = session_manager.get_session(session_id)
         if not all([user_input, session_id]) or not session_data:
-            yield _format_sse({"error": "Missing 'message' or invalid 'session_id'"}, "error")
+            yield PlanExecutor._format_sse({"error": "Missing 'message' or invalid 'session_id'"}, "error")
             return
 
         try:
@@ -556,15 +537,15 @@ async def ask_stream():
             if session_data['name'] == 'New Chat':
                 new_name = user_input[:40] + '...' if len(user_input) > 40 else user_input
                 session_manager.update_session_name(session_id, new_name)
-                yield _format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
+                yield PlanExecutor._format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
             if user_input.lower().strip() in ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]:
                 greeting_response = "Hello! How can I assist you with your Teradata database queries or analysis today?"
-                yield _format_sse({"final_answer": greeting_response}, "final_answer")
+                yield PlanExecutor._format_sse({"final_answer": greeting_response}, "final_answer")
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
 
-            yield _format_sse({"step": "Calling LLM", "details": "Analyzing user query to determine the first action."})
+            yield PlanExecutor._format_sse({"step": "Calling LLM", "details": "Analyzing user query to determine the first action."})
 
             llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
                 STATE['llm'], user_input, session_id, dependencies={'STATE': STATE},
@@ -579,7 +560,7 @@ async def ask_stream():
                     "total_input": updated_session.get("input_tokens", 0),
                     "total_output": updated_session.get("output_tokens", 0)
                 }
-                yield _format_sse(token_data, "token_update")
+                yield PlanExecutor._format_sse(token_data, "token_update")
             
             if STATE['llm'] and APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama", "OpenAI"]:
                 session_data['chat_object'].append({'role': 'user', 'content': user_input})
@@ -591,7 +572,7 @@ async def ask_stream():
 
         except Exception as e:
             app_logger.error(f"An unhandled error occurred in /ask_stream: {e}", exc_info=True)
-            yield _format_sse({"error": "An unexpected server error occurred.", "details": str(e)}, "error")
+            yield PlanExecutor._format_sse({"error": "An unexpected server error occurred.", "details": str(e)}, "error")
         
 
     return Response(stream_generator(), mimetype="text/event-stream")
@@ -612,7 +593,7 @@ async def invoke_prompt_stream():
         if session_data['name'] == 'New Chat':
             new_name = user_input[:40] + '...' if len(user_input) > 40 else user_input
             session_manager.update_session_name(session_id, new_name)
-            yield _format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
+            yield PlanExecutor._format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
         initial_instruction = f"""
         Thought: The user has manually selected the prompt `{prompt_name}`. I will execute it directly.
@@ -632,6 +613,6 @@ async def invoke_prompt_stream():
                 yield event
         except Exception as e:
             app_logger.error(f"An unhandled error occurred in /invoke_prompt_stream: {e}", exc_info=True)
-            yield _format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
+            yield PlanExecutor._format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
 
     return Response(stream_generator(), mimetype="text/event-stream")

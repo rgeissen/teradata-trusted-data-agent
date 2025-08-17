@@ -43,7 +43,7 @@ To select the correct capability, you MUST follow this two-step process, governe
 {prompts_context}
 """
 
-# --- MODIFIED: A specialized prompt for Google models with few-shot examples ---
+# --- MODIFIED: A specialized prompt for Google models with a strengthened CRITICAL RULE ---
 GOOGLE_MASTER_SYSTEM_PROMPT = """
 # Core Directives
 You are a specialized assistant for a Teradata database system. Your primary goal is to fulfill user requests by selecting the best capability (a tool or a prompt) from the categorized lists provided and supplying all necessary arguments.
@@ -204,22 +204,23 @@ CHARTING_INSTRUCTIONS = {
     )
 }
 
-NON_DETERMINISTIC_WORKFLOW_PROMPT = """
-You are a highly skilled workflow assistant. Your task is to complete a multi-step workflow defined by the prompt below.
-You MUST analyze the results of the last tool call to determine the next best action.
+# This is NOT a system prompt. It is a template for the user-facing message
+# that provides the LLM with the context for a single step in a workflow.
+WORKFLOW_STEP_TEMPLATE = """
+You are currently executing a multi-step workflow. Your task is to decide the next best action based on the context provided below.
 
 --- WORKFLOW GOAL ---
 {workflow_goal}
 
 --- CONTEXT & HISTORY ---
 - User's Original Question: {original_user_input}
-- Workflow History:
+- Actions Taken So Far:
 {workflow_history_str}
 - Data from Last Tool Call:
 {tool_result_str}
 
 --- INSTRUCTIONS ---
-Based on the workflow goal, the context, and the results from the last tool call, decide on the single best next action.
+Based on the workflow goal, the actions already taken, and the results from the last tool call, decide on the single best next action to move forward.
 Your response MUST be a single JSON object for a tool call. Do not include any other text or reasoning.
 """
 

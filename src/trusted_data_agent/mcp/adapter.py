@@ -102,9 +102,11 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
         # Step 2: Prepare a single list of all capabilities for the LLM
         all_capabilities = []
+        # --- MODIFIED: Add an explicit '(tool)' label for unambiguous classification ---
         all_capabilities.extend([f"- {tool.name} (tool): {tool.description}" for tool in loaded_tools])
         
         for p in loaded_prompts:
+            # --- MODIFIED: Add an explicit '(prompt)' label for unambiguous classification ---
             prompt_str = f"- {p.name} (prompt): {p.description or 'No description available.'}"
             if hasattr(p, 'arguments') and p.arguments:
                 prompt_str += "\n  - Arguments:"
@@ -117,7 +119,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         capabilities_list_str = "\n".join(all_capabilities)
 
         # Step 3: Create a single, unified prompt for categorization
-        # --- MODIFIED: This prompt now ONLY asks for 'category' and nothing about 'scope'. ---
         classification_prompt = (
             "You are a helpful assistant that analyzes a list of technical capabilities (tools and prompts) for a Teradata database system and classifies them. "
             "For each capability, you must determine a single user-friendly 'category' for a UI. "
@@ -150,7 +151,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         STATE['structured_tools'] = {}
         disabled_tools_list = STATE.get("disabled_tools", [])
         
-        # First, populate the structured_tools for the UI, which needs a category
         for tool in loaded_tools:
             classification = classified_data.get(tool.name, {})
             category = classification.get("category", "Uncategorized")
@@ -163,14 +163,16 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 "name": tool.name, "description": tool.description, "disabled": is_disabled
             })
 
-        # --- NEW: Build the categorized context string for the main system prompt ---
         tool_context_parts = []
         for category, tools in sorted(STATE['structured_tools'].items()):
-            tool_context_parts.append(f"--- Category: {category} ---")
-            for tool_info in tools:
-                if not tool_info['disabled']:
+            # --- MODIFIED: Check for enabled tools before adding the category header ---
+            enabled_tools_in_category = [t for t in tools if not t['disabled']]
+            if enabled_tools_in_category:
+                tool_context_parts.append(f"--- Category: {category} ---")
+                for tool_info in enabled_tools_in_category:
                     tool_obj = STATE['mcp_tools'][tool_info['name']]
-                    tool_str = f"- `{tool_obj.name}`: {tool_obj.description}"
+                    # --- MODIFIED: Add explicit '(tool)' label to the context string ---
+                    tool_str = f"- `{tool_obj.name}` (tool): {tool_obj.description}"
                     args_dict = tool_obj.args if isinstance(tool_obj.args, dict) else {}
 
                     if args_dict and "Arguments:" not in tool_obj.description:
@@ -214,7 +216,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                     "disabled": is_disabled
                 })
 
-        # --- MODIFIED: The logic to build prompt_context_parts is fixed here. ---
         prompt_context_parts = []
         for category, prompts in sorted(STATE['structured_prompts'].items()):
             enabled_prompts_in_category = [p for p in prompts if not p['disabled']]
@@ -222,11 +223,11 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 prompt_context_parts.append(f"--- Category: {category} ---")
                 for prompt_info in enabled_prompts_in_category:
                     prompt_description = prompt_info.get("description", "No description available.")
-                    prompt_str = f"- `{prompt_info['name']}`: {prompt_description}"
+                    # --- MODIFIED: Add explicit '(prompt)' label to the context string ---
+                    prompt_str = f"- `{prompt_info['name']}` (prompt): {prompt_description}"
                     
-                    # Correctly retrieve the arguments from the dictionary
                     processed_args = prompt_info.get('arguments', [])
-                    if processed_args: # Check if there are arguments to display
+                    if processed_args:
                         prompt_str += "\n  - Arguments:"
                         for arg_details in processed_args:
                             arg_name = arg_details.get('name', 'unknown')
