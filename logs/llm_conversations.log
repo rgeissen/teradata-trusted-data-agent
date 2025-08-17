@@ -1,4 +1,4 @@
-2025-08-17 15:13:51,192 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
+2025-08-17 16:22:13,178 - --- FULL CONTEXT (Session: ccb42d11-0585-4acc-b0d1-21a416359cbe) ---
 --- REASON FOR CALL ---
 Analyzing user query to determine the first action.
 
@@ -40,11 +40,15 @@ To select the correct capability, you MUST follow this two-step process, governe
 - **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
 - **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
 - **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
-
-**CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
+- **CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "through".
 
 
 # Capabilities
+--- Category: AI Integration ---
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.
+  - Arguments:
+    - `task_type` (string, required): The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.
+    - `data` (dict, required): A dictionary containing all necessary data for the task, such as tool outputs or a markdown template.
 --- Category: Customer Analytics ---
 - `sales_customer_profile` (tool): Get customer profile and metrics.
   - Arguments:
@@ -124,20 +128,27 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Database Information ---
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+--- Category: Database Administration ---
+- `dba_databaseSpace` (tool): 
+Get database space if database name is provided, otherwise get all databases space allocations.
 
 Arguments:
-  database_name - Database name
-  obj_name - table or view name
+  database_name - database name
 
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_tableList` (tool): Lists all tables in a database.
-  - Arguments:
-    - `database_name` (string, optional): No description.
+- `dba_tableSpace` (tool): 
+Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
+
+Arguments:
+  database_name - database name
+  table_name - table name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Database Information ---
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
 - `fs_createDataset` (tool): 
@@ -184,7 +195,7 @@ Args:
     - `db_name` (any, optional): No description.
     - `entity` (any, optional): No description.
 - `fs_getFeatureStoreConfig` (tool): Display the current feature store configuration (database and data domain).
---- Category: OLAP ---
+--- Category: OLAP Cubes ---
 - `get_cube_sales_cube` (tool): 
     Tool to query the cube 'order_count'.
     Get the key sales metrics: USD amount and number of orders.
@@ -227,6 +238,46 @@ Args:
     - `dimensions` (string, optional): No description.
     - `measures` (string, optional): No description.
 --- Category: Performance ---
+- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+--- Category: Query Execution ---
+- `base_readQuery` (tool): 
+Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  sql    - SQL text, with optional bind-parameter placeholders
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Query History ---
+- `dba_tableSqlList` (tool): 
+Get a list of SQL run against a table in the last number of days.
+
+Arguments:
+  table_name - table name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `dba_userSqlList` (tool): 
+Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+
+Arguments:
+  user_name - user name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Resource Usage ---
 - `dba_resusageSummary` (tool): 
 Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
 
@@ -238,15 +289,7 @@ Arguments:
   hourOfDay - hour of day to analyze
 
 
-- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
-- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
---- Category: RAG ---
+--- Category: Retrieval-Augmented Generation ---
 - `rag_executeWorkflow` (tool): 
 Execute complete RAG workflow to answer user questions based on document context.
 
@@ -287,16 +330,6 @@ Arguments:
 Returns:
   Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
 
---- Category: SQL Execution ---
-- `base_readQuery` (tool): 
-Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  sql    - SQL text, with optional bind-parameter placeholders
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: Sales Analytics ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 --- Category: Security ---
@@ -331,32 +364,22 @@ Returns:
 - `dba_sessionInfo` (tool): Get the Teradata session information for user.
   - Arguments:
     - `user_name` (string, optional): No description.
---- Category: Space Management ---
-- `dba_databaseSpace` (tool): 
-Get database space if database name is provided, otherwise get all databases space allocations.
-
-Arguments:
-  database_name - database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSpace` (tool): 
-Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
-
-Arguments:
-  database_name - database name
-  table_name - table name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: System Information ---
 - `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
   - Arguments:
     - `infokey` (string, optional): No description.
 - `ba_databaseVersion` (tool):  Get Teradata database version information.
---- Category: Table Analysis ---
+--- Category: Table Information ---
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
 - `base_tableAffinity` (tool): 
 Get tables commonly used together by database users, this is helpful to infer relationships between tables via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -367,7 +390,6 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Table Information ---
 - `base_tableDDL` (tool): 
 Displays the DDL definition of a table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -388,22 +410,15 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `base_tableList` (tool): Lists all tables in a database.
+  - Arguments:
+    - `database_name` (string, optional): No description.
 --- Category: Usage Analysis ---
 - `base_tableUsage` (tool): 
 Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
 Arguments:
   database_name - Database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSqlList` (tool): 
-Get a list of SQL run against a table in the last number of days.
-
-Arguments:
-  table_name - table name
-  no_days - number of days
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -415,16 +430,6 @@ Arguments:
   database_name - database name to analyze
   user_name - user name to analyze
 
-
-- `dba_userSqlList` (tool): 
-Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
-
-Arguments:
-  user_name - user name
-  no_days - number of days
-
-Returns:
-  ResponseType: formatted response with query results + metadata
 
 - `dba_featureUsage` (tool): Get the user feature usage metrics for a specified date range.
   - Arguments:
@@ -468,37 +473,38 @@ Returns:
     - `database_name` (str, required): Name of the database to assess for data quality.
 --- Category: Database Administration ---
 - `dba_tableArchive` (prompt): The following prompt is used to guide the Teradata DBA in finding opportunities for archiving data.
+- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
+--- Category: Database Information ---
 - `dba_databaseLineage` (prompt): You are a Teradata DBA who is an expert in finding the lineage of tables in a database.
   - Arguments:
     - `database_name` (str, required): Name of the database to analyze for table lineage.
     - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
-  - Arguments:
-    - `table_name` (str, required): Name of the table to analyze for drop impact.
-    - `database_name` (str, required): Name of the database containing the table.
-    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
---- Category: Database Information ---
 - `base_databaseBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of databases.
   - Arguments:
     - `database_name` (str, optional): Database to describe.
 --- Category: Examples ---
 - `cust_promptExample` (prompt): my prompt description
---- Category: RAG ---
-- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
---- Category: SQL Execution ---
+--- Category: Query Execution ---
 - `base_query` (prompt): Help users interact with  Teradata databases effectively.
   - Arguments:
     - `query` (str, required): The problem or question that needs to be solved using Teradata database tools.
+--- Category: Retrieval-Augmented Generation ---
+- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
 --- Category: Sales Analytics ---
 - `sales_prompt` (prompt): my prompt description
---- Category: System Analysis ---
+--- Category: System Information ---
 - `dba_systemVoice` (prompt): Analyze Teradata user activity patterns for the past 7 days
 --- Category: Table Information ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
   - Arguments:
     - `database_name` (str, required): Database for the table to describe.
     - `table_name` (str, required): Table to describe.
+--- Category: Table Management ---
+- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
+  - Arguments:
+    - `table_name` (str, required): Name of the table to analyze for drop impact.
+    - `database_name` (str, required): Name of the database containing the table.
+    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
 --- Category: Testing ---
 - `test_evsTools` (prompt): Test all the evs MCP tools.
 - `test_secTools` (prompt): Test all the sec MCP tools.
@@ -514,11 +520,11 @@ Returns:
 USER PROMPT:
 what is the business definition for table equipment in database DEMO_Customer360_db?
 
-2025-08-17 15:13:51,192 - --- RESPONSE ---
+2025-08-17 16:22:13,178 - --- RESPONSE ---
 {"tool_name": "base_tableBusinessDesc", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "equipment"}}
 --------------------------------------------------
 
-2025-08-17 15:13:52,930 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
+2025-08-17 16:22:15,024 - --- FULL CONTEXT (Session: ccb42d11-0585-4acc-b0d1-21a416359cbe) ---
 --- REASON FOR CALL ---
 Deciding next step in non-deterministic workflow.
 
@@ -561,11 +567,15 @@ To select the correct capability, you MUST follow this two-step process, governe
 - **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
 - **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
 - **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
-
-**CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
+- **CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "through".
 
 
 # Capabilities
+--- Category: AI Integration ---
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.
+  - Arguments:
+    - `task_type` (string, required): The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.
+    - `data` (dict, required): A dictionary containing all necessary data for the task, such as tool outputs or a markdown template.
 --- Category: Customer Analytics ---
 - `sales_customer_profile` (tool): Get customer profile and metrics.
   - Arguments:
@@ -645,20 +655,27 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Database Information ---
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+--- Category: Database Administration ---
+- `dba_databaseSpace` (tool): 
+Get database space if database name is provided, otherwise get all databases space allocations.
 
 Arguments:
-  database_name - Database name
-  obj_name - table or view name
+  database_name - database name
 
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_tableList` (tool): Lists all tables in a database.
-  - Arguments:
-    - `database_name` (string, optional): No description.
+- `dba_tableSpace` (tool): 
+Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
+
+Arguments:
+  database_name - database name
+  table_name - table name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Database Information ---
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
 - `fs_createDataset` (tool): 
@@ -705,7 +722,7 @@ Args:
     - `db_name` (any, optional): No description.
     - `entity` (any, optional): No description.
 - `fs_getFeatureStoreConfig` (tool): Display the current feature store configuration (database and data domain).
---- Category: OLAP ---
+--- Category: OLAP Cubes ---
 - `get_cube_sales_cube` (tool): 
     Tool to query the cube 'order_count'.
     Get the key sales metrics: USD amount and number of orders.
@@ -748,6 +765,46 @@ Args:
     - `dimensions` (string, optional): No description.
     - `measures` (string, optional): No description.
 --- Category: Performance ---
+- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+--- Category: Query Execution ---
+- `base_readQuery` (tool): 
+Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  sql    - SQL text, with optional bind-parameter placeholders
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Query History ---
+- `dba_tableSqlList` (tool): 
+Get a list of SQL run against a table in the last number of days.
+
+Arguments:
+  table_name - table name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `dba_userSqlList` (tool): 
+Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+
+Arguments:
+  user_name - user name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Resource Usage ---
 - `dba_resusageSummary` (tool): 
 Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
 
@@ -759,15 +816,7 @@ Arguments:
   hourOfDay - hour of day to analyze
 
 
-- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
-- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
---- Category: RAG ---
+--- Category: Retrieval-Augmented Generation ---
 - `rag_executeWorkflow` (tool): 
 Execute complete RAG workflow to answer user questions based on document context.
 
@@ -808,16 +857,6 @@ Arguments:
 Returns:
   Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
 
---- Category: SQL Execution ---
-- `base_readQuery` (tool): 
-Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  sql    - SQL text, with optional bind-parameter placeholders
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: Sales Analytics ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 --- Category: Security ---
@@ -852,32 +891,22 @@ Returns:
 - `dba_sessionInfo` (tool): Get the Teradata session information for user.
   - Arguments:
     - `user_name` (string, optional): No description.
---- Category: Space Management ---
-- `dba_databaseSpace` (tool): 
-Get database space if database name is provided, otherwise get all databases space allocations.
-
-Arguments:
-  database_name - database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSpace` (tool): 
-Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
-
-Arguments:
-  database_name - database name
-  table_name - table name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: System Information ---
 - `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
   - Arguments:
     - `infokey` (string, optional): No description.
 - `ba_databaseVersion` (tool):  Get Teradata database version information.
---- Category: Table Analysis ---
+--- Category: Table Information ---
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
 - `base_tableAffinity` (tool): 
 Get tables commonly used together by database users, this is helpful to infer relationships between tables via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -888,7 +917,6 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Table Information ---
 - `base_tableDDL` (tool): 
 Displays the DDL definition of a table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -909,22 +937,15 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `base_tableList` (tool): Lists all tables in a database.
+  - Arguments:
+    - `database_name` (string, optional): No description.
 --- Category: Usage Analysis ---
 - `base_tableUsage` (tool): 
 Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
 Arguments:
   database_name - Database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSqlList` (tool): 
-Get a list of SQL run against a table in the last number of days.
-
-Arguments:
-  table_name - table name
-  no_days - number of days
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -936,16 +957,6 @@ Arguments:
   database_name - database name to analyze
   user_name - user name to analyze
 
-
-- `dba_userSqlList` (tool): 
-Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
-
-Arguments:
-  user_name - user name
-  no_days - number of days
-
-Returns:
-  ResponseType: formatted response with query results + metadata
 
 - `dba_featureUsage` (tool): Get the user feature usage metrics for a specified date range.
   - Arguments:
@@ -989,37 +1000,38 @@ Returns:
     - `database_name` (str, required): Name of the database to assess for data quality.
 --- Category: Database Administration ---
 - `dba_tableArchive` (prompt): The following prompt is used to guide the Teradata DBA in finding opportunities for archiving data.
+- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
+--- Category: Database Information ---
 - `dba_databaseLineage` (prompt): You are a Teradata DBA who is an expert in finding the lineage of tables in a database.
   - Arguments:
     - `database_name` (str, required): Name of the database to analyze for table lineage.
     - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
-  - Arguments:
-    - `table_name` (str, required): Name of the table to analyze for drop impact.
-    - `database_name` (str, required): Name of the database containing the table.
-    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
---- Category: Database Information ---
 - `base_databaseBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of databases.
   - Arguments:
     - `database_name` (str, optional): Database to describe.
 --- Category: Examples ---
 - `cust_promptExample` (prompt): my prompt description
---- Category: RAG ---
-- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
---- Category: SQL Execution ---
+--- Category: Query Execution ---
 - `base_query` (prompt): Help users interact with  Teradata databases effectively.
   - Arguments:
     - `query` (str, required): The problem or question that needs to be solved using Teradata database tools.
+--- Category: Retrieval-Augmented Generation ---
+- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
 --- Category: Sales Analytics ---
 - `sales_prompt` (prompt): my prompt description
---- Category: System Analysis ---
+--- Category: System Information ---
 - `dba_systemVoice` (prompt): Analyze Teradata user activity patterns for the past 7 days
 --- Category: Table Information ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
   - Arguments:
     - `database_name` (str, required): Database for the table to describe.
     - `table_name` (str, required): Table to describe.
+--- Category: Table Management ---
+- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
+  - Arguments:
+    - `table_name` (str, required): Name of the table to analyze for drop impact.
+    - `database_name` (str, required): Name of the database containing the table.
+    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
 --- Category: Testing ---
 - `test_evsTools` (prompt): Test all the evs MCP tools.
 - `test_secTools` (prompt): Test all the sec MCP tools.
@@ -1082,20 +1094,30 @@ No actions have been taken yet.
 - Data from Last Tool Call:
 No tool has been run yet. This is the first step.
 
+--- AVAILABLE INTERNAL TOOL ---
+- `CoreLLMTask`: Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.
+  - Arguments:
+    - `task_type` (string, required): The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.
+    - `data` (dict, required): A dictionary containing all necessary data for the task, which the LLM should extract from the 'CONTEXT & HISTORY' section.
+
 --- YOUR TASK ---
 1.  **Review the Plan**: Look at the phases outlined in the "WORKFLOW GOAL & PLAN".
 2.  **Check Your History**: Look at the "Actions Taken So Far" to see which phases you have already completed.
 3.  **Determine the Next Step**: Identify the single next phase from the plan that has not been completed.
-4.  **Execute**: Formulate a JSON tool call to execute ONLY the action for that single next phase.
+4.  **Execute**: Formulate a JSON object for the tool call corresponding to the immediate next phase.
+    - If the phase explicitly states an external Teradata tool (e.g., "Use the `base_tableDDL` tool"), generate a call to that tool.
+    - If the phase describes an internal data processing or text generation task that *cannot* be performed by an external Teradata tool (e.g., "Describe the table in a business context", "Format final output"), then you **MUST** call the `CoreLLMTask` tool.
+        - When calling `CoreLLMTask`, you **MUST** determine the correct `task_type` (either 'describe_table' or 'format_final_output') based on the phase's description.
+        - You **MUST** populate the `data` argument by extracting **all relevant information** from the 'CONTEXT & HISTORY' section. For 'describe_table', this includes any DDL and column data previously retrieved. For 'format_final_output', this includes the generated description and the 'Final output guidelines' from the 'WORKFLOW GOAL & PLAN'.
 
 Your response MUST be a single JSON object for the tool call corresponding to the immediate next phase. Do not add any reasoning or other text.
 
 
-2025-08-17 15:13:52,931 - --- RESPONSE ---
+2025-08-17 16:22:15,024 - --- RESPONSE ---
 {"tool_name": "base_tableDDL", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "equipment"}}
 --------------------------------------------------
 
-2025-08-17 15:13:54,473 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
+2025-08-17 16:22:17,063 - --- FULL CONTEXT (Session: ccb42d11-0585-4acc-b0d1-21a416359cbe) ---
 --- REASON FOR CALL ---
 Checking for workflow completion.
 
@@ -1136,11 +1158,11 @@ Is this enough information to fully answer the original question?
 Respond only with the word 'YES' or 'NO'. Do not provide any other text.
 
 
-2025-08-17 15:13:54,473 - --- RESPONSE ---
+2025-08-17 16:22:17,063 - --- RESPONSE ---
 NO
 --------------------------------------------------
 
-2025-08-17 15:13:55,891 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
+2025-08-17 16:22:21,115 - --- FULL CONTEXT (Session: ccb42d11-0585-4acc-b0d1-21a416359cbe) ---
 --- REASON FOR CALL ---
 Deciding next step in non-deterministic workflow.
 
@@ -1183,11 +1205,15 @@ To select the correct capability, you MUST follow this two-step process, governe
 - **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
 - **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
 - **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
-
-**CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
+- **CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "through".
 
 
 # Capabilities
+--- Category: AI Integration ---
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.
+  - Arguments:
+    - `task_type` (string, required): The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.
+    - `data` (dict, required): A dictionary containing all necessary data for the task, such as tool outputs or a markdown template.
 --- Category: Customer Analytics ---
 - `sales_customer_profile` (tool): Get customer profile and metrics.
   - Arguments:
@@ -1267,20 +1293,27 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Database Information ---
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+--- Category: Database Administration ---
+- `dba_databaseSpace` (tool): 
+Get database space if database name is provided, otherwise get all databases space allocations.
 
 Arguments:
-  database_name - Database name
-  obj_name - table or view name
+  database_name - database name
 
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_tableList` (tool): Lists all tables in a database.
-  - Arguments:
-    - `database_name` (string, optional): No description.
+- `dba_tableSpace` (tool): 
+Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
+
+Arguments:
+  database_name - database name
+  table_name - table name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Database Information ---
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
 - `fs_createDataset` (tool): 
@@ -1327,7 +1360,7 @@ Args:
     - `db_name` (any, optional): No description.
     - `entity` (any, optional): No description.
 - `fs_getFeatureStoreConfig` (tool): Display the current feature store configuration (database and data domain).
---- Category: OLAP ---
+--- Category: OLAP Cubes ---
 - `get_cube_sales_cube` (tool): 
     Tool to query the cube 'order_count'.
     Get the key sales metrics: USD amount and number of orders.
@@ -1370,6 +1403,46 @@ Args:
     - `dimensions` (string, optional): No description.
     - `measures` (string, optional): No description.
 --- Category: Performance ---
+- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+--- Category: Query Execution ---
+- `base_readQuery` (tool): 
+Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  sql    - SQL text, with optional bind-parameter placeholders
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Query History ---
+- `dba_tableSqlList` (tool): 
+Get a list of SQL run against a table in the last number of days.
+
+Arguments:
+  table_name - table name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `dba_userSqlList` (tool): 
+Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+
+Arguments:
+  user_name - user name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Resource Usage ---
 - `dba_resusageSummary` (tool): 
 Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
 
@@ -1381,15 +1454,7 @@ Arguments:
   hourOfDay - hour of day to analyze
 
 
-- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
-- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
---- Category: RAG ---
+--- Category: Retrieval-Augmented Generation ---
 - `rag_executeWorkflow` (tool): 
 Execute complete RAG workflow to answer user questions based on document context.
 
@@ -1430,16 +1495,6 @@ Arguments:
 Returns:
   Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
 
---- Category: SQL Execution ---
-- `base_readQuery` (tool): 
-Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  sql    - SQL text, with optional bind-parameter placeholders
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: Sales Analytics ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 --- Category: Security ---
@@ -1474,32 +1529,22 @@ Returns:
 - `dba_sessionInfo` (tool): Get the Teradata session information for user.
   - Arguments:
     - `user_name` (string, optional): No description.
---- Category: Space Management ---
-- `dba_databaseSpace` (tool): 
-Get database space if database name is provided, otherwise get all databases space allocations.
-
-Arguments:
-  database_name - database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSpace` (tool): 
-Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
-
-Arguments:
-  database_name - database name
-  table_name - table name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: System Information ---
 - `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
   - Arguments:
     - `infokey` (string, optional): No description.
 - `ba_databaseVersion` (tool):  Get Teradata database version information.
---- Category: Table Analysis ---
+--- Category: Table Information ---
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
 - `base_tableAffinity` (tool): 
 Get tables commonly used together by database users, this is helpful to infer relationships between tables via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -1510,7 +1555,6 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Table Information ---
 - `base_tableDDL` (tool): 
 Displays the DDL definition of a table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -1531,22 +1575,15 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `base_tableList` (tool): Lists all tables in a database.
+  - Arguments:
+    - `database_name` (string, optional): No description.
 --- Category: Usage Analysis ---
 - `base_tableUsage` (tool): 
 Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
 Arguments:
   database_name - Database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSqlList` (tool): 
-Get a list of SQL run against a table in the last number of days.
-
-Arguments:
-  table_name - table name
-  no_days - number of days
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -1558,16 +1595,6 @@ Arguments:
   database_name - database name to analyze
   user_name - user name to analyze
 
-
-- `dba_userSqlList` (tool): 
-Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
-
-Arguments:
-  user_name - user name
-  no_days - number of days
-
-Returns:
-  ResponseType: formatted response with query results + metadata
 
 - `dba_featureUsage` (tool): Get the user feature usage metrics for a specified date range.
   - Arguments:
@@ -1611,37 +1638,38 @@ Returns:
     - `database_name` (str, required): Name of the database to assess for data quality.
 --- Category: Database Administration ---
 - `dba_tableArchive` (prompt): The following prompt is used to guide the Teradata DBA in finding opportunities for archiving data.
+- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
+--- Category: Database Information ---
 - `dba_databaseLineage` (prompt): You are a Teradata DBA who is an expert in finding the lineage of tables in a database.
   - Arguments:
     - `database_name` (str, required): Name of the database to analyze for table lineage.
     - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
-  - Arguments:
-    - `table_name` (str, required): Name of the table to analyze for drop impact.
-    - `database_name` (str, required): Name of the database containing the table.
-    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
---- Category: Database Information ---
 - `base_databaseBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of databases.
   - Arguments:
     - `database_name` (str, optional): Database to describe.
 --- Category: Examples ---
 - `cust_promptExample` (prompt): my prompt description
---- Category: RAG ---
-- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
---- Category: SQL Execution ---
+--- Category: Query Execution ---
 - `base_query` (prompt): Help users interact with  Teradata databases effectively.
   - Arguments:
     - `query` (str, required): The problem or question that needs to be solved using Teradata database tools.
+--- Category: Retrieval-Augmented Generation ---
+- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
 --- Category: Sales Analytics ---
 - `sales_prompt` (prompt): my prompt description
---- Category: System Analysis ---
+--- Category: System Information ---
 - `dba_systemVoice` (prompt): Analyze Teradata user activity patterns for the past 7 days
 --- Category: Table Information ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
   - Arguments:
     - `database_name` (str, required): Database for the table to describe.
     - `table_name` (str, required): Table to describe.
+--- Category: Table Management ---
+- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
+  - Arguments:
+    - `table_name` (str, required): Name of the table to analyze for drop impact.
+    - `database_name` (str, required): Name of the database containing the table.
+    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
 --- Category: Testing ---
 - `test_evsTools` (prompt): Test all the evs MCP tools.
 - `test_secTools` (prompt): Test all the sec MCP tools.
@@ -1704,20 +1732,60 @@ Perform the phases in order, and do not skip any phase.
 - Data from Last Tool Call:
 {"tool_name": "base_tableDDL", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "equipment"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"}]}}
 
+--- AVAILABLE INTERNAL TOOL ---
+- `CoreLLMTask`: Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.
+  - Arguments:
+    - `task_type` (string, required): The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.
+    - `data` (dict, required): A dictionary containing all necessary data for the task, which the LLM should extract from the 'CONTEXT & HISTORY' section.
+
 --- YOUR TASK ---
 1.  **Review the Plan**: Look at the phases outlined in the "WORKFLOW GOAL & PLAN".
 2.  **Check Your History**: Look at the "Actions Taken So Far" to see which phases you have already completed.
 3.  **Determine the Next Step**: Identify the single next phase from the plan that has not been completed.
-4.  **Execute**: Formulate a JSON tool call to execute ONLY the action for that single next phase.
+4.  **Execute**: Formulate a JSON object for the tool call corresponding to the immediate next phase.
+    - If the phase explicitly states an external Teradata tool (e.g., "Use the `base_tableDDL` tool"), generate a call to that tool.
+    - If the phase describes an internal data processing or text generation task that *cannot* be performed by an external Teradata tool (e.g., "Describe the table in a business context", "Format final output"), then you **MUST** call the `CoreLLMTask` tool.
+        - When calling `CoreLLMTask`, you **MUST** determine the correct `task_type` (either 'describe_table' or 'format_final_output') based on the phase's description.
+        - You **MUST** populate the `data` argument by extracting **all relevant information** from the 'CONTEXT & HISTORY' section. For 'describe_table', this includes any DDL and column data previously retrieved. For 'format_final_output', this includes the generated description and the 'Final output guidelines' from the 'WORKFLOW GOAL & PLAN'.
 
 Your response MUST be a single JSON object for the tool call corresponding to the immediate next phase. Do not add any reasoning or other text.
 
 
-2025-08-17 15:13:55,892 - --- RESPONSE ---
-{"tool_name": "base_tablePreview", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "equipment"}}
+2025-08-17 16:22:21,115 - --- RESPONSE ---
+{"tool_name": "CoreLLMTask", "arguments": {"task_type": "describe_table", "data": {"ddl": "CREATE MULTISET TABLE DEMO_Customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;", "database_name": "DEMO_Customer360_db", "table_name": "equipment"}}}
 --------------------------------------------------
 
-2025-08-17 15:13:57,334 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
+2025-08-17 16:22:26,289 - --- FULL CONTEXT (Session: one-off) ---
+--- REASON FOR CALL ---
+Executing CoreLLMTask: describe_table
+
+--- History ---
+
+
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
+You are a text processing and synthesis assistant.
+
+USER PROMPT:
+You are an expert data analyst who is an expert in describing the business use of a table. Your task is to provide a comprehensive business description of the provided table and its columns based on its DDL and a list of columns. You MUST return the description as a single string, and it should NOT contain any markdown formatting or new lines.
+
+--- DDL ---
+CREATE MULTISET TABLE DEMO_Customer360_db.equipment ,FALLBACK ,     NO BEFORE JOURNAL,     NO AFTER JOURNAL,     CHECKSUM = DEFAULT,     DEFAULT MERGEBLOCKRATIO,     MAP = TD_MAP1     (      CUST_ID SMALLINT,      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,      ZIP INTEGER,      EQUIP_LTV SMALLINT)NO PRIMARY INDEX ;
+
+--- Columns ---
+[]
+
+--- Instructions ---
+1.  **Analyze the DDL and columns:** Identify the purpose of the table and the role of each column.
+2.  **Describe the table:** Provide a high-level business description of the table.
+3.  **Describe the columns:** For each column, provide a brief description of its purpose in the business context.
+
+
+2025-08-17 16:22:26,289 - --- RESPONSE ---
+The DEMO_Customer360_db.equipment table serves as a comprehensive customer equipment profile repository that tracks customer information alongside their equipment lifetime value metrics. This table enables businesses to analyze customer equipment investments and value across geographic regions. It contains customer demographic data (gender, name, complete address details), unique identification (CUST_ID), and a critical business metric (EQUIP_LTV) which represents the lifetime value of equipment associated with each customer. This structure allows for detailed segmentation and analysis of equipment-related customer value by demographic attributes and location, supporting targeted marketing initiatives, equipment upgrade opportunities, geographic-based business strategies, and customer lifetime value analysis. The absence of a primary index suggests this is a flexible data structure that may be joined with other customer-centric tables in analytical queries, making it particularly useful for business intelligence applications focusing on equipment sales, rentals, or service relationships.
+--------------------------------------------------
+
+2025-08-17 16:22:27,377 - --- FULL CONTEXT (Session: ccb42d11-0585-4acc-b0d1-21a416359cbe) ---
 --- REASON FOR CALL ---
 Checking for workflow completion.
 
@@ -1750,120 +1818,15 @@ USER PROMPT:
   },
   {
     "status": "success",
-    "metadata": {
-      "tool_name": "base_tablePreview",
-      "database": "DEMO_Customer360_db",
-      "table_name": "DEMO_Customer360_db.equipment",
-      "columns": [
-        {
-          "name": "CUST_ID",
-          "type": "int",
-          "length": 2
-        },
-        {
-          "name": "GENDER",
-          "type": "str",
-          "length": 2
-        },
-        {
-          "name": "FIRSTNAME",
-          "type": "str",
-          "length": 22
-        },
-        {
-          "name": "LASTNAME",
-          "type": "str",
-          "length": 18
-        },
-        {
-          "name": "ADDRESS",
-          "type": "str",
-          "length": 50
-        },
-        {
-          "name": "STATE",
-          "type": "str",
-          "length": 4
-        },
-        {
-          "name": "CITY",
-          "type": "str",
-          "length": 32
-        },
-        {
-          "name": "ZIP",
-          "type": "int",
-          "length": 4
-        },
-        {
-          "name": "EQUIP_LTV",
-          "type": "int",
-          "length": 2
-        }
-      ],
-      "sample_size": 5
-    },
     "results": [
       {
-        "CUST_ID": "19579",
-        "GENDER": "M",
-        "FIRSTNAME": "Pedro",
-        "LASTNAME": "Gonsalves",
-        "ADDRESS": "1233 El Camino Real",
-        "STATE": "NY",
-        "CITY": "Greenville",
-        "ZIP": "10586",
-        "EQUIP_LTV": "6159"
-      },
-      {
-        "CUST_ID": "19688",
-        "GENDER": "F",
-        "FIRSTNAME": "Luiza",
-        "LASTNAME": "Teixeira",
-        "ADDRESS": "1522 North U.S. Highway 1",
-        "STATE": "OH",
-        "CITY": "Kerr",
-        "ZIP": "45643",
-        "EQUIP_LTV": "5894"
-      },
-      {
-        "CUST_ID": "22143",
-        "GENDER": "M",
-        "FIRSTNAME": "Lucas",
-        "LASTNAME": "Moreau",
-        "ADDRESS": "1455 Sixth Street",
-        "STATE": "OH",
-        "CITY": "Winchester",
-        "ZIP": "45697",
-        "EQUIP_LTV": "6299"
-      },
-      {
-        "CUST_ID": "22142",
-        "GENDER": "F",
-        "FIRSTNAME": "Beatriz",
-        "LASTNAME": "Gonsalves",
-        "ADDRESS": "1212 Fifth Street",
-        "STATE": "OH",
-        "CITY": "Fairfield",
-        "ZIP": "45018",
-        "EQUIP_LTV": "6463"
-      },
-      {
-        "CUST_ID": "20575",
-        "GENDER": "F",
-        "FIRSTNAME": "Laura",
-        "LASTNAME": "DeSilva",
-        "ADDRESS": "11 Red Mill Road",
-        "STATE": "PA",
-        "CITY": "New Castle",
-        "ZIP": "16105",
-        "EQUIP_LTV": "5652"
+        "response": "The DEMO_Customer360_db.equipment table serves as a comprehensive customer equipment profile repository that tracks customer information alongside their equipment lifetime value metrics. This table enables businesses to analyze customer equipment investments and value across geographic regions. It contains customer demographic data (gender, name, complete address details), unique identification (CUST_ID), and a critical business metric (EQUIP_LTV) which represents the lifetime value of equipment associated with each customer. This structure allows for detailed segmentation and analysis of equipment-related customer value by demographic attributes and location, supporting targeted marketing initiatives, equipment upgrade opportunities, geographic-based business strategies, and customer lifetime value analysis. The absence of a primary index suggests this is a flexible data structure that may be joined with other customer-centric tables in analytical queries, making it particularly useful for business intelligence applications focusing on equipment sales, rentals, or service relationships."
       }
     ]
   }
 ]
 - Data from Last Tool Call:
-{"tool_name": "base_tablePreview", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tablePreview", "database": "DEMO_Customer360_db", "table_name": "DEMO_Customer360_db.equipment", "columns": [{"name": "CUST_ID", "type": "int", "length": 2}, {"name": "GENDER", "type": "str", "length": 2}, {"name": "FIRSTNAME", "type": "str", "length": 22}, {"name": "LASTNAME", "type": "str", "length": 18}, {"name": "ADDRESS", "type": "str", "length": 50}, {"name": "STATE", "type": "str", "length": 4}, {"name": "CITY", "type": "str", "length": 32}, {"name": "ZIP", "type": "int", "length": 4}, {"name": "EQUIP_LTV", "type": "int", "length": 2}], "sample_size": 5}, "results": [{"CUST_ID": "19579", "GENDER": "M", "FIRSTNAME": "Pedro", "LASTNAME": "Gonsalves", "ADDRESS": "1233 El Camino Real", "STATE": "NY", "CITY": "Greenville", "ZIP": "10586", "EQUIP_LTV": "6159"}, {"CUST_ID": "19688", "GENDER": "F", "FIRSTNAME": "Luiza", "LASTNAME": "Teixeira", "ADDRESS": "1522 North U.S. Highway 1", "STATE": "OH", "CITY": "Kerr", "ZIP": "45643", "EQUIP_LTV": "5894"}, {"CUST_ID": "22143", "GENDER": "M", "FIRSTNAME": "Lucas", "LASTNAME": "Moreau", "ADDRESS": "1455 Sixth Street", "STATE": "OH", "CITY": "Winchester", "ZIP": "45697", "EQUIP_LTV": "6299"}, {"CUST_ID": "22142", "GENDER": "F", "FIRSTNAME": "Beatriz", "LASTNAME": "Gonsalves", "ADDRESS": "1212 Fifth Street", "STATE": "OH", "CITY": "Fairfield", "ZIP": "45018", "EQUIP_LTV": "6463"}, {"CUST_ID": "20575", "GENDER": "F", "FIRSTNAME": "Laura", "LASTNAME": "DeSilva", "ADDRESS": "11 Red Mill Road", "STATE": "PA", "CITY": "New Castle", "ZIP": "16105", "EQUIP_LTV": "5652"}]}}
+{"tool_name": "CoreLLMTask", "tool_output": {"status": "success", "results": [{"response": "The DEMO_Customer360_db.equipment table serves as a comprehensive customer equipment profile repository that tracks customer information alongside their equipment lifetime value metrics. This table enables businesses to analyze customer equipment investments and value across geographic regions. It contains customer demographic data (gender, name, complete address details), unique identification (CUST_ID), and a critical business metric (EQUIP_LTV) which represents the lifetime value of equipment associated with each customer. This structure allows for detailed segmentation and analysis of equipment-related customer value by demographic attributes and location, supporting targeted marketing initiatives, equipment upgrade opportunities, geographic-based business strategies, and customer lifetime value analysis. The absence of a primary index suggests this is a flexible data structure that may be joined with other customer-centric tables in analytical queries, making it particularly useful for business intelligence applications focusing on equipment sales, rentals, or service relationships."}]}}
 
 --- INSTRUCTIONS ---
 Analyze the context above.
@@ -1871,13 +1834,13 @@ Is this enough information to fully answer the original question?
 Respond only with the word 'YES' or 'NO'. Do not provide any other text.
 
 
-2025-08-17 15:13:57,334 - --- RESPONSE ---
-NO
+2025-08-17 16:22:27,377 - --- RESPONSE ---
+YES
 --------------------------------------------------
 
-2025-08-17 15:13:58,961 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
+2025-08-17 16:22:32,021 - --- FULL CONTEXT (Session: ccb42d11-0585-4acc-b0d1-21a416359cbe) ---
 --- REASON FOR CALL ---
-Deciding next step in non-deterministic workflow.
+Generating final summary from collected tool data.
 
 --- History ---
 [user]: what is the business definition for table equipment in database DEMO_Customer360_db?
@@ -1918,11 +1881,15 @@ To select the correct capability, you MUST follow this two-step process, governe
 - **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
 - **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
 - **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
-
-**CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
+- **CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "through".
 
 
 # Capabilities
+--- Category: AI Integration ---
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.
+  - Arguments:
+    - `task_type` (string, required): The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.
+    - `data` (dict, required): A dictionary containing all necessary data for the task, such as tool outputs or a markdown template.
 --- Category: Customer Analytics ---
 - `sales_customer_profile` (tool): Get customer profile and metrics.
   - Arguments:
@@ -2002,20 +1969,27 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Database Information ---
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+--- Category: Database Administration ---
+- `dba_databaseSpace` (tool): 
+Get database space if database name is provided, otherwise get all databases space allocations.
 
 Arguments:
-  database_name - Database name
-  obj_name - table or view name
+  database_name - database name
 
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_tableList` (tool): Lists all tables in a database.
-  - Arguments:
-    - `database_name` (string, optional): No description.
+- `dba_tableSpace` (tool): 
+Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
+
+Arguments:
+  database_name - database name
+  table_name - table name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Database Information ---
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
 - `fs_createDataset` (tool): 
@@ -2062,7 +2036,7 @@ Args:
     - `db_name` (any, optional): No description.
     - `entity` (any, optional): No description.
 - `fs_getFeatureStoreConfig` (tool): Display the current feature store configuration (database and data domain).
---- Category: OLAP ---
+--- Category: OLAP Cubes ---
 - `get_cube_sales_cube` (tool): 
     Tool to query the cube 'order_count'.
     Get the key sales metrics: USD amount and number of orders.
@@ -2105,6 +2079,46 @@ Args:
     - `dimensions` (string, optional): No description.
     - `measures` (string, optional): No description.
 --- Category: Performance ---
+- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
+  - Arguments:
+    - `start_date` (string, optional): No description.
+    - `end_date` (string, optional): No description.
+--- Category: Query Execution ---
+- `base_readQuery` (tool): 
+Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  sql    - SQL text, with optional bind-parameter placeholders
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Query History ---
+- `dba_tableSqlList` (tool): 
+Get a list of SQL run against a table in the last number of days.
+
+Arguments:
+  table_name - table name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `dba_userSqlList` (tool): 
+Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
+
+Arguments:
+  user_name - user name
+  no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+--- Category: Resource Usage ---
 - `dba_resusageSummary` (tool): 
 Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
 
@@ -2116,15 +2130,7 @@ Arguments:
   hourOfDay - hour of day to analyze
 
 
-- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
-- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
---- Category: RAG ---
+--- Category: Retrieval-Augmented Generation ---
 - `rag_executeWorkflow` (tool): 
 Execute complete RAG workflow to answer user questions based on document context.
 
@@ -2165,16 +2171,6 @@ Arguments:
 Returns:
   Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
 
---- Category: SQL Execution ---
-- `base_readQuery` (tool): 
-Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  sql    - SQL text, with optional bind-parameter placeholders
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: Sales Analytics ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 --- Category: Security ---
@@ -2209,32 +2205,22 @@ Returns:
 - `dba_sessionInfo` (tool): Get the Teradata session information for user.
   - Arguments:
     - `user_name` (string, optional): No description.
---- Category: Space Management ---
-- `dba_databaseSpace` (tool): 
-Get database space if database name is provided, otherwise get all databases space allocations.
-
-Arguments:
-  database_name - database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSpace` (tool): 
-Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
-
-Arguments:
-  database_name - database name
-  table_name - table name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
 --- Category: System Information ---
 - `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
   - Arguments:
     - `infokey` (string, optional): No description.
 - `ba_databaseVersion` (tool):  Get Teradata database version information.
---- Category: Table Analysis ---
+--- Category: Table Information ---
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
 - `base_tableAffinity` (tool): 
 Get tables commonly used together by database users, this is helpful to infer relationships between tables via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -2245,7 +2231,6 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
---- Category: Table Information ---
 - `base_tableDDL` (tool): 
 Displays the DDL definition of a table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
@@ -2266,22 +2251,15 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `base_tableList` (tool): Lists all tables in a database.
+  - Arguments:
+    - `database_name` (string, optional): No description.
 --- Category: Usage Analysis ---
 - `base_tableUsage` (tool): 
 Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
 
 Arguments:
   database_name - Database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSqlList` (tool): 
-Get a list of SQL run against a table in the last number of days.
-
-Arguments:
-  table_name - table name
-  no_days - number of days
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -2293,16 +2271,6 @@ Arguments:
   database_name - database name to analyze
   user_name - user name to analyze
 
-
-- `dba_userSqlList` (tool): 
-Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
-
-Arguments:
-  user_name - user name
-  no_days - number of days
-
-Returns:
-  ResponseType: formatted response with query results + metadata
 
 - `dba_featureUsage` (tool): Get the user feature usage metrics for a specified date range.
   - Arguments:
@@ -2346,37 +2314,38 @@ Returns:
     - `database_name` (str, required): Name of the database to assess for data quality.
 --- Category: Database Administration ---
 - `dba_tableArchive` (prompt): The following prompt is used to guide the Teradata DBA in finding opportunities for archiving data.
+- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
+--- Category: Database Information ---
 - `dba_databaseLineage` (prompt): You are a Teradata DBA who is an expert in finding the lineage of tables in a database.
   - Arguments:
     - `database_name` (str, required): Name of the database to analyze for table lineage.
     - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
-  - Arguments:
-    - `table_name` (str, required): Name of the table to analyze for drop impact.
-    - `database_name` (str, required): Name of the database containing the table.
-    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
---- Category: Database Information ---
 - `base_databaseBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of databases.
   - Arguments:
     - `database_name` (str, optional): Database to describe.
 --- Category: Examples ---
 - `cust_promptExample` (prompt): my prompt description
---- Category: RAG ---
-- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
---- Category: SQL Execution ---
+--- Category: Query Execution ---
 - `base_query` (prompt): Help users interact with  Teradata databases effectively.
   - Arguments:
     - `query` (str, required): The problem or question that needs to be solved using Teradata database tools.
+--- Category: Retrieval-Augmented Generation ---
+- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
 --- Category: Sales Analytics ---
 - `sales_prompt` (prompt): my prompt description
---- Category: System Analysis ---
+--- Category: System Information ---
 - `dba_systemVoice` (prompt): Analyze Teradata user activity patterns for the past 7 days
 --- Category: Table Information ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
   - Arguments:
     - `database_name` (str, required): Database for the table to describe.
     - `table_name` (str, required): Table to describe.
+--- Category: Table Management ---
+- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
+  - Arguments:
+    - `table_name` (str, required): Name of the table to analyze for drop impact.
+    - `database_name` (str, required): Name of the database containing the table.
+    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
 --- Category: Testing ---
 - `test_evsTools` (prompt): Test all the evs MCP tools.
 - `test_secTools` (prompt): Test all the sec MCP tools.
@@ -2390,86 +2359,14 @@ Returns:
 
 
 USER PROMPT:
+You are an expert data analyst. Your task is to synthesize all collected data into a clear, concise, and insightful final answer for the user.
 
-You are a workflow assistant. Your task is to strictly follow a phased plan to achieve a goal.
+--- USER'S ORIGINAL QUESTION ---
+'what is the business definition for table equipment in database DEMO_Customer360_db?'
 
---- WORKFLOW GOAL & PLAN ---
-This is the plan you MUST follow. Do not deviate from it.
-You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-
-## your role will work through the phases
-Perform the phases in order, and do not skip any phase.
-
-## Phase 0 - Get the table name and database name
-- The table name is equipment
-- The database name is DEMO_Customer360_db
-
-## Phase 1 - Get the table DDL
-- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.
-
-## Phase 2 - Describe the table
-- Describe the table in a business context. The description should be a single string. 
-- The description should include the following: 
-    - The purpose of the table
-    - The purpose of the columns in the table
-
-## Communication guidelines:
-      - Be concise but informative in your explanations
-      - Clearly indicate which phase the process is currently in
-      - summarize the outcome of the phase before moving to the next phase
-
-## Final output guidelines:
-      - return in markdown
-      - Example:
-      ***Table Name:*** `table_name`
-
-      ***Database Name:*** `database_name`
-
-      ***Description:*** `table_description`
-
-         - ***Column1:*** `column1_descriptions`
-         - ***Column2:*** `column2_descriptions`
-         - ***Column3:*** `column3_descriptions`
-
-
---- CONTEXT & HISTORY ---
-- User's Original Question: what is the business definition for table equipment in database DEMO_Customer360_db?
-- Actions Taken So Far:
-- Executed tool `base_tableDDL` with arguments `{'database_name': 'DEMO_Customer360_db', 'table_name': 'equipment'}`.
-- Executed tool `base_tablePreview` with arguments `{'database_name': 'DEMO_Customer360_db', 'table_name': 'equipment'}`.
-- Data from Last Tool Call:
-{"tool_name": "base_tablePreview", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tablePreview", "database": "DEMO_Customer360_db", "table_name": "DEMO_Customer360_db.equipment", "columns": [{"name": "CUST_ID", "type": "int", "length": 2}, {"name": "GENDER", "type": "str", "length": 2}, {"name": "FIRSTNAME", "type": "str", "length": 22}, {"name": "LASTNAME", "type": "str", "length": 18}, {"name": "ADDRESS", "type": "str", "length": 50}, {"name": "STATE", "type": "str", "length": 4}, {"name": "CITY", "type": "str", "length": 32}, {"name": "ZIP", "type": "int", "length": 4}, {"name": "EQUIP_LTV", "type": "int", "length": 2}], "sample_size": 5}, "results": [{"CUST_ID": "19579", "GENDER": "M", "FIRSTNAME": "Pedro", "LASTNAME": "Gonsalves", "ADDRESS": "1233 El Camino Real", "STATE": "NY", "CITY": "Greenville", "ZIP": "10586", "EQUIP_LTV": "6159"}, {"CUST_ID": "19688", "GENDER": "F", "FIRSTNAME": "Luiza", "LASTNAME": "Teixeira", "ADDRESS": "1522 North U.S. Highway 1", "STATE": "OH", "CITY": "Kerr", "ZIP": "45643", "EQUIP_LTV": "5894"}, {"CUST_ID": "22143", "GENDER": "M", "FIRSTNAME": "Lucas", "LASTNAME": "Moreau", "ADDRESS": "1455 Sixth Street", "STATE": "OH", "CITY": "Winchester", "ZIP": "45697", "EQUIP_LTV": "6299"}, {"CUST_ID": "22142", "GENDER": "F", "FIRSTNAME": "Beatriz", "LASTNAME": "Gonsalves", "ADDRESS": "1212 Fifth Street", "STATE": "OH", "CITY": "Fairfield", "ZIP": "45018", "EQUIP_LTV": "6463"}, {"CUST_ID": "20575", "GENDER": "F", "FIRSTNAME": "Laura", "LASTNAME": "DeSilva", "ADDRESS": "11 Red Mill Road", "STATE": "PA", "CITY": "New Castle", "ZIP": "16105", "EQUIP_LTV": "5652"}]}}
-
---- YOUR TASK ---
-1.  **Review the Plan**: Look at the phases outlined in the "WORKFLOW GOAL & PLAN".
-2.  **Check Your History**: Look at the "Actions Taken So Far" to see which phases you have already completed.
-3.  **Determine the Next Step**: Identify the single next phase from the plan that has not been completed.
-4.  **Execute**: Formulate a JSON tool call to execute ONLY the action for that single next phase.
-
-Your response MUST be a single JSON object for the tool call corresponding to the immediate next phase. Do not add any reasoning or other text.
-
-
-2025-08-17 15:13:58,961 - --- RESPONSE ---
-{"tool_name": "base_tableDDL", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "equipment"}}
---------------------------------------------------
-
-2025-08-17 15:14:00,206 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
---- REASON FOR CALL ---
-Checking for workflow completion.
-
---- History ---
-[user]: what is the business definition for table equipment in database DEMO_Customer360_db?
-[assistant]: {"tool_name": "base_tableBusinessDesc", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "equipment"}}
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-You are an assistant that only responds with 'YES' or 'NO'.
-
-USER PROMPT:
-
---- CONTEXT FOR YOUR DECISION ---
-- Original Question: what is the business definition for table equipment in database DEMO_Customer360_db?
-- All Data Collected So Far:
+--- ALL RELEVANT DATA COLLECTED ---
+The following data was gathered from one or more tool calls. Analyze this data to generate your response.
+```json
 [
   {
     "status": "success",
@@ -2486,720 +2383,38 @@ USER PROMPT:
   },
   {
     "status": "success",
-    "metadata": {
-      "tool_name": "base_tablePreview",
-      "database": "DEMO_Customer360_db",
-      "table_name": "DEMO_Customer360_db.equipment",
-      "columns": [
-        {
-          "name": "CUST_ID",
-          "type": "int",
-          "length": 2
-        },
-        {
-          "name": "GENDER",
-          "type": "str",
-          "length": 2
-        },
-        {
-          "name": "FIRSTNAME",
-          "type": "str",
-          "length": 22
-        },
-        {
-          "name": "LASTNAME",
-          "type": "str",
-          "length": 18
-        },
-        {
-          "name": "ADDRESS",
-          "type": "str",
-          "length": 50
-        },
-        {
-          "name": "STATE",
-          "type": "str",
-          "length": 4
-        },
-        {
-          "name": "CITY",
-          "type": "str",
-          "length": 32
-        },
-        {
-          "name": "ZIP",
-          "type": "int",
-          "length": 4
-        },
-        {
-          "name": "EQUIP_LTV",
-          "type": "int",
-          "length": 2
-        }
-      ],
-      "sample_size": 5
-    },
     "results": [
       {
-        "CUST_ID": "19579",
-        "GENDER": "M",
-        "FIRSTNAME": "Pedro",
-        "LASTNAME": "Gonsalves",
-        "ADDRESS": "1233 El Camino Real",
-        "STATE": "NY",
-        "CITY": "Greenville",
-        "ZIP": "10586",
-        "EQUIP_LTV": "6159"
-      },
-      {
-        "CUST_ID": "19688",
-        "GENDER": "F",
-        "FIRSTNAME": "Luiza",
-        "LASTNAME": "Teixeira",
-        "ADDRESS": "1522 North U.S. Highway 1",
-        "STATE": "OH",
-        "CITY": "Kerr",
-        "ZIP": "45643",
-        "EQUIP_LTV": "5894"
-      },
-      {
-        "CUST_ID": "22143",
-        "GENDER": "M",
-        "FIRSTNAME": "Lucas",
-        "LASTNAME": "Moreau",
-        "ADDRESS": "1455 Sixth Street",
-        "STATE": "OH",
-        "CITY": "Winchester",
-        "ZIP": "45697",
-        "EQUIP_LTV": "6299"
-      },
-      {
-        "CUST_ID": "22142",
-        "GENDER": "F",
-        "FIRSTNAME": "Beatriz",
-        "LASTNAME": "Gonsalves",
-        "ADDRESS": "1212 Fifth Street",
-        "STATE": "OH",
-        "CITY": "Fairfield",
-        "ZIP": "45018",
-        "EQUIP_LTV": "6463"
-      },
-      {
-        "CUST_ID": "20575",
-        "GENDER": "F",
-        "FIRSTNAME": "Laura",
-        "LASTNAME": "DeSilva",
-        "ADDRESS": "11 Red Mill Road",
-        "STATE": "PA",
-        "CITY": "New Castle",
-        "ZIP": "16105",
-        "EQUIP_LTV": "5652"
-      }
-    ]
-  },
-  {
-    "status": "success",
-    "metadata": {
-      "tool_name": "base_tableDDL",
-      "database": "DEMO_Customer360_db",
-      "table": "equipment"
-    },
-    "results": [
-      {
-        "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"
+        "response": "The DEMO_Customer360_db.equipment table serves as a comprehensive customer equipment profile repository that tracks customer information alongside their equipment lifetime value metrics. This table enables businesses to analyze customer equipment investments and value across geographic regions. It contains customer demographic data (gender, name, complete address details), unique identification (CUST_ID), and a critical business metric (EQUIP_LTV) which represents the lifetime value of equipment associated with each customer. This structure allows for detailed segmentation and analysis of equipment-related customer value by demographic attributes and location, supporting targeted marketing initiatives, equipment upgrade opportunities, geographic-based business strategies, and customer lifetime value analysis. The absence of a primary index suggests this is a flexible data structure that may be joined with other customer-centric tables in analytical queries, making it particularly useful for business intelligence applications focusing on equipment sales, rentals, or service relationships."
       }
     ]
   }
 ]
-- Data from Last Tool Call:
-{"tool_name": "base_tableDDL", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "equipment"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"}]}}
-
---- INSTRUCTIONS ---
-Analyze the context above.
-Is this enough information to fully answer the original question?
-Respond only with the word 'YES' or 'NO'. Do not provide any other text.
-
-
-2025-08-17 15:14:00,206 - --- RESPONSE ---
-NO
---------------------------------------------------
-
-2025-08-17 15:14:01,840 - --- FULL CONTEXT (Session: 1c9b7bfc-9d72-4847-9cbf-532c37d481b7) ---
---- REASON FOR CALL ---
-Deciding next step in non-deterministic workflow.
-
---- History ---
-[user]: what is the business definition for table equipment in database DEMO_Customer360_db?
-[assistant]: {"tool_name": "base_tableBusinessDesc", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "equipment"}}
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-# Core Directives
-You are a specialized assistant for a Teradata database system. Your primary goal is to fulfill user requests by selecting the best capability (a tool or a prompt) from the categorized lists provided and supplying all necessary arguments.
-
-# Response Format
-Your response MUST be a single JSON object for a tool/prompt call OR a single plain text string for a final answer.
-
-1.  **Tool/Prompt Calls (JSON format):**
-    -   If the capability is a prompt, you MUST use the key `"prompt_name"`.
-    -   If the capability is a tool, you MUST use the key `"tool_name"`.
-    -   Provide all required arguments. Infer values from the conversation history if necessary.
-    -   Example (Prompt): `{"prompt_name": "some_prompt", "arguments": {"arg": "value"}}`
-    -   Example (Tool): `{"tool_name": "some_tool", "arguments": {"arg": "value"}}`
-
-2.  **Final Answer (Plain Text format):**
-    -   When you have sufficient information to fully answer the user's request, you MUST stop using tools.
-    -   Your response MUST begin with the exact prefix `FINAL_ANSWER:`, followed by a natural language summary.
-    -   Example: `FINAL_ANSWER: I found 48 databases on the system. The details are displayed below.`
-
-# Decision Process
-To select the correct capability, you MUST follow this two-step process, governed by one critical rule:
-
-**CRITICAL RULE: Prioritize Specificity and Arguments.** Your primary filter for selecting a capability is its specificity. You MUST select the most granular capability that uses the most entities from the user's request (e.g., prefer a tool that uses a `table_name` over one that only uses a `database_name` if a table is mentioned). For direct actions and single analyses, you MUST select a `tool_name`; only select a `prompt_name` for broad, multi-step tasks explicitly described by the prompt.
-
-1.  **Identify the Category:** First, analyze the user's request to determine which Tool or Prompt Category is the most relevant to their intent. The available categories are listed in the "Capabilities" section below.
-2.  **Select the Capability:** Second, from within that single most relevant category, select the best tool or prompt to fulfill the request, adhering to the Critical Rule above.
-
-# Best Practices
-- **Context is Key:** Always use information from previous turns to fill in arguments like `db_name` or `table_name`.
-- **Error Recovery:** If a tool fails, analyze the error message and attempt to call the tool again with corrected parameters. Only ask the user for clarification if you cannot recover.
-- **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
-- **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
-- **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
-
-**CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
-
-
-# Capabilities
---- Category: Customer Analytics ---
-- `sales_customer_profile` (tool): Get customer profile and metrics.
-  - Arguments:
-    - `customer_key` (string, optional): No description.
---- Category: Data Quality ---
-- `qlty_columnSummary` (tool): 
-Get the column summary statistics for a table.
-
-Arguments:
-  database_name - name of the database
-  table_name - table name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `qlty_distinctCategories` (tool): 
-Get the destinct categories from column in a table.
-
-Arguments:
-  database_name - name of the database
-  table_name - table name to analyze
-  column_name - column name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `qlty_missingValues` (tool): 
-Get the column names that having missing values in a table.
-
-Arguments:
-  database_name - name of the database
-  table_name - table name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `qlty_negativeValues` (tool): 
-Get the column names that having negative values in a table.
-
-Arguments:
-  database_name - name of the database
-  table_name - table name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `qlty_rowsWithMissingValues` (tool): 
-Get the rows with missing values in a table.
-
-Arguments:
-  database_name - name of the database
-  table_name - table name to analyze
-  column_name - column name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `qlty_standardDeviation` (tool): 
-Get the standard deviation from column in a table.
-
-Arguments:
-  database_name - name of the database
-  table_name - table name to analyze
-  column_name - column name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `qlty_univariateStatistics` (tool): 
-Get the univariate statistics for a table.
-
-Arguments:
-  database_name - name of the database
-  table_name - table name to analyze
-  column_name - column name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
---- Category: Database Information ---
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `base_tableList` (tool): Lists all tables in a database.
-  - Arguments:
-    - `database_name` (string, optional): No description.
-- `base_databaseList` (tool): Lists all databases in the Teradata System.
---- Category: Feature Store ---
-- `fs_createDataset` (tool): 
-Create a dataset using selected features and an entity from the feature store. The dataset is created in the specified target database under the given name. Requires a configured feature store and data domain. Registers the dataset in the catalog automatically. Use this when you want to build and register a new dataset for analysis or modeling.
-Args:
-    entity_name (str): Entity for which the dataset will be created. Available entities are reported in the feature catalog.
-    feature_selection (list[str]): List of features to include in the dataset. Available features are reported in the feature catalog.
-    dataset_name (str): The name of the dataset to create.
-    target_database (str): The database where the dataset will be created.
-
-  - Arguments:
-    - `entity_name` (string, optional): No description.
-    - `feature_selection` (array, optional): No description.
-    - `dataset_name` (string, optional): No description.
-    - `target_database` (string, optional): No description.
-- `fs_featureStoreContent` (tool): 
-Returns a summary of the feature store content. Use this to understand what data is available in the feature store.
-
-- `fs_getAvailableDatasets` (tool): 
-List the list of available datasets.Requires a configured `database_name` in the feature store config.Use this to explore the datasets that are available .
-
-- `fs_getAvailableEntities` (tool): 
-List the available entities for a given data domain. Requires a configured `database_name` and `data_domain` and  `entity` in the feature store config. Use this to explore which entities can be used when building a dataset.
-
-- `fs_getDataDomains` (tool): 
-List the available data domains. Requires a configured `database_name`  in the feature store config. Use this to explore which entities can be used when building a dataset.
-
-- `fs_getFeatureDataModel` (tool): 
-Returns the feature store data model, including the feature catalog, process catalog, and dataset catalog.
-
-- `fs_getFeatures` (tool): 
-List the list of features. Requires a configured `database_name` and  `data_domain` in the feature store config. Use this to explore the features available .
-
-- `fs_isFeatureStorePresent` (tool): Check if a feature store is present in the specified database.
-
-Args:
-    database_name (str): The name of the database to check for the feature store.
-
-  - Arguments:
-    - `database_name` (string, optional): No description.
-- `fs_setFeatureStoreConfig` (tool): Set or update the feature store configuration (database and data domain).
-  - Arguments:
-    - `data_domain` (any, optional): No description.
-    - `db_name` (any, optional): No description.
-    - `entity` (any, optional): No description.
-- `fs_getFeatureStoreConfig` (tool): Display the current feature store configuration (database and data domain).
---- Category: OLAP ---
-- `get_cube_sales_cube` (tool): 
-    Tool to query the cube 'order_count'.
-    Get the key sales metrics: USD amount and number of orders.
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - customer_key: Key for the customer
-    - sales_year: Year of the sale
-    - sales_month: Month of the sale
-
-        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
-    - gift_amount_usd: Total gift card amount used for the order in USD
-    - total_amount_usd: Total order amount in USD
-    - order_count: Total number of orders
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate (must match cube definition). Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
---- Category: Performance ---
-- `dba_resusageSummary` (tool): 
-Get the Teradata system usage summary metrics by weekday and hour for each workload type and query complexity bucket.
-
-Arguments:
-  dimensions - list of dimensions to aggregate the resource usage summary. All dimensions are: ["LogDate", "hourOfDay", "dayOfWeek", "workloadType", "workloadComplexity", "UserName", "AppId", "StatementType"]
-  user_name - user name
-  date - Date to analyze, formatted as `YYYY-MM-DD`
-  dayOfWeek - day of the week to analyze
-  hourOfDay - hour of day to analyze
-
-
-- `dba_flowControl` (tool): Get the Teradata flow control metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
-- `dba_userDelay` (tool): Get the Teradata user delay metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
---- Category: RAG ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
---- Category: SQL Execution ---
-- `base_readQuery` (tool): 
-Execute a SQL query via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  sql    - SQL text, with optional bind-parameter placeholders
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
---- Category: Sales Analytics ---
-- `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
---- Category: Security ---
-- `sec_rolePermissions` (tool): 
-Get permissions for a role.
-
-Arguments:
-  role_name - role name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `sec_userDbPermissions` (tool): 
-Get permissions for a user.
-
-Arguments:
-  user_name - user name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `sec_userRoles` (tool): 
-Get roles assigned to a user.
-
-Arguments:
-  user_name - user name to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
---- Category: Session Management ---
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
---- Category: Space Management ---
-- `dba_databaseSpace` (tool): 
-Get database space if database name is provided, otherwise get all databases space allocations.
-
-Arguments:
-  database_name - database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSpace` (tool): 
-Get table space used for a table if table name is provided or get table space for all tables in a database if a database name is provided."
-
-Arguments:
-  database_name - database name
-  table_name - table name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
---- Category: System Information ---
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `ba_databaseVersion` (tool):  Get Teradata database version information.
---- Category: Table Analysis ---
-- `base_tableAffinity` (tool): 
-Get tables commonly used together by database users, this is helpful to infer relationships between tables via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  database_name - Database name
-  object_name - table or view name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
---- Category: Table Information ---
-- `base_tableDDL` (tool): 
-Displays the DDL definition of a table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  database_name - Database name
-  table_name - table name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `base_tablePreview` (tool): 
-This function returns data sample and inferred structure from a database table or view via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  table_name - table or view name
-  database_name - Database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
---- Category: Usage Analysis ---
-- `base_tableUsage` (tool): 
-Measure the usage of a table and views by users in a given schema, this is helpful to infer what database objects are most actively used or drive most value via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
-
-Arguments:
-  database_name - Database name
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableSqlList` (tool): 
-Get a list of SQL run against a table in the last number of days.
-
-Arguments:
-  table_name - table name
-  no_days - number of days
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_tableUsageImpact` (tool): 
-Measure the usage of a table and views by users, this is helpful to understand what user and tables are driving most resource usage at any point in time.
-
-Arguments:
-  database_name - database name to analyze
-  user_name - user name to analyze
-
-
-- `dba_userSqlList` (tool): 
-Get a list of SQL run by a user in the last number of days if a user name is provided, otherwise get list of all SQL in the last number of days.
-
-Arguments:
-  user_name - user name
-  no_days - number of days
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `dba_featureUsage` (tool): Get the user feature usage metrics for a specified date range.
-  - Arguments:
-    - `start_date` (string, optional): No description.
-    - `end_date` (string, optional): No description.
---- Category: User Management ---
-- `cust_activeUsers` (tool): Fetch currently active database users
---- Category: Utilities ---
-- `tmpl_nameOfTool` (tool): 
-<description of what the tool is for>
-
-Arguments:
-  arguments - arguments to analyze
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
-- `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
---- Category: Vector Search ---
-- `evs_similarity_search` (tool): 
-Enterprise Vector Store similarity search
-
-Arguments:
-  question - the query string to search for
-  top_k - number of top results to return
-
-Returns:
-  ResponseType: formatted response with query results + metadata
-
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
---- Available Prompts ---
---- Category: Data Quality ---
-- `qlty_databaseQuality` (prompt): Database data quality assessment.
-  - Arguments:
-    - `database_name` (str, required): Name of the database to assess for data quality.
---- Category: Database Administration ---
-- `dba_tableArchive` (prompt): The following prompt is used to guide the Teradata DBA in finding opportunities for archiving data.
-- `dba_databaseLineage` (prompt): You are a Teradata DBA who is an expert in finding the lineage of tables in a database.
-  - Arguments:
-    - `database_name` (str, required): Name of the database to analyze for table lineage.
-    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_tableDropImpact` (prompt): You are a Teradata DBA who is an expert in finding the impact of dropping a table.
-  - Arguments:
-    - `table_name` (str, required): Name of the table to analyze for drop impact.
-    - `database_name` (str, required): Name of the database containing the table.
-    - `number_days` (str, required): Number of days to look back for SQL execution history (e.g., 7, 30, 90).
-- `dba_databaseHealthAssessment` (prompt): You are a Teradata DBA who is an expert in assessing the health of a database.
---- Category: Database Information ---
-- `base_databaseBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of databases.
-  - Arguments:
-    - `database_name` (str, optional): Database to describe.
---- Category: Examples ---
-- `cust_promptExample` (prompt): my prompt description
---- Category: RAG ---
-- `rag_guidelines` (prompt): Guidelines for Retrieval-Augmented Generation (RAG) mode.
---- Category: SQL Execution ---
-- `base_query` (prompt): Help users interact with  Teradata databases effectively.
-  - Arguments:
-    - `query` (str, required): The problem or question that needs to be solved using Teradata database tools.
---- Category: Sales Analytics ---
-- `sales_prompt` (prompt): my prompt description
---- Category: System Analysis ---
-- `dba_systemVoice` (prompt): Analyze Teradata user activity patterns for the past 7 days
---- Category: Table Information ---
-- `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-  - Arguments:
-    - `database_name` (str, required): Database for the table to describe.
-    - `table_name` (str, required): Table to describe.
---- Category: Testing ---
-- `test_evsTools` (prompt): Test all the evs MCP tools.
-- `test_secTools` (prompt): Test all the sec MCP tools.
-- `test_dbaTools` (prompt): Test all the DBA MCP tools.
-- `test_ragTools` (prompt): Test all the rag MCP tools.
-- `test_qltyTools` (prompt): Test all the qlty MCP tools.
-- `test_fsTools` (prompt): Test all the fs MCP tools.
-- `test_baseTools` (prompt): Test all base tools in the Teradata MCP server.
---- Category: Usage Analysis ---
-- `dba_userActivityAnalysis` (prompt): Analyze Teradata user activity patterns for the past 7 days
-
-
-USER PROMPT:
-
-You are a workflow assistant. Your task is to strictly follow a phased plan to achieve a goal.
-
---- WORKFLOW GOAL & PLAN ---
-This is the plan you MUST follow. Do not deviate from it.
-You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-
-## your role will work through the phases
-Perform the phases in order, and do not skip any phase.
-
-## Phase 0 - Get the table name and database name
-- The table name is equipment
-- The database name is DEMO_Customer360_db
-
-## Phase 1 - Get the table DDL
-- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL function to get the DDL.
-
-## Phase 2 - Describe the table
-- Describe the table in a business context. The description should be a single string. 
-- The description should include the following: 
-    - The purpose of the table
-    - The purpose of the columns in the table
-
-## Communication guidelines:
-      - Be concise but informative in your explanations
-      - Clearly indicate which phase the process is currently in
-      - summarize the outcome of the phase before moving to the next phase
-
-## Final output guidelines:
-      - return in markdown
-      - Example:
-      ***Table Name:*** `table_name`
-
-      ***Database Name:*** `database_name`
-
-      ***Description:*** `table_description`
-
-         - ***Column1:*** `column1_descriptions`
-         - ***Column2:*** `column2_descriptions`
-         - ***Column3:*** `column3_descriptions`
-
-
---- CONTEXT & HISTORY ---
-- User's Original Question: what is the business definition for table equipment in database DEMO_Customer360_db?
-- Actions Taken So Far:
-- Executed tool `base_tableDDL` with arguments `{'database_name': 'DEMO_Customer360_db', 'table_name': 'equipment'}`.
-- Executed tool `base_tablePreview` with arguments `{'database_name': 'DEMO_Customer360_db', 'table_name': 'equipment'}`.
-- Executed tool `base_tableDDL` with arguments `{'database_name': 'DEMO_Customer360_db', 'table_name': 'equipment'}`.
-- Data from Last Tool Call:
-{"tool_name": "base_tableDDL", "tool_output": {"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "equipment"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"}]}}
-
---- YOUR TASK ---
-1.  **Review the Plan**: Look at the phases outlined in the "WORKFLOW GOAL & PLAN".
-2.  **Check Your History**: Look at the "Actions Taken So Far" to see which phases you have already completed.
-3.  **Determine the Next Step**: Identify the single next phase from the plan that has not been completed.
-4.  **Execute**: Formulate a JSON tool call to execute ONLY the action for that single next phase.
-
-Your response MUST be a single JSON object for the tool call corresponding to the immediate next phase. Do not add any reasoning or other text.
-
-
-2025-08-17 15:14:01,841 - --- RESPONSE ---
-{"tool_name": "base_tablePreview", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "equipment"}}
+```
+
+--- YOUR INSTRUCTIONS ---
+1.  **Adopt the Persona of a Data Analyst:** Your goal is to provide a holistic analysis and deliver actionable insights, not just report numbers.
+2.  **Go Beyond the Obvious:** Start with the primary findings (like data completeness or null counts), but then scrutinize the data for secondary insights, patterns, or anomalies. For a data quality assessment, this could include looking for unexpected distributions, a lack of negative values in numeric columns where appropriate, or other indicators of high-quality data.
+3.  **Structure Your Answer:** Begin with a high-level summary that directly answers the user's question. Then, if applicable, use bullet points to highlight key, specific observations from the data.
+4.  **CRITICAL:** Your entire response **MUST** begin with the exact prefix `FINAL_ANSWER:`, followed by your natural language summary. Do not add any other text before this prefix.
+
+
+2025-08-17 16:22:32,022 - --- RESPONSE ---
+FINAL_ANSWER: The DEMO_Customer360_db.equipment table serves as a customer equipment profile repository that tracks both customer information and their equipment lifetime value metrics. 
+
+This table contains the following business information:
+- Customer identification through CUST_ID
+- Demographic data including gender and full name (first and last name)
+- Complete address information (street address, city, state, and ZIP code)
+- EQUIP_LTV (Equipment Lifetime Value) - a key business metric representing the total lifetime value of equipment associated with each customer
+
+From a business perspective, this table enables:
+- Analysis of customer equipment investments and value across different geographic regions
+- Customer segmentation based on equipment value and demographic attributes
+- Targeted marketing initiatives for equipment upgrades or new purchases
+- Geographic-based business strategies for equipment sales and services
+- Customer lifetime value analysis specific to equipment relationships
+
+The table structure suggests it's designed for flexible integration with other customer-centric tables in the Customer360 database, particularly for business intelligence applications focusing on equipment sales, rentals, or service relationships.
 --------------------------------------------------
 

@@ -44,6 +44,24 @@ UTIL_TOOL_DEFINITIONS = [
     }
 ]
 
+# --- NEW: Define the CoreLLMTask tool ---
+CORE_LLM_TASK_DEFINITION = {
+    "name": "CoreLLMTask",
+    "description": "Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.",
+    "args": {
+        "task_type": {
+            "type": "string",
+            "description": "The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.",
+            "required": True
+        },
+        "data": {
+            "type": "dict",
+            "description": "A dictionary containing all necessary data for the task, such as tool outputs or a markdown template.",
+            "required": True
+        }
+    }
+}
+
 
 def _extract_and_clean_description(description: str | None) -> tuple[str, str]:
     """
@@ -95,6 +113,9 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         loaded_tools.append(viz_tool_obj)
         for util_tool_def in UTIL_TOOL_DEFINITIONS:
             loaded_tools.append(SimpleTool(**util_tool_def))
+        # --- NEW: Add the CoreLLMTask tool to the list of loaded tools ---
+        loaded_tools.append(SimpleTool(**CORE_LLM_TASK_DEFINITION))
+
 
         STATE['mcp_tools'] = {tool.name: tool for tool in loaded_tools}
         if loaded_prompts:
@@ -348,10 +369,70 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
+# --- MODIFIED: Add STATE as an argument to _invoke_core_llm_task ---
+async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
+    """
+    Executes a task handled by the LLM itself.
+    """
+    task_type = command.get("arguments", {}).get("task_type")
+    data = command.get("arguments", {}).get("data", {})
+    
+    app_logger.info(f"Executing client-side LLM task: {task_type}")
+
+    task_prompts = {
+        "describe_table": (
+            "You are an expert data analyst who is an expert in describing the business use of a table. "
+            "Your task is to provide a comprehensive business description of the provided table and its columns based on its DDL and a list of columns. "
+            "You MUST return the description as a single string, and it should NOT contain any markdown formatting or new lines."
+            "\n\n--- DDL ---\n{ddl}\n\n--- Columns ---\n{columns}\n\n--- Instructions ---\n"
+            "1.  **Analyze the DDL and columns:** Identify the purpose of the table and the role of each column.\n"
+            "2.  **Describe the table:** Provide a high-level business description of the table.\n"
+            "3.  **Describe the columns:** For each column, provide a brief description of its purpose in the business context.\n"
+        ),
+        "format_final_output": (
+            "You are an expert markdown formatter. Your task is to format the provided text into a final, user-friendly markdown report. "
+            "You MUST strictly follow the provided markdown template. Do NOT add any extra text, headings, or formatting outside of the template."
+            "\n\n--- Data ---\n{data}\n\n--- Template ---\n{template}"
+        )
+    }
+
+    if task_type not in task_prompts:
+        return {"status": "error", "error_message": f"Unknown CoreLLMTask task_type: {task_type}"}
+
+    prompt_template = task_prompts[task_type]
+
+    if task_type == "describe_table":
+        final_prompt = prompt_template.format(
+            ddl=data.get("ddl", ""),
+            columns=data.get("columns", [])
+        )
+    elif task_type == "format_final_output":
+        final_prompt = prompt_template.format(
+            data=data.get("data", ""),
+            template=data.get("template", "")
+        )
+    else:
+        final_prompt = "Task not supported."
+
+    # --- MODIFIED: Use the passed STATE to get the llm_instance ---
+    response_text, _, _ = await llm_handler.call_llm_api(
+        llm_instance=STATE.get('llm'),
+        prompt=final_prompt,
+        reason=f"Executing CoreLLMTask: {task_type}",
+        system_prompt_override="You are a text processing and synthesis assistant.",
+        raise_on_error=True
+    )
+
+    return {"status": "success", "results": [{"response": response_text}]}
+
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
     
+    # --- MODIFIED: Pass STATE to _invoke_core_llm_task ---
+    if tool_name == "CoreLLMTask":
+        return await _invoke_core_llm_task(STATE, command)
+
     if tool_name == "util_getCurrentDate":
         app_logger.info("Executing client-side tool: util_getCurrentDate")
         current_date = datetime.now().strftime('%Y-%m-%d')
