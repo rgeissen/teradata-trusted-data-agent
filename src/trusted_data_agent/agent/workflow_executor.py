@@ -23,11 +23,23 @@ class WorkflowExecutor:
         self.active_prompt_name = self.parent.active_prompt_name
         self.workflow_goal_prompt = self.parent.workflow_goal_prompt
         
-        # Workflow-specific state
-        self.workflow_history = []
-        self.last_tool_result_str = None
-        self.last_command_in_workflow = None
+        # --- MODIFIED: State is now read from the parent to ensure persistence ---
+        # Workflow-specific state is stored on the parent to persist across ephemeral instances of this class.
+        self.workflow_history = getattr(self.parent, 'workflow_history', [])
+        self.last_tool_result_str = getattr(self.parent, 'last_workflow_tool_result_str', None)
+        self.last_command_in_workflow = getattr(self.parent, 'last_command_in_workflow', None)
+        
         self.next_action_str = None
+
+    def _persist_state_to_parent(self):
+        """
+        Writes the current workflow state back to the parent PlanExecutor instance.
+        This ensures that if a new WorkflowExecutor is created for the next step,
+        it can pick up the state from where the last one left off.
+        """
+        self.parent.workflow_history = self.workflow_history
+        self.parent.last_workflow_tool_result_str = self.last_tool_result_str
+        self.parent.last_command_in_workflow = self.last_command_in_workflow
 
     async def run(self):
         """
@@ -92,6 +104,7 @@ class WorkflowExecutor:
         if self.parent.state == self.parent.AgentState.EXECUTING_TOOL:
             async for event in self.parent._execute_tool_with_orchestrators(): yield event
             
+            # --- MODIFIED: Use a workflow-specific variable for the tool result ---
             self.last_tool_result_str = self.parent.last_tool_result_str
             if self.parent.last_tool_output and self.parent.last_tool_output.get("status") == "success":
                 self.workflow_history.append(self.parent.current_command)
@@ -111,6 +124,9 @@ class WorkflowExecutor:
             app_logger.info("Workflow completion check returned NO. Continuing workflow.")
             self.next_action_str = None
             self.parent.state = self.parent.AgentState.DECIDING # Ensure parent state is ready for next loop
+        
+        # --- MODIFIED: Persist state back to the parent before exiting ---
+        self._persist_state_to_parent()
 
     async def _check_for_workflow_completion(self) -> tuple[bool, int, int]:
         """

@@ -204,12 +204,13 @@ CHARTING_INSTRUCTIONS = {
     )
 }
 
-# This is NOT a system prompt. It is a template for the user-facing message
-# that provides the LLM with the context for a single step in a workflow.
+# --- MODIFIED: This template is now much more explicit to guide the LLM's reasoning. ---
+# It forces the LLM to follow the prescribed phases of the workflow goal.
 WORKFLOW_STEP_TEMPLATE = """
-You are currently executing a multi-step workflow. Your task is to decide the next best action based on the context provided below.
+You are a workflow assistant. Your task is to strictly follow a phased plan to achieve a goal.
 
---- WORKFLOW GOAL ---
+--- WORKFLOW GOAL & PLAN ---
+This is the plan you MUST follow. Do not deviate from it.
 {workflow_goal}
 
 --- CONTEXT & HISTORY ---
@@ -219,9 +220,13 @@ You are currently executing a multi-step workflow. Your task is to decide the ne
 - Data from Last Tool Call:
 {tool_result_str}
 
---- INSTRUCTIONS ---
-Based on the workflow goal, the actions already taken, and the results from the last tool call, decide on the single best next action to move forward.
-Your response MUST be a single JSON object for a tool call. Do not include any other text or reasoning.
+--- YOUR TASK ---
+1.  **Review the Plan**: Look at the phases outlined in the "WORKFLOW GOAL & PLAN".
+2.  **Check Your History**: Look at the "Actions Taken So Far" to see which phases you have already completed.
+3.  **Determine the Next Step**: Identify the single next phase from the plan that has not been completed.
+4.  **Execute**: Formulate a JSON tool call to execute ONLY the action for that single next phase.
+
+Your response MUST be a single JSON object for the tool call corresponding to the immediate next phase. Do not add any reasoning or other text.
 """
 
 NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT = """
