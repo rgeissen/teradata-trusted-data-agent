@@ -14,7 +14,8 @@ from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.agent.workflow_manager import WorkflowManager
-from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT, NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT, FINAL_ANSWER_PROMPT
+# --- MODIFIED: Added a new ERROR_RECOVERY_PROMPT to the import list. ---
+from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_PROMPT, NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT, FINAL_ANSWER_PROMPT, ERROR_RECOVERY_PROMPT
 
 app_logger = logging.getLogger("quart.app")
 
@@ -89,7 +90,8 @@ class PlanExecutor:
         self.current_command = None
         self.dependencies = dependencies
         self.tool_constraints_cache = {}
-        self.globally_failed_tools = set()
+        # --- MODIFIED: Renamed from globally_failed_tools to globally_skipped_tools for accuracy
+        self.globally_skipped_tools = set()
         self.is_workflow = False
         self.last_tool_result_str = None
         self.context_stack = []
@@ -427,17 +429,22 @@ class PlanExecutor:
     # --- END: NEW RECOVERY LOGIC FOR LOOPS ---
 
     async def _recover_with_llm(self, error_message: str):
-        recovery_prompt = (
-            "You are an expert troubleshooter for a multi-step workflow. The plan has failed. Your job is to get the plan back on track.\n\n"
-            f"--- ORIGINAL GOAL ---\n{self.original_user_input}\n\n"
-            f"--- THE FAILED STEP ---\n{json.dumps(self.current_command)}\n\n"
-            f"--- THE ERROR ---\n{error_message}\n\n"
-            "--- INSTRUCTIONS ---\n"
-            "Analyze the error. Decide on a single, immediate action to recover. This is likely a new tool call with corrected parameters. Your response MUST be a single JSON object for a tool call."
+        # --- MODIFIED: Use new ERROR_RECOVERY_PROMPT and add a FAILED_TOOLS section ---
+        self.globally_skipped_tools.add(self.current_command.get("tool_name"))
+        
+        recovery_prompt = ERROR_RECOVERY_PROMPT.format(
+            user_question=self.original_user_input,
+            error_message=error_message,
+            failed_tool_name=self.current_command.get("tool_name"),
+            all_data_collected=self._prepare_data_for_prompt()
         )
         reason = "Recovering from workflow error."
         yield _format_sse({"step": "Calling LLM for Recovery", "details": reason})
-        response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=recovery_prompt, reason=reason)
+        response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
+            prompt=recovery_prompt, 
+            reason=reason,
+            raise_on_error=True
+        )
         
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
@@ -766,11 +773,17 @@ class PlanExecutor:
         self.last_tool_output = tool_result
 
         tool_result_str = ""
-        if isinstance(tool_result, dict) and "error" in tool_result:
+        # --- MODIFIED: Handle tool errors differently
+        if isinstance(tool_result, dict) and tool_result.get("status") == "error":
             error_details = tool_result.get("data", tool_result.get("error", ""))
-            if "Function" in str(error_details) and "does not exist" in str(error_details):
-                self.globally_failed_tools.add(tool_name)
+            # Add failed tool to the globally_skipped_tools set to prevent re-execution
+            self.globally_skipped_tools.add(tool_name)
             tool_result_str = json.dumps({"tool_input": self.current_command, "tool_output": {"status": "error", "error_message": error_details}})
+            # Call a specialized error recovery prompt
+            yield _format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
+            async for event in self._recover_with_llm(tool_result_str):
+                yield event
+            return
         else:
             tool_result_str = json.dumps({"tool_name": tool_name, "tool_output": tool_result})
             # In workflow mode 1, we add to structured data.
@@ -955,6 +968,10 @@ class PlanExecutor:
                     )
 
         # --- MODIFIED: Added a new section for ALL Collected Data. ---
+        # --- NEW: Added a section for failed tools to prevent retry loops. ---
+        failed_tools_list = list(self.globally_skipped_tools)
+        failed_tools_context = f"--- FAILED TOOLS (DO NOT RE-CALL) ---\n{', '.join(failed_tools_list)}" if failed_tools_list else ""
+        
         prompt_for_next_step = (
             "You are an assistant responsible for coordinating a data gathering plan. Your task is to decide if enough data has been collected to answer the user's question.\n\n"
             f"--- User's Original Question ---\n"
@@ -964,6 +981,7 @@ class PlanExecutor:
             f"--- Data from Last Tool Call ---\n"
             f"{tool_result_str}\n\n"
             f"{charting_guidance}"
+            f"{failed_tools_context}"
             "--- Your Decision Process ---\n"
             "1.  **Analyze the situation:** Your primary goal is to gather all necessary data to comprehensively answer the user's original question. You may need to call several tools in sequence.\n"
             "2.  **Choose Your Action:**\n"

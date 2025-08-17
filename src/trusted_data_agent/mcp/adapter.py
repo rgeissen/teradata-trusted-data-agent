@@ -214,18 +214,19 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                     "disabled": is_disabled
                 })
 
-        # --- NEW: Build the categorized context string for the main system prompt ---
+        # --- MODIFIED: The logic to build prompt_context_parts is fixed here. ---
         prompt_context_parts = []
         for category, prompts in sorted(STATE['structured_prompts'].items()):
-            prompt_context_parts.append(f"--- Category: {category} ---")
-            for prompt_info in prompts:
-                if not prompt_info['disabled']:
-                    prompt_obj = STATE['mcp_prompts'][prompt_info['name']]
-                    prompt_description = prompt_obj.description or "No description available."
-                    prompt_str = f"- `{prompt_obj.name}`: {prompt_description}"
-
-                    processed_args = prompt_info['arguments']
-                    if processed_args and "Arguments:" not in prompt_description:
+            enabled_prompts_in_category = [p for p in prompts if not p['disabled']]
+            if enabled_prompts_in_category:
+                prompt_context_parts.append(f"--- Category: {category} ---")
+                for prompt_info in enabled_prompts_in_category:
+                    prompt_description = prompt_info.get("description", "No description available.")
+                    prompt_str = f"- `{prompt_info['name']}`: {prompt_description}"
+                    
+                    # Correctly retrieve the arguments from the dictionary
+                    processed_args = prompt_info.get('arguments', [])
+                    if processed_args: # Check if there are arguments to display
                         prompt_str += "\n  - Arguments:"
                         for arg_details in processed_args:
                             arg_name = arg_details.get('name', 'unknown')

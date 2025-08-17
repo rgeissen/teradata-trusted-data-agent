@@ -18,7 +18,7 @@ from mcp.shared.exceptions import McpError
 
 from trusted_data_agent.core.config import APP_CONFIG
 from trusted_data_agent.core import session_manager
-from trusted_data_agent.agent.prompts_old import PROVIDER_SYSTEM_PROMPTS, CHARTING_INSTRUCTIONS
+from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS, CHARTING_INSTRUCTIONS
 from trusted_data_agent.agent.executor import PlanExecutor, _format_sse
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.mcp import adapter as mcp_adapter
@@ -125,9 +125,24 @@ def _regenerate_contexts():
 
             prompt_context_parts.append(f"--- Category: {category} ---")
             for prompt_info in enabled_prompts_in_category:
-                prompt = all_prompts[prompt_info['name']]
-                prompt_details_list = []
-                prompt_str = f"- `{prompt.name}`: {prompt.description or 'No description available.'}"
+                prompt_description = prompt_info.get("description", "No description available.")
+                prompt_str = f"- `{prompt_info['name']}`: {prompt_description}"
+                
+                # --- START: FIX ---
+                # This logic correctly adds the arguments to the context string,
+                # mirroring the logic from the initial load in mcp/adapter.py.
+                processed_args = prompt_info.get('arguments', [])
+                if processed_args:
+                    prompt_str += "\n  - Arguments:"
+                    for arg_details in processed_args:
+                        arg_name = arg_details.get('name', 'unknown')
+                        arg_type = arg_details.get('type', 'any')
+                        is_required = arg_details.get('required', False)
+                        req_str = "required" if is_required else "optional"
+                        arg_desc = arg_details.get('description', 'No description.')
+                        prompt_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+                # --- END: FIX ---
+                
                 prompt_context_parts.append(prompt_str)
 
         if prompt_context_parts:
