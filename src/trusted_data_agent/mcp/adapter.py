@@ -44,19 +44,19 @@ UTIL_TOOL_DEFINITIONS = [
     }
 ]
 
-# --- NEW: Define the CoreLLMTask tool ---
+# --- MODIFIED: Define the CoreLLMTask tool with a generic 'task_description' ---
 CORE_LLM_TASK_DEFINITION = {
     "name": "CoreLLMTask",
-    "description": "Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.",
+    "description": "Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.",
     "args": {
-        "task_type": {
+        "task_description": {
             "type": "string",
-            "description": "The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.",
+            "description": "A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.",
             "required": True
         },
         "data": {
             "type": "dict",
-            "description": "A dictionary containing all necessary data for the task, such as tool outputs or a markdown template.",
+            "description": "A dictionary containing all necessary data for the task, intelligently extracted by the LLM from the workflow's CONTEXT & HISTORY.",
             "required": True
         }
     }
@@ -369,56 +369,30 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFIED: Add STATE as an argument to _invoke_core_llm_task ---
+# --- MODIFIED: _invoke_core_llm_task now takes a generic task_description and data ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
-    Executes a task handled by the LLM itself.
+    Executes a task handled by the LLM itself, based on a generic task_description.
     """
-    task_type = command.get("arguments", {}).get("task_type")
+    task_description = command.get("arguments", {}).get("task_description")
     data = command.get("arguments", {}).get("data", {})
     
-    app_logger.info(f"Executing client-side LLM task: {task_type}")
+    app_logger.info(f"Executing client-side LLM task: {task_description}")
 
-    task_prompts = {
-        "describe_table": (
-            "You are an expert data analyst who is an expert in describing the business use of a table. "
-            "Your task is to provide a comprehensive business description of the provided table and its columns based on its DDL and a list of columns. "
-            "You MUST return the description as a single string, and it should NOT contain any markdown formatting or new lines."
-            "\n\n--- DDL ---\n{ddl}\n\n--- Columns ---\n{columns}\n\n--- Instructions ---\n"
-            "1.  **Analyze the DDL and columns:** Identify the purpose of the table and the role of each column.\n"
-            "2.  **Describe the table:** Provide a high-level business description of the table.\n"
-            "3.  **Describe the columns:** For each column, provide a brief description of its purpose in the business context.\n"
-        ),
-        "format_final_output": (
-            "You are an expert markdown formatter. Your task is to format the provided text into a final, user-friendly markdown report. "
-            "You MUST strictly follow the provided markdown template. Do NOT add any extra text, headings, or formatting outside of the template."
-            "\n\n--- Data ---\n{data}\n\n--- Template ---\n{template}"
-        )
-    }
+    # --- NEW: Generic prompt template for internal LLM tasks ---
+    final_prompt = (
+        "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data:\n\n"
+        "--- TASK ---\n"
+        f"{task_description}\n\n"
+        "--- DATA ---\n"
+        f"{json.dumps(data, indent=2)}\n\n"
+        "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
+    )
 
-    if task_type not in task_prompts:
-        return {"status": "error", "error_message": f"Unknown CoreLLMTask task_type: {task_type}"}
-
-    prompt_template = task_prompts[task_type]
-
-    if task_type == "describe_table":
-        final_prompt = prompt_template.format(
-            ddl=data.get("ddl", ""),
-            columns=data.get("columns", [])
-        )
-    elif task_type == "format_final_output":
-        final_prompt = prompt_template.format(
-            data=data.get("data", ""),
-            template=data.get("template", "")
-        )
-    else:
-        final_prompt = "Task not supported."
-
-    # --- MODIFIED: Use the passed STATE to get the llm_instance ---
     response_text, _, _ = await llm_handler.call_llm_api(
         llm_instance=STATE.get('llm'),
         prompt=final_prompt,
-        reason=f"Executing CoreLLMTask: {task_type}",
+        reason=f"Executing CoreLLMTask: {task_description}",
         system_prompt_override="You are a text processing and synthesis assistant.",
         raise_on_error=True
     )

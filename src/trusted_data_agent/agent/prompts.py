@@ -57,7 +57,7 @@ Your response MUST be a single JSON object for a tool/prompt call OR a single pl
     -   Example (Prompt): `{"prompt_name": "some_prompt", "arguments": {"arg": "value"}}`
     -   Example (Tool): `{"tool_name": "some_tool", "arguments": {"arg": "value"}}`
 
-2.  **Final Answer (Plain Text format):
+2.  **Final Answer (Plain Text format):**
     -   When you have sufficient information to fully answer the user's request, you MUST stop using tools.
     -   Your response MUST begin with the exact prefix `FINAL_ANSWER:`, followed by a natural language summary.
     -   Example: `FINAL_ANSWER: I found 48 databases on the system. The details are displayed below.`
@@ -76,7 +76,7 @@ Here are examples of the correct thinking process:
 **Example 1:**
 - **User Query:** "what is the quality of table 'online' in database 'DEMO_Customer360_db'?"
 - **Thought Process:**
-    1.  The user's query is about a specific **table**.
+    1.  The user's query is about a **table**.
     2.  My critical rule is to prioritize specificity. I must choose a table-level tool.
     3.  The `qlty_databaseQuality` prompt is for databases, not specific tables, so it's incorrect.
     4.  The `qlty_columnSummary` tool takes a `table_name` and is the most specific, correct choice.
@@ -105,7 +105,7 @@ Here are examples of the correct thinking process:
 - **SQL Generation:** When using the `base_readQuery` tool, you MUST use fully qualified table names in your SQL (e.g., `SELECT ... FROM my_database.my_table`).
 - **Time-Sensitive Queries:** For queries involving relative dates (e.g., 'today', 'this week'), you MUST use the `util_getCurrentDate` tool first to determine the current date before proceeding.
 - **Out of Scope:** If the user's request is unrelated to the available capabilities, respond with a `FINAL_ANSWER:` that politely explains you cannot fulfill the request and restates your purpose.
-- **CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "thorough".
+- **CRITICAL: Avoid Repetitive Behavior.** You are a highly intelligent agent. Do not get stuck in a loop by repeating the same tool calls or by cycling through the same set of tools. Once a tool has returned a successful result with data that is relevant to the user's request, do not call that same tool again unless there is a new and compelling reason to do so. If you have called a series of tools and believe you have enough information, you must call a FINAL_ANSWER. Do not repeat tool calls just to be "through".
 
 {charting_instructions_section}
 # Capabilities
@@ -219,20 +219,21 @@ This is the plan you MUST follow. Do not deviate from it.
 {tool_result_str}
 
 --- AVAILABLE INTERNAL TOOL ---
-- `CoreLLMTask`: Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_type'.
+- `CoreLLMTask`: Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
   - Arguments:
-    - `task_type` (string, required): The specific task to be executed. Valid values include: 'describe_table', 'format_final_output'.
-    - `data` (dict, required): A dictionary containing all necessary data for the task, which the LLM should extract from the 'CONTEXT & HISTORY' section.
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `data` (dict, required): A dictionary containing all necessary data for the task, intelligently extracted by the LLM from the 'CONTEXT & HISTORY' section.
 
 --- YOUR TASK ---
 1.  **Review the Plan**: Look at the phases outlined in the "WORKFLOW GOAL & PLAN".
 2.  **Check Your History**: Look at the "Actions Taken So Far" to see which phases you have already completed.
 3.  **Determine the Next Step**: Identify the single next phase from the plan that has not been completed.
 4.  **Execute**: Formulate a JSON object for the tool call corresponding to the immediate next phase.
+    - **CRITICAL PREREQUISITE CHECK**: Before executing a phase's primary action, if it requires specific data (e.g., DDL, column details, summarized text) that is *not* present in the `Data from Last Tool Call` or `Actions Taken So Far`, you **MUST first** identify and call the **most appropriate external Teradata tool** (from the general "Capabilities" section) to retrieve that prerequisite data. Only after successfully obtaining all necessary prerequisite data should you proceed with the phase's primary action.
     - If the phase explicitly states an external Teradata tool (e.g., "Use the `base_tableDDL` tool"), generate a call to that tool.
     - If the phase describes an internal data processing or text generation task that *cannot* be performed by an external Teradata tool (e.g., "Describe the table in a business context", "Format final output"), then you **MUST** call the `CoreLLMTask` tool.
-        - When calling `CoreLLMTask`, you **MUST** determine the correct `task_type` (either 'describe_table' or 'format_final_output') based on the phase's description.
-        - You **MUST** populate the `data` argument by extracting **all relevant information** from the 'CONTEXT & HISTORY' section. For 'describe_table', this includes any DDL and column data previously retrieved. For 'format_final_output', this includes the generated description and the 'Final output guidelines' from the 'WORKFLOW GOAL & PLAN'.
+        - When calling `CoreLLMTask`, you **MUST** determine the correct `task_description` (e.g., 'describe the table in a business context', 'format final output') based on the phase's description.
+        - You **MUST** populate the `data` argument by extracting **all relevant information** from the 'CONTEXT & HISTORY' section. For a description task, this includes any DDL and column data previously retrieved. For a formatting task, this includes the generated description and the 'Final output guidelines' from the 'WORKFLOW_GOAL & PLAN'.
 
 Your response MUST be a single JSON object for the tool call corresponding to the immediate next phase. Do not add any reasoning or other text.
 """
@@ -251,8 +252,16 @@ You need to analyze the situation and select a new, different action to move the
 The last action taken was a repeat of the one before it. The last command was:
 {last_command}
 
+--- CONTEXT & HISTORY ---
+- Actions Taken So Far:
+{workflow_history_str}
+- Data from Last Tool Call:
+{tool_result_str}
+- Workflow Goal & Plan:
+{workflow_goal_and_plan}
+
 --- INSTRUCTIONS ---
-Your next action MUST be different from the repetitive action. Analyze the original goal and the last action to determine a new, more productive step. Your response MUST be a single JSON object for a tool call.
+Your next action MUST be different from the repetitive action. Analyze the original goal, the last action, and the workflow progress to determine a new, more productive step to continue the workflow towards its overall goal. Your response MUST be a single JSON object for a tool call.
 """
 
 # --- NEW: This prompt is for the termination check logic. It is separate from the main system prompt. ---
@@ -263,10 +272,12 @@ FINAL_ANSWER_PROMPT = """
 {all_collected_data}
 - Data from Last Tool Call:
 {last_tool_result}
+- Workflow Goal & Plan:
+{workflow_goal_and_plan}
 
 --- INSTRUCTIONS ---
 Analyze the context above.
-Is this enough information to fully answer the original question?
+Is this enough information to fully answer the original question AND meet all the requirements outlined in the "Workflow Goal & Plan" (including any final output formatting or presentation requirements)?
 Respond only with the word 'YES' or 'NO'. Do not provide any other text.
 """
 
@@ -280,9 +291,10 @@ The last tool call, `{failed_tool_name}`, resulted in an error with the followin
 - Original Question: {user_question}
 - All Data Collected So Far:
 {all_collected_data}
+- Workflow Goal & Plan:
+{workflow_goal_and_plan}
 
 --- INSTRUCTIONS ---
 Your goal is to recover from this error and continue the user's request if possible.
-Do NOT re-call the failed tool `{failed_tool_name}`. Instead, analyze the original question and the error message to choose a new, different action.
-Your response MUST be a single JSON object for a tool call.
+Do NOT re-call the failed tool `{failed_tool_name}`. Instead, analyze the original question, the error message, and the overall workflow goal to choose a new, different action that moves the workflow forward. Your response MUST be a single JSON object for a tool call.
 """

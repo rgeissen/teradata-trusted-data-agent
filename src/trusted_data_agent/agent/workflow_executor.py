@@ -64,7 +64,12 @@ class WorkflowExecutor:
         # --- 1. Get the next action from the LLM based on the current state ---
         if self.next_action_str is None:
             if self.workflow_history:
-                history_items = [f"- Executed tool `{item.get('tool_name')}` with arguments `{item.get('arguments', {})}`." for item in self.workflow_history]
+                history_items = []
+                for item in self.workflow_history:
+                    if 'tool_name' in item:
+                        history_items.append(f"- Executed tool `{item.get('tool_name')}` with arguments `{item.get('arguments', {})}`.")
+                    elif 'llm_response' in item:
+                         history_items.append(f"- LLM provided non-tool response: `{item.get('llm_response')}`.")
                 workflow_history_str = "\n".join(history_items)
             else:
                 workflow_history_str = "No actions have been taken yet."
@@ -96,19 +101,28 @@ class WorkflowExecutor:
 
         self.last_command_in_workflow = self.next_action_str
 
-        # --- 3. Execute the action ---
-        self.parent.next_action_str = self.next_action_str
-        self.parent.state = self.parent.AgentState.DECIDING
-        async for event in self.parent._handle_deciding(): yield event
+        # --- 3. Differentiate between tool calls and LLM-driven steps ---
+        is_tool_call = self.next_action_str.strip().startswith('{')
         
-        if self.parent.state == self.parent.AgentState.EXECUTING_TOOL:
-            async for event in self.parent._execute_tool_with_orchestrators(): yield event
+        if is_tool_call:
+            self.parent.next_action_str = self.next_action_str
+            self.parent.state = self.parent.AgentState.DECIDING
+            async for event in self.parent._handle_deciding(): yield event
             
-            # --- MODIFIED: Use a workflow-specific variable for the tool result ---
-            self.last_tool_result_str = self.parent.last_tool_result_str
-            if self.parent.last_tool_output and self.parent.last_tool_output.get("status") == "success":
-                self.workflow_history.append(self.parent.current_command)
+            if self.parent.state == self.parent.AgentState.EXECUTING_TOOL:
+                async for event in self.parent._execute_tool_with_orchestrators(): yield event
+                
+                # --- MODIFIED: Use a workflow-specific variable for the tool result ---
+                self.last_tool_result_str = self.parent.last_tool_result_str
+                if self.parent.last_tool_output and self.parent.last_tool_output.get("status") == "success":
+                    self.workflow_history.append(self.parent.current_command)
         
+        else: # This is a non-tool LLM-driven step
+            yield self.parent._format_sse({"step": "LLM-Driven Step", "details": self.next_action_str}, "llm_thought")
+            self.workflow_history.append({"llm_response": self.next_action_str})
+            self.last_tool_result_str = f"LLM responded with non-tool step: '{self.next_action_str}'"
+            self.parent.state = self.parent.AgentState.DECIDING
+
         # --- 4. Check for workflow completion ---
         yield self.parent._format_sse({"step": "Checking for completion", "details": "Asking LLM if enough data has been gathered."})
         is_complete, input_tokens, output_tokens = await self._check_for_workflow_completion()
@@ -139,7 +153,9 @@ class WorkflowExecutor:
         prompt = FINAL_ANSWER_PROMPT.format(
             original_question=self.original_user_input,
             all_collected_data=all_data_str,
-            last_tool_result=last_tool_result_str
+            last_tool_result=last_tool_result_str,
+            # --- NEW: Pass the workflow_goal_prompt to the completion check ---
+            workflow_goal_and_plan=self.workflow_goal_prompt
         )
         reason = "Checking for workflow completion."
         
@@ -159,7 +175,11 @@ class WorkflowExecutor:
         recovery_prompt = NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT.format(
             original_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input,
-            last_command=self.last_command_in_workflow
+            last_command=self.last_command_in_workflow,
+            # --- NEW: Pass additional context for better recovery ---
+            workflow_history_str="\n".join([str(item) for item in self.workflow_history]),
+            tool_result_str=self.last_tool_result_str or "No tool result available for last command.",
+            workflow_goal_and_plan=self.workflow_goal_prompt
         )
         
         reason = "Recovering from repetitive action loop in non-deterministic workflow."
