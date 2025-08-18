@@ -70,7 +70,14 @@ class WorkflowExecutor:
             yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
         
         try:
-            self.plan_of_action = json.loads(response_text)
+            # --- FIX: Extract JSON from markdown block before parsing ---
+            json_str = response_text
+            if response_text.strip().startswith("```json"):
+                match = re.search(r"```json\s*\n(.*?)\n\s*```", response_text, re.DOTALL)
+                if match:
+                    json_str = match.group(1).strip()
+
+            self.plan_of_action = json.loads(json_str)
             if not isinstance(self.plan_of_action, list):
                 raise ValueError("LLM response was not a list.")
 

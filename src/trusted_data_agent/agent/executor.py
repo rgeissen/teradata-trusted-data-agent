@@ -22,6 +22,9 @@ def get_prompt_text_content(prompt_obj):
     Extracts the text content from a loaded prompt object, handling different
     potential formats returned by the MCP adapter.
     """
+    # --- FIX: Add a check for a simple string response first ---
+    if isinstance(prompt_obj, str):
+        return prompt_obj
     if (isinstance(prompt_obj, list) and
         len(prompt_obj) > 0 and
         hasattr(prompt_obj[0], 'content') and
