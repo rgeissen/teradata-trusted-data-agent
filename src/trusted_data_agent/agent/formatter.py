@@ -37,25 +37,26 @@ class OutputFormatter:
         """
         clean_summary = self.raw_summary
         
-        # Remove markdown tables and replace with placeholder if renderable tables exist
         markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
         if markdown_table_pattern.search(clean_summary):
             replacement_text = "\n(Data table is shown below)\n" if self._has_renderable_tables() else ""
             clean_summary = re.sub(markdown_table_pattern, replacement_text, clean_summary)
 
-        # Remove DDL blocks, as they are rendered by a dedicated function.
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
         clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
         
-        # --- MODIFIED: Enhanced markdown parser to handle key-value pairs and nested lists ---
         lines = clean_summary.strip().split('\n')
         html_output = []
         
         def process_inline_markdown(text_content):
-            # Process backticks for code blocks first
             text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
-            # Process bold/strong tags
-            text_content = re.sub(r'\*{2,3}(.*?):\*{1,3}', r'<strong>\1:</strong>', text_content)
+            
+            # --- MODIFIED: Robust key-value replacer for inline content (e.g., in lists) ---
+            def key_replacer(match):
+                key = match.group(1).strip().rstrip(':').strip()
+                return f'<strong>{key}:</strong>'
+            
+            text_content = re.sub(r'\*{2,3}(.*?):?\*{2,3}:?', key_replacer, text_content)
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
 
@@ -64,13 +65,11 @@ class OutputFormatter:
         for line in lines:
             stripped_line = line.strip()
             
-            # --- MODIFIED: Regex now accepts 2 or 3 asterisks for key-value pairs ---
-            key_value_match = re.match(r'^\*{2,3}(.*?)\*{2,3}\s*(.*)$', stripped_line)
-            # Pattern for list items
+            # --- MODIFIED: Robust regex for top-level keys, handling colon inside or outside asterisks ---
+            key_value_match = re.match(r'^\*{2,3}(.*?):?\*{2,3}:?\s*(.*)$', stripped_line)
             list_item_match = re.match(r'^[*-]\s*(.*)$', stripped_line)
 
             if key_value_match:
-                # This is a key-value line, so render any pending list first
                 if current_list_items:
                     html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
                     for item in current_list_items:
@@ -78,25 +77,21 @@ class OutputFormatter:
                     html_output.append('</ul>')
                     current_list_items = []
 
-                key = key_value_match.group(1).strip()
+                key = key_value_match.group(1).strip().rstrip(':').strip()
                 value = key_value_match.group(2).strip()
                 
-                # Special handling for 'Description' to treat its value as a paragraph
                 if "description" in key.lower():
-                     html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}</strong></p>')
-                     # The value part might be long and needs its own paragraph tag
+                     html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}:</strong></p>')
                      html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(value)}</p>')
                 else:
-                    html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}</strong> {process_inline_markdown(value)}</p>')
+                    html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}:</strong> {process_inline_markdown(value)}</p>')
 
             elif list_item_match:
-                # This is a list item, collect it
                 content = list_item_match.group(1).strip()
                 if content:
                     current_list_items.append(process_inline_markdown(content))
             
             else:
-                # This is not a list item or a key-value pair. Render any pending list.
                 if current_list_items:
                     html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
                     for item in current_list_items:
@@ -104,7 +99,6 @@ class OutputFormatter:
                     html_output.append('</ul>')
                     current_list_items = []
 
-                # Process as a header or paragraph
                 if stripped_line.startswith('# '):
                     content = stripped_line[2:]
                     html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
@@ -114,7 +108,6 @@ class OutputFormatter:
                 elif stripped_line:
                     html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(stripped_line)}</p>')
 
-        # After the loop, render any remaining list items
         if current_list_items:
             html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
             for item in current_list_items:
@@ -153,19 +146,14 @@ class OutputFormatter:
         if not isinstance(results, list) or not results or not all(isinstance(item, dict) for item in results): return ""
         
         metadata = tool_result.get("metadata", {})
-        # --- MODIFIED: Prioritize metadata.tool_name, then check for a 'response' key, then use default. ---
         title = metadata.get("tool_name", default_title)
         
-        # If the result is from a CoreLLMTask (identified by a 'response' key in results[0])
-        # and it's still using a generic title, try to make it more descriptive.
         if "response" in results[0] and title == default_title:
-            # Attempt to extract a more meaningful title from the response content
-            # For example, if the response starts with "# Business Description: TableName"
             first_line_match = re.match(r'#\s*(.*?)(?:\n|$)', results[0]["response"])
             if first_line_match:
                 title = first_line_match.group(1).strip()
             else:
-                title = "LLM Generated Content" # Fallback if no clear title in response
+                title = "LLM Generated Content"
 
         headers = results[0].keys()
         
@@ -249,7 +237,6 @@ class OutputFormatter:
         sanitized_summary = self._sanitize_summary()
         html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
         
-        # Ensure collected_data is treated as a list or converted for rendering
         if isinstance(self.collected_data, dict) and self.collected_data:
             data_to_process = self.collected_data
         elif isinstance(self.collected_data, list) and self.collected_data:
@@ -262,7 +249,6 @@ class OutputFormatter:
             html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
             
             for i, item in enumerate(data_items):
-                # Handle lists of results (e.g., from column iteration)
                 if isinstance(item, list) and item and isinstance(item[0], dict):
                     combined_results = []
                     metadata = {}
@@ -278,7 +264,6 @@ class OutputFormatter:
                         html += f"<div class='response-card'><p class='text-sm text-gray-400 italic'>No data results for '{display_key}' due to skipped or errored sub-steps.</p></div>"
                     continue
 
-                # Handle individual dictionary items (e.g., direct tool results, business descriptions)
                 if isinstance(item, dict):
                     tool_name = item.get("metadata", {}).get("tool_name")
                     if item.get("type") == "business_description":
