@@ -134,7 +134,32 @@ class PlanExecutor:
         if context_key not in self.structured_collected_data:
             self.structured_collected_data[context_key] = []
         
-        if isinstance(tool_result, dict) and "results" in tool_result:
+        # --- MODIFIED: More robust check for CoreLLMTask output and injecting a descriptive tool_name. ---
+        # This condition now correctly identifies CoreLLMTask results based on their structure.
+        if (self.is_workflow and 
+            isinstance(tool_result, dict) and
+            tool_result.get("status") == "success" and
+            tool_result.get("results") and 
+            isinstance(tool_result["results"], list) and
+            len(tool_result["results"]) > 0 and
+            isinstance(tool_result["results"][0], dict) and
+            "response" in tool_result["results"][0]):
+            
+            task_name = "CoreLLMTask Result" # Default fallback
+            if self.plan_of_action and self.current_step_index > 0 and self.current_step_index <= len(self.plan_of_action):
+                # Get the task from the plan that generated this CoreLLMTask output
+                # We need to look at the current step in the plan, as _add_to_structured_data is called
+                # *after* the tool execution for that step.
+                current_plan_step = self.plan_of_action[self.current_step_index - 1] 
+                if current_plan_step.get("tool_name") == "CoreLLMTask":
+                    task_name = current_plan_step.get("task_name", "CoreLLMTask Result")
+            
+            # Create a copy of the tool_result to modify its metadata
+            modified_tool_result = tool_result.copy()
+            modified_tool_result.setdefault("metadata", {})["tool_name"] = task_name
+            self.structured_collected_data[context_key].append(modified_tool_result)
+            app_logger.info(f"Added modified CoreLLMTask result to structured data under key: '{context_key}' for workflow.")
+        elif isinstance(tool_result, dict) and "results" in tool_result:
             self.structured_collected_data[context_key].append(tool_result)
             app_logger.info(f"Added tool result to structured data under key: '{context_key}' for workflow.")
         elif isinstance(tool_result, list):
@@ -699,12 +724,15 @@ class PlanExecutor:
         final_collected_data = self.structured_collected_data if self.is_workflow else self.collected_data
         
         final_summary_text = ""
-        # --- MODIFIED: Check if the last tool output is a CoreLLMTask with a final response. ---
-        # This prevents redundant summarization and uses the already formatted output.
+        # --- MODIFIED: More robust check for CoreLLMTask final response. ---
+        # Checks if it's a workflow, if there's a last_tool_output, and if it has the expected structure
+        # for a CoreLLMTask's successful response containing the final formatted text.
         if (self.is_workflow and 
-            self.last_tool_output and 
-            self.last_tool_output.get("metadata", {}).get("tool_name") == "CoreLLMTask" and
+            isinstance(self.last_tool_output, dict) and
+            self.last_tool_output.get("status") == "success" and
             self.last_tool_output.get("results") and 
+            isinstance(self.last_tool_output["results"], list) and
+            len(self.last_tool_output["results"]) > 0 and
             isinstance(self.last_tool_output["results"][0], dict) and
             "response" in self.last_tool_output["results"][0]):
             

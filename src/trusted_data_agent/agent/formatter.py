@@ -133,7 +133,20 @@ class OutputFormatter:
         if not isinstance(results, list) or not results or not all(isinstance(item, dict) for item in results): return ""
         
         metadata = tool_result.get("metadata", {})
+        # --- MODIFIED: Prioritize metadata.tool_name, then check for a 'response' key, then use default. ---
         title = metadata.get("tool_name", default_title)
+        
+        # If the result is from a CoreLLMTask (identified by a 'response' key in results[0])
+        # and it's still using a generic title, try to make it more descriptive.
+        if "response" in results[0] and title == default_title:
+            # Attempt to extract a more meaningful title from the response content
+            # For example, if the response starts with "# Business Description: TableName"
+            first_line_match = re.match(r'#\s*(.*?)(?:\n|$)', results[0]["response"])
+            if first_line_match:
+                title = first_line_match.group(1).strip()
+            else:
+                title = "LLM Generated Content" # Fallback if no clear title in response
+
         headers = results[0].keys()
         
         table_data_json = json.dumps(results)
@@ -167,7 +180,6 @@ class OutputFormatter:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
         
-        # FIX: Corrected variable name from `html` to `table_html`
         table_html = "" 
         results = table_data.get("results")
         if isinstance(results, list) and results and all(isinstance(item, dict) for item in results):
@@ -192,7 +204,6 @@ class OutputFormatter:
                 for header in headers:
                     cell_data = str(row.get(header, ''))
                     sanitized_cell = cell_data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    # FIX: Changed 'html' to 'table_html' here
                     table_html += f"<td>{sanitized_cell}</td>"
                 table_html += "</tr>"
             table_html += "</tbody></table></div>"
