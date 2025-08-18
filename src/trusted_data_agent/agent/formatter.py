@@ -47,56 +47,76 @@ class OutputFormatter:
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
         clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
         
-        # --- MODIFIED: Enhanced list and paragraph processing ---
+        # --- MODIFIED: Enhanced markdown parser to handle key-value pairs and nested lists ---
         lines = clean_summary.strip().split('\n')
-        html_output = [] # Use a list to build output, then join at the end
+        html_output = []
         
-        # Helper to process markdown within a line (bold, inline code)
         def process_inline_markdown(text_content):
+            # Process backticks for code blocks first
+            text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
+            # Process bold/strong tags
             text_content = re.sub(r'\*{2,3}(.*?):\*{1,3}', r'<strong>\1:</strong>', text_content)
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
-            text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
             return text_content
 
-        current_list_items = [] # Stores content of list items for the *current* list block
+        current_list_items = []
 
         for line in lines:
             stripped_line = line.strip()
-
-            # Check for list items (starts with * or - followed by space)
-            list_item_content_match = re.match(r'^[*-]\s*(.*)$', stripped_line)
             
-            if list_item_content_match:
-                # This line is a potential list item
-                content = list_item_content_match.group(1).strip()
-                if content: # Only add if the list item has actual content
-                    current_list_items.append(process_inline_markdown(content))
-                # If it's a list marker with no content, we just ignore it.
-                # It won't be added to current_list_items, and the next non-list line
-                # will correctly trigger the rendering of any accumulated list items.
-            else:
-                # This line is NOT a list item.
-                # If we were collecting list items, render them now.
+            # --- MODIFIED: Regex now accepts 2 or 3 asterisks for key-value pairs ---
+            key_value_match = re.match(r'^\*{2,3}(.*?)\*{2,3}\s*(.*)$', stripped_line)
+            # Pattern for list items
+            list_item_match = re.match(r'^[*-]\s*(.*)$', stripped_line)
+
+            if key_value_match:
+                # This is a key-value line, so render any pending list first
                 if current_list_items:
-                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4">')
+                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
                     for item in current_list_items:
                         html_output.append(f'<li>{item}</li>')
                     html_output.append('</ul>')
-                    current_list_items = [] # Reset for next list block
+                    current_list_items = []
 
-                # Now process this non-list line
+                key = key_value_match.group(1).strip()
+                value = key_value_match.group(2).strip()
+                
+                # Special handling for 'Description' to treat its value as a paragraph
+                if "description" in key.lower():
+                     html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}</strong></p>')
+                     # The value part might be long and needs its own paragraph tag
+                     html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(value)}</p>')
+                else:
+                    html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}</strong> {process_inline_markdown(value)}</p>')
+
+            elif list_item_match:
+                # This is a list item, collect it
+                content = list_item_match.group(1).strip()
+                if content:
+                    current_list_items.append(process_inline_markdown(content))
+            
+            else:
+                # This is not a list item or a key-value pair. Render any pending list.
+                if current_list_items:
+                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
+                    for item in current_list_items:
+                        html_output.append(f'<li>{item}</li>')
+                    html_output.append('</ul>')
+                    current_list_items = []
+
+                # Process as a header or paragraph
                 if stripped_line.startswith('# '):
                     content = stripped_line[2:]
                     html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
                 elif stripped_line.startswith('## '):
                     content = stripped_line[3:]
                     html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{content}</h4>')
-                elif stripped_line: # Any other non-empty line is a paragraph
+                elif stripped_line:
                     html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(stripped_line)}</p>')
-        
-        # After the loop, if there are any remaining list items, render them
+
+        # After the loop, render any remaining list items
         if current_list_items:
-            html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4">')
+            html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
             for item in current_list_items:
                 html_output.append(f'<li>{item}</li>')
             html_output.append('</ul>')
