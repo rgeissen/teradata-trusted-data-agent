@@ -97,9 +97,6 @@ class PlanExecutor:
         self.workflow_goal_prompt = ""
         self.structured_collected_data = {}
 
-        self.plan_of_action = None
-        self.current_step_index = 0
-
     @staticmethod
     def _format_sse(data: dict, event: str = None) -> str:
         msg = f"data: {json.dumps(data)}\n"
@@ -149,13 +146,6 @@ class PlanExecutor:
             "response" in tool_result["results"][0]):
             
             task_name = "CoreLLMTask Result" # Default fallback
-            if self.plan_of_action and self.current_step_index > 0 and self.current_step_index <= len(self.plan_of_action):
-                # Get the task from the plan that generated this CoreLLMTask output
-                # We need to look at the current step in the plan, as _add_to_structured_data is called
-                # *after* the tool execution for that step.
-                current_plan_step = self.plan_of_action[self.current_step_index - 1] 
-                if current_plan_step.get("tool_name") == "CoreLLMTask":
-                    task_name = current_plan_step.get("task_name", "CoreLLMTask Result")
             
             # Create a copy of the tool_result to modify its metadata
             modified_tool_result = tool_result.copy()
@@ -178,6 +168,8 @@ class PlanExecutor:
                     workflow_executor = WorkflowExecutor(parent_executor=self)
                     async for event in workflow_executor.run():
                         yield event
+                    # After the workflow runs, it will set the parent's state.
+                    # If it's time to summarize, break the loop to proceed to summarization.
                     if self.state == self.AgentState.SUMMARIZING:
                         break
                 elif self.state == self.AgentState.DECIDING:
@@ -208,7 +200,8 @@ class PlanExecutor:
             user_question=self.original_user_input,
             error_message=error_message,
             failed_tool_name=failed_tool_name,
-            all_collected_data=self._prepare_data_for_prompt()
+            all_collected_data=self._prepare_data_for_prompt(),
+            workflow_goal_and_plan=self.workflow_goal_prompt
         )
         reason = "Recovering from error."
         yield self._format_sse({"step": "Calling LLM for Recovery", "details": reason})

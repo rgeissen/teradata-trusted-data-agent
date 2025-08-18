@@ -381,12 +381,12 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     # --- NEW: Generic prompt template for internal LLM tasks ---
     final_prompt = (
-        "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data:\n\n"
+        "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.\n\n"
         "--- TASK ---\n"
         f"{task_description}\n\n"
-        "--- DATA ---\n"
+        "--- DATA (Full Workflow State & History) ---\n"
         f"{json.dumps(data, indent=2)}\n\n"
-        "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
+        "Your response should be the direct result of the task. Use the full data context provided to inform your response. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
 
     response_text, _, _ = await llm_handler.call_llm_api(

@@ -3,22 +3,20 @@ import json
 import logging
 import re
 
-from trusted_data_agent.agent.prompts import NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT, WORKFLOW_PLANNING_PROMPT
+from trusted_data_agent.agent.prompts import (
+    WORKFLOW_META_PLANNING_PROMPT,
+    WORKFLOW_TACTICAL_PROMPT,
+    WORKFLOW_PHASE_COMPLETION_PROMPT
+)
 from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 
 app_logger = logging.getLogger("quart.app")
 
-# --- NEW: Regex to extract the final output guidelines from the prompt text. ---
-FINAL_OUTPUT_GUIDELINES_PATTERN = re.compile(
-    r'## Final output guidelines:(.*?)(?:##|\Z)', 
-    re.DOTALL | re.IGNORECASE
-)
-
 class WorkflowExecutor:
     """
-    A dedicated class to handle the execution of multi-step, non-deterministic workflows.
-    It is instantiated by the main PlanExecutor when a workflow is triggered.
+    A dedicated class to handle the execution of multi-step, stateful workflows.
+    It implements a hybrid state machine, guided by a high-level meta-plan.
     """
     def __init__(self, parent_executor):
         self.parent = parent_executor
@@ -29,32 +27,21 @@ class WorkflowExecutor:
         self.active_prompt_name = self.parent.active_prompt_name
         self.workflow_goal_prompt = self.parent.workflow_goal_prompt
         
-        self.workflow_history = getattr(self.parent, 'workflow_history', [])
-        self.last_tool_result_str = getattr(self.parent, 'last_workflow_tool_result_str', None)
-        self.last_command_in_workflow = getattr(self.parent, 'last_command_in_workflow', None)
-        self.plan_of_action = getattr(self.parent, 'plan_of_action', None)
-        self.current_step_index = getattr(self.parent, 'current_step_index', 0)
-        
-        self.next_action_str = None
+        # State machine properties
+        self.meta_plan = None
+        self.current_phase_index = 0
+        self.workflow_state = {} # Stores results keyed by phase, e.g., {"result_of_phase_1": [...]}
+        self.action_history = []
 
-    def _persist_state_to_parent(self):
+    async def _generate_meta_plan(self):
         """
-        Writes the current workflow state back to the parent PlanExecutor instance.
+        Generates the strategic, high-level meta-plan that will guide the state machine.
+        This is a one-time call at the beginning of the workflow.
         """
-        self.parent.workflow_history = self.workflow_history
-        self.parent.last_workflow_tool_result_str = self.last_tool_result_str
-        self.parent.last_command_in_workflow = self.last_command_in_workflow
-        self.parent.plan_of_action = self.plan_of_action
-        self.parent.current_step_index = self.current_step_index
-
-    async def _generate_plan_of_action(self):
-        """
-        Generates a deterministic plan of action by making a single, initial LLM call.
-        """
-        reason = f"Generating a phased plan of action for the '{self.active_prompt_name}' workflow."
+        reason = f"Generating a strategic meta-plan for the '{self.active_prompt_name}' workflow."
         yield self.parent._format_sse({"step": "Calling LLM", "details": reason})
 
-        planning_prompt = WORKFLOW_PLANNING_PROMPT.format(
+        planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input
         )
@@ -62,7 +49,7 @@ class WorkflowExecutor:
         response_text, input_tokens, output_tokens = await self.parent._call_llm_and_update_tokens(
             prompt=planning_prompt, 
             reason=reason,
-            system_prompt_override="You are a JSON-only planning assistant. Your response must be a single JSON list of tasks."
+            system_prompt_override="You are a JSON-only strategic planning assistant."
         )
 
         updated_session = session_manager.get_session(self.session_id)
@@ -70,120 +57,145 @@ class WorkflowExecutor:
             yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
         
         try:
-            # --- FIX: Extract JSON from markdown block before parsing ---
             json_str = response_text
+            # Handle potential markdown code blocks
             if response_text.strip().startswith("```json"):
                 match = re.search(r"```json\s*\n(.*?)\n\s*```", response_text, re.DOTALL)
                 if match:
                     json_str = match.group(1).strip()
 
-            self.plan_of_action = json.loads(json_str)
-            if not isinstance(self.plan_of_action, list):
-                raise ValueError("LLM response was not a list.")
+            self.meta_plan = json.loads(json_str)
+            if not isinstance(self.meta_plan, list):
+                raise ValueError("LLM response for meta-plan was not a list.")
 
-            # --- NEW: Inject final output guidelines into the last task's description ---
-            final_guidelines_match = FINAL_OUTPUT_GUIDELINES_PATTERN.search(self.workflow_goal_prompt)
-            final_guidelines_str = final_guidelines_match.group(1).strip() if final_guidelines_match else ""
-
-            if self.plan_of_action and isinstance(self.plan_of_action[-1], dict) and self.plan_of_action[-1].get('tool_name') == 'CoreLLMTask':
-                 final_task_desc = self.plan_of_action[-1]['arguments'].get('task_description', 'Synthesize final report for user.')
-                 final_task_desc += f" The final response MUST adhere to the following output guidelines:\n{final_guidelines_str}"
-                 self.plan_of_action[-1]['arguments']['task_description'] = final_task_desc
-
-            yield self.parent._format_sse({"step": "Plan of Action Generated", "details": self.plan_of_action})
+            yield self.parent._format_sse({"step": "Strategic Meta-Plan Generated", "details": self.meta_plan})
         except (json.JSONDecodeError, ValueError) as e:
-            raise RuntimeError(f"Failed to generate a valid plan from the LLM. Response: {response_text}. Error: {e}")
+            # Raise a specific error that the run method can catch
+            raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
+
+    async def _get_next_action(self, current_phase_goal: str) -> dict:
+        """
+        Makes a tactical LLM call to decide the single next best action for the current phase.
+        This is now a standard async function that returns a value.
+        """
+        tactical_prompt = WORKFLOW_TACTICAL_PROMPT.format(
+            workflow_goal=self.workflow_goal_prompt,
+            current_phase_goal=current_phase_goal,
+            workflow_history=json.dumps(self.action_history, indent=2),
+            all_collected_data=json.dumps(self.workflow_state, indent=2)
+        )
+
+        response_text, _, _ = await self.parent._call_llm_and_update_tokens(
+            prompt=tactical_prompt,
+            reason=f"Deciding next tactical action for phase: {current_phase_goal}",
+            system_prompt_override="You are a JSON-only tactical assistant."
+        )
+
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}")
+
+    async def _is_phase_complete(self, current_phase_goal: str) -> bool:
+        """
+        Asks the LLM if the current phase's goal has been met.
+        This is now a standard async function that returns a value.
+        """
+        completion_prompt = WORKFLOW_PHASE_COMPLETION_PROMPT.format(
+            current_phase_goal=current_phase_goal,
+            workflow_history=json.dumps(self.action_history, indent=2),
+            all_collected_data=json.dumps(self.workflow_state, indent=2)
+        )
+
+        response_text, _, _ = await self.parent._call_llm_and_update_tokens(
+            prompt=completion_prompt,
+            reason=f"Checking for completion of phase: {current_phase_goal}",
+            system_prompt_override="You are a YES/NO validation assistant."
+        )
+        
+        return "yes" in response_text.lower()
 
     async def run(self):
         """
-        The main execution loop for the deterministic workflow.
-        It orchestrates the plan from start to finish.
+        The main execution loop for the state machine.
+        It orchestrates the execution of the meta-plan, phase by phase.
         """
-        if self.plan_of_action is None:
-            async for event in self._generate_plan_of_action():
-                yield event
-            self._persist_state_to_parent()
+        # --- MODIFIED: Added self-contained error handling for the planning phase ---
+        try:
+            if self.meta_plan is None:
+                async for event in self._generate_meta_plan():
+                    yield event
+        except RuntimeError as e:
+            app_logger.error(f"Workflow failed during planning: {e}", exc_info=True)
+            yield self.parent._format_sse({"error": "Workflow Planning Failed", "details": str(e)}, "error")
+            self.parent.state = self.parent.AgentState.ERROR
+            return # Gracefully exit the generator
 
-        while self.current_step_index < len(self.plan_of_action):
-            current_step = self.plan_of_action[self.current_step_index]
-            
+        while self.current_phase_index < len(self.meta_plan):
+            current_phase = self.meta_plan[self.current_phase_index]
+            phase_goal = current_phase.get("goal", "No goal defined for this phase.")
+            phase_num = current_phase.get("phase", self.current_phase_index + 1)
+
             yield self.parent._format_sse({
-                "step": "Executing Plan Step",
-                "details": f"Step {self.current_step_index + 1}/{len(self.plan_of_action)}: {current_step.get('task_name', 'Unnamed Task')}",
-                "task": current_step
+                "step": "Starting Workflow Phase",
+                "details": f"Phase {phase_num}/{len(self.meta_plan)}: {phase_goal}",
+                "phase_details": current_phase
             })
 
-            tool_name = current_step.get("tool_name")
-            if tool_name is None:
-                raise ValueError(f"Task at index {self.current_step_index} is missing a 'tool_name' key.")
-
-            if tool_name == "CoreLLMTask":
-                current_step['arguments']['data'] = self.parent.structured_collected_data
-                app_logger.info(f"Populated CoreLLMTask data with collected results for task: {current_step.get('task_name')}")
-
-            try:
-                yield self.parent._format_sse({"step": "Tool Execution Intent", "details": current_step}, "tool_result")
+            # This inner loop executes all actions for the current phase
+            while True:
+                reason = f"Deciding next tactical action for phase: {phase_goal}"
+                yield self.parent._format_sse({"step": "Calling LLM", "details": reason})
+                next_action = await self._get_next_action(phase_goal)
                 
-                status_target = "db"
-                yield self.parent._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
-                
-                tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], current_step)
-                
-                yield self.parent._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
+                if not next_action:
+                    raise RuntimeError("Tactical LLM failed to provide a next action.")
 
-                if isinstance(tool_result, dict) and tool_result.get("status") == "error":
-                    error_details = tool_result.get("data", tool_result.get("error", ""))
-                    tool_result_str = json.dumps({"tool_input": current_step, "tool_output": {"status": "error", "error_message": error_details}})
-                    yield self.parent._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
+                tool_name = next_action.get("tool_name")
+                if not tool_name:
+                    raise ValueError("Tactical LLM response is missing a 'tool_name'.")
+
+                if current_phase.get("type") == "loop":
+                    loop_data_key = current_phase.get("loop_over")
+                    if loop_data_key and loop_data_key in self.workflow_state:
+                         next_action['arguments']['data_from_previous_phase'] = self.workflow_state[loop_data_key]
+
+                try:
+                    yield self.parent._format_sse({"step": "Tool Execution Intent", "details": next_action}, "tool_result")
+                    
+                    status_target = "db"
+                    yield self.parent._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
+                    
+                    tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], next_action)
+                    
+                    yield self.parent._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
+
+                    self.action_history.append({"action": next_action, "result": "success"})
+                    phase_result_key = f"result_of_phase_{phase_num}"
+                    if phase_result_key not in self.workflow_state:
+                        self.workflow_state[phase_result_key] = []
+                    self.workflow_state[phase_result_key].append(tool_result)
+                    
+                    self.parent.last_tool_output = tool_result
+                    self.parent._add_to_structured_data(tool_result)
+
+                    yield self.parent._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
+
+                except Exception as e:
+                    app_logger.error(f"Error during workflow execution for step '{tool_name}': {e}", exc_info=True)
+                    self.action_history.append({"action": next_action, "result": "error", "error_message": str(e)})
                     self.parent.state = self.parent.AgentState.ERROR
                     return
                 
-                # --- NEW: Update parent's last_tool_output with the result of this step. ---
-                self.parent.last_tool_output = tool_result
-                self.parent._add_to_structured_data(tool_result)
+                reason = f"Checking for completion of phase: {phase_goal}"
+                yield self.parent._format_sse({"step": "Calling LLM", "details": reason})
+                phase_is_complete = await self._is_phase_complete(phase_goal)
+                
+                if phase_is_complete:
+                    yield self.parent._format_sse({"step": f"Phase {phase_num} Complete", "details": phase_goal})
+                    break
 
-                yield self.parent._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
-            except Exception as e:
-                app_logger.error(f"Error during plan execution for step '{tool_name}': {e}", exc_info=True)
-                self.parent.state = self.parent.AgentState.ERROR
-                return
+            self.current_phase_index += 1
 
-            self.current_step_index += 1
-            self._persist_state_to_parent()
-            
-            if self.current_step_index >= len(self.plan_of_action):
-                app_logger.info("Workflow plan has been fully executed. Transitioning to summarization.")
-                self.parent.state = self.parent.AgentState.SUMMARIZING
-                break
-            
-            return
-
-    async def _recover_from_loop(self):
-        """
-        Attempts to recover from a detected repetitive action loop.
-        """
-        recovery_prompt = NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT.format(
-            original_goal=self.workflow_goal_prompt,
-            original_user_input=self.original_user_input,
-            last_command=self.last_command_in_workflow,
-            workflow_history_str="\n".join([str(item) for item in self.workflow_history]),
-            tool_result_str=self.last_tool_result_str or "No tool result available for last command.",
-            workflow_goal_and_plan=self.workflow_goal_prompt
-        )
-        
-        reason = "Recovering from repetitive action loop in non-deterministic workflow."
-        yield self.parent._format_sse({"step": "Calling LLM for Recovery", "details": reason, "type": "workaround"})
-        
-        response_text, input_tokens, output_tokens = await self.parent._call_llm_and_update_tokens(
-            prompt=recovery_prompt, 
-            reason=reason,
-            system_prompt_override="You are a tool-use assistant.",
-            raise_on_error=True
-        )
-
-        updated_session = session_manager.get_session(self.session_id)
-        if updated_session:
-            yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
-            
-        self.next_action_str = response_text
-        self.last_command_in_workflow = None
+        app_logger.info("Workflow meta-plan has been fully executed. Transitioning to summarization.")
+        self.parent.state = self.parent.AgentState.SUMMARIZING

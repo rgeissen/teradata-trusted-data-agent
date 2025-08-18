@@ -202,49 +202,6 @@ CHARTING_INSTRUCTIONS = {
     )
 }
 
-NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT = """
-A repetitive action has been detected in the workflow. The last tool call was the same as the previous one, which is causing a loop.
-You need to analyze the situation and select a new, different action to move the workflow forward.
-
---- ORIGINAL GOAL ---
-{original_goal}
-
---- USER'S ORIGINAL QUESTION ---
-{original_user_input}
-
---- REPETITIVE ACTION ---
-The last action taken was a repeat of the one before it. The last command was:
-{last_command}
-
---- CONTEXT & HISTORY ---
-- Actions Taken So Far:
-{workflow_history_str}
-- Data from Last Tool Call:
-{tool_result_str}
-- Workflow Goal & Plan:
-{workflow_goal_and_plan}
-
---- INSTRUCTIONS ---
-Your next action MUST be different from the repetitive action. Analyze the original goal, the last action, and the overall workflow goal to choose a new, more productive step to continue the workflow towards its overall goal. Your response MUST be a single JSON object for a tool call.
-"""
-
-# --- NEW: This prompt is for the termination check logic. It is separate from the main system prompt. ---
-FINAL_ANSWER_PROMPT = """
---- CONTEXT FOR YOUR DECISION ---
-- Original Question: {original_question}
-- All Data Collected So Far:
-{all_collected_data}
-- Data from Last Tool Call:
-{last_tool_result}
-- Workflow Goal & Plan:
-{workflow_goal_and_plan}
-
---- INSTRUCTIONS ---
-Analyze the context above.
-Is this enough information to fully answer the original question AND meet all the requirements outlined in the "Workflow Goal & Plan" (including any final output formatting or presentation requirements)?
-Respond only with the word 'YES' or 'NO'. Do not provide any other text.
-"""
-
 # --- NEW: A specialized prompt for error recovery ---
 ERROR_RECOVERY_PROMPT = """
 --- ERROR RECOVERY ---
@@ -263,8 +220,8 @@ Your goal is to recover from this error and continue the user's request if possi
 Do NOT re-call the failed tool `{failed_tool_name}`. Instead, analyze the original question, the error message, and the overall workflow goal to choose a new, different action that moves the workflow forward. Your response MUST be a single JSON object for a tool call.
 """
 
-# --- NEW: This prompt is for generating the initial, deterministic plan of action. ---
-WORKFLOW_PLANNING_PROMPT = """
+# --- RENAMED: This is the old, static planning prompt. ---
+WORKFLOW_STATIC_PLANNING_PROMPT = """
 You are an expert planning assistant. Your task is to convert a high-level workflow goal into a detailed, step-by-step plan of action. The final plan MUST be a single JSON list of executable tasks.
 
 --- WORKFLOW GOAL & PLAN ---
@@ -286,4 +243,89 @@ This is the goal you need to break down into a step-by-step plan.
 5.  **Final Task**: The very last step in your plan **MUST ALWAYS** be a call to `CoreLLMTask` with a `task_description` of "Synthesize final report for user.". This signals the end of the data-gathering phase.
 
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
+"""
+
+# --- NEW: This prompt generates the high-level, strategic meta-plan for the state machine. ---
+# --- FIX: Escaped curly braces in the JSON example to prevent format string errors. ---
+WORKFLOW_META_PLANNING_PROMPT = """
+You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
+
+--- MASTER PROMPT (The User's Goal) ---
+{workflow_goal}
+
+--- CONTEXT ---
+- User's Original Question: {original_user_input}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the Master Prompt**: Carefully read the entire "MASTER PROMPT" to identify the distinct phases, steps, and communication requirements.
+2.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step in the process.
+3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
+    -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
+    -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
+    -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
+4.  **Final Phase**: The final phase should always be dedicated to synthesizing and formatting the final report according to the "Final output guidelines" in the master prompt.
+
+--- EXAMPLE ---
+If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get DDL. Phase 3 - describe database.", your output should look like this:
+```json
+[
+  {{
+    "phase": 1,
+    "goal": "Get the list of all tables in the database using the `base_tableList` tool."
+  }},
+  {{
+    "phase": 2,
+    "goal": "For each table identified in Phase 1, get its DDL using `base_tableDDL`.",
+    "type": "loop",
+    "loop_over": "result_of_phase_1"
+  }},
+  {{
+    "phase": 3,
+    "goal": "Synthesize a final, holistic business description of the entire database by analyzing the DDLs collected in Phase 2."
+  }}
+]
+```
+
+Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
+"""
+
+# --- NEW: This prompt is the tactical, step-by-step decider for the state machine. ---
+WORKFLOW_TACTICAL_PROMPT = """
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+
+--- OVERALL WORKFLOW GOAL ---
+{workflow_goal}
+
+--- CURRENT PHASE GOAL ---
+{current_phase_goal}
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: {workflow_history}
+- Data Collected So Far: {all_collected_data}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **Decide Next Action**: Based on your analysis, determine the single best tool or prompt to call next to make progress on the current phase's goal.
+3.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+4.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
+"""
+
+# --- NEW: This prompt checks if the current phase's goal has been met. ---
+WORKFLOW_PHASE_COMPLETION_PROMPT = """
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
+
+--- CURRENT PHASE GOAL ---
+{current_phase_goal}
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: {workflow_history}
+- Data Collected So Far: {all_collected_data}
+
+--- INSTRUCTIONS ---
+Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
+
+Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
 """

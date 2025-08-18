@@ -245,7 +245,8 @@ class OutputFormatter:
             return html
 
         for context_key, data_items in data_to_process.items():
-            display_key = context_key.replace(">", "&gt;")
+            # --- MODIFIED: Clean up the context key for display ---
+            display_key = context_key.replace("Workflow: ", "").replace(">", "&gt;")
             html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
             
             for i, item in enumerate(data_items):
