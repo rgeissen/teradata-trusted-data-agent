@@ -10,7 +10,7 @@ src/trusted_data_agent.egg-info/top_level.txt
 src/trusted_data_agent/agent/executor.py
 src/trusted_data_agent/agent/formatter.py
 src/trusted_data_agent/agent/prompts.py
-src/trusted_data_agent/agent/workflow_manager.py
+src/trusted_data_agent/agent/workflow_executor.py
 src/trusted_data_agent/api/__init__.py
 src/trusted_data_agent/api/routes.py
 src/trusted_data_agent/core/__init__.py

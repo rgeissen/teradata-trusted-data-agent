@@ -202,42 +202,6 @@ CHARTING_INSTRUCTIONS = {
     )
 }
 
-# --- MODIFIED: This template is now much more explicit to guide the LLM's reasoning. ---
-# It forces the LLM to follow the prescribed phases of the workflow goal.
-WORKFLOW_STEP_TEMPLATE = """
-You are a workflow assistant. Your task is to strictly follow a phased plan to achieve a goal.
-
---- WORKFLOW GOAL & PLAN ---
-This is the plan you MUST follow. Do not deviate from it.
-{workflow_goal}
-
---- CONTEXT & HISTORY ---
-- User's Original Question: {original_user_input}
-- Actions Taken So Far:
-{workflow_history_str}
-- Data from Last Tool Call:
-{tool_result_str}
-
---- AVAILABLE INTERNAL TOOL ---
-- `CoreLLMTask`: Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `data` (dict, required): A dictionary containing all necessary data for the task, intelligently extracted by the LLM from the 'CONTEXT & HISTORY' section.
-
---- YOUR TASK ---
-1.  **Review the Plan**: Look at the phases outlined in the "WORKFLOW GOAL & PLAN".
-2.  **Check Your History**: Look at the "Actions Taken So Far" to see which phases you have already completed.
-3.  **Determine the Next Step**: Identify the single next phase from the plan that has not been completed.
-4.  **Execute**: Formulate a JSON object for the tool call corresponding to the immediate next phase.
-    - **CRITICAL PREREQUISITE CHECK**: Before executing a phase's primary action, if it requires specific data (e.g., DDL, column details, summarized text) that is *not* present in the `Data from Last Tool Call` or `Actions Taken So Far`, you **MUST first** identify and call the **most appropriate external Teradata tool** (from the general "Capabilities" section) to retrieve that prerequisite data. Only after successfully obtaining all necessary prerequisite data should you proceed with the phase's primary action.
-    - If the phase explicitly states an external Teradata tool (e.g., "Use the `base_tableDDL` tool"), generate a call to that tool.
-    - If the phase describes an internal data processing or text generation task that *cannot* be performed by an external Teradata tool (e.g., "Describe the table in a business context", "Format final output"), then you **MUST** call the `CoreLLMTask` tool.
-        - When calling `CoreLLMTask`, you **MUST** determine the correct `task_description` (e.g., 'describe the table in a business context', 'format final output') based on the phase's description.
-        - You **MUST** populate the `data` argument by extracting **all relevant information** from the 'CONTEXT & HISTORY' section. For a description task, this includes any DDL and column data previously retrieved. For a formatting task, this includes the generated description and the 'Final output guidelines' from the 'WORKFLOW_GOAL & PLAN'.
-
-Your response MUST be a single JSON object for the tool call corresponding to the immediate next phase. Do not add any reasoning or other text.
-"""
-
 NON_DETERMINISTIC_WORKFLOW_RECOVERY_PROMPT = """
 A repetitive action has been detected in the workflow. The last tool call was the same as the previous one, which is causing a loop.
 You need to analyze the situation and select a new, different action to move the workflow forward.
@@ -261,7 +225,7 @@ The last action taken was a repeat of the one before it. The last command was:
 {workflow_goal_and_plan}
 
 --- INSTRUCTIONS ---
-Your next action MUST be different from the repetitive action. Analyze the original goal, the last action, and the workflow progress to determine a new, more productive step to continue the workflow towards its overall goal. Your response MUST be a single JSON object for a tool call.
+Your next action MUST be different from the repetitive action. Analyze the original goal, the last action, and the overall workflow goal to choose a new, more productive step to continue the workflow towards its overall goal. Your response MUST be a single JSON object for a tool call.
 """
 
 # --- NEW: This prompt is for the termination check logic. It is separate from the main system prompt. ---
@@ -297,4 +261,29 @@ The last tool call, `{failed_tool_name}`, resulted in an error with the followin
 --- INSTRUCTIONS ---
 Your goal is to recover from this error and continue the user's request if possible.
 Do NOT re-call the failed tool `{failed_tool_name}`. Instead, analyze the original question, the error message, and the overall workflow goal to choose a new, different action that moves the workflow forward. Your response MUST be a single JSON object for a tool call.
+"""
+
+# --- NEW: This prompt is for generating the initial, deterministic plan of action. ---
+WORKFLOW_PLANNING_PROMPT = """
+You are an expert planning assistant. Your task is to convert a high-level workflow goal into a detailed, step-by-step plan of action. The final plan MUST be a single JSON list of executable tasks.
+
+--- WORKFLOW GOAL & PLAN ---
+This is the goal you need to break down into a step-by-step plan.
+{workflow_goal}
+
+--- CONTEXT ---
+- User's Original Question: {original_user_input}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the Goal**: Carefully read the "WORKFLOW GOAL & PLAN" and the "User's Original Question" to understand the full scope of the request.
+2.  **Decompose into Tasks**: Break down the overall goal into a sequence of distinct, executable tasks. Each task should be a JSON object.
+3.  **Formulate Each Task**: For each task in your plan:
+    -   Provide a user-friendly, descriptive `"task_name"` (e.g., "Get DDL for table").
+    -   Determine if the task requires an external Teradata tool or an internal LLM task.
+    -   If an external tool is needed, use the `"tool_name"` key. If an internal task is needed (e.g., for synthesis or formatting), use `"tool_name": "CoreLLMTask"`.
+    -   Provide all necessary `"arguments"` as a dictionary. Infer any missing arguments (like `db_name` or `table_name`) from the original user question.
+4.  **Order the Tasks**: Arrange the tasks in a logical, sequential order. The output of one task should provide the necessary input for the next.
+5.  **Final Task**: The very last step in your plan **MUST ALWAYS** be a call to `CoreLLMTask` with a `task_description` of "Synthesize final report for user.". This signals the end of the data-gathering phase.
+
+Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """

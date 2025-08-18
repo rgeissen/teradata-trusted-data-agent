@@ -90,10 +90,12 @@ class PlanExecutor:
         self.llm_debug_history = []
         
         self.is_workflow = False
-        self.workflow_mode = 0
         self.active_prompt_name = None
         self.workflow_goal_prompt = ""
         self.structured_collected_data = {}
+
+        self.plan_of_action = None
+        self.current_step_index = 0
 
     @staticmethod
     def _format_sse(data: dict, event: str = None) -> str:
@@ -131,9 +133,12 @@ class PlanExecutor:
         context_key = f"Workflow: {self.active_prompt_name}" if self.active_prompt_name else "Workflow Results"
         if context_key not in self.structured_collected_data:
             self.structured_collected_data[context_key] = []
-        self.structured_collected_data[context_key].append(tool_result)
-        app_logger.info(f"Added tool result to structured data under key: '{context_key}' for workflow.")
-
+        
+        if isinstance(tool_result, dict) and "results" in tool_result:
+            self.structured_collected_data[context_key].append(tool_result)
+            app_logger.info(f"Added tool result to structured data under key: '{context_key}' for workflow.")
+        elif isinstance(tool_result, list):
+             self.structured_collected_data[context_key].extend(tool_result)
 
     async def run(self):
         # Main execution loop for tool calls and decisions.
@@ -404,12 +409,6 @@ class PlanExecutor:
             self.is_workflow = True
             self.active_prompt_name = command.get("prompt_name")
             
-            yaml_filename = f"{self.active_prompt_name}_workflow.yaml"
-            if os.path.exists(yaml_filename):
-                self.workflow_mode = 2
-            else:
-                self.workflow_mode = 1
-
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
@@ -439,6 +438,7 @@ class PlanExecutor:
                 "details": self.workflow_goal_prompt,
                 "prompt_name": self.active_prompt_name
             }, "prompt_selected")
+            
             return
 
         if not self.is_workflow and command_str == self.last_command_str:
@@ -676,7 +676,7 @@ class PlanExecutor:
             f"{charting_guidance}"
             f"{failed_tools_context}"
             "--- Your Decision Process ---\n"
-            "1.  **Analyze the situation:** Your primary goal is to gather all necessary data to comprehensively answer the user's original question. You may need to call several tools in sequence.\n"
+            "1.  **Analyze the situation:** Your primary goal is to gather all necessary data to comprehensively answer the user's question. You may need to call several tools in sequence.\n"
             "2.  **Choose Your Action:**\n"
             "    -   If you need more information to answer the question, call another tool or prompt by providing the appropriate JSON block.\n"
             "    -   If you are confident that you have now gathered **all** the necessary data from this and any previous tool calls, your response **MUST** be only the exact string `SYSTEM_ACTION_COMPLETE`. This will signal the final report writer to begin.\n"
@@ -699,18 +699,24 @@ class PlanExecutor:
         final_collected_data = self.structured_collected_data if self.is_workflow else self.collected_data
         
         final_summary_text = ""
-        final_answer_match = re.search(r'FINAL_ANSWER:(.*)', self.next_action_str, re.DOTALL | re.IGNORECASE)
-
-        if final_answer_match and final_answer_match.group(1).strip():
-            yield self._format_sse({"step": "Finalizing Report", "details": "Using pre-existing summary from the final reasoning step."}, "llm_thought")
-            final_summary_text = self.next_action_str
-            app_logger.info("Using pre-existing FINAL_ANSWER text from the decision-making step.")
+        # --- MODIFIED: Check if the last tool output is a CoreLLMTask with a final response. ---
+        # This prevents redundant summarization and uses the already formatted output.
+        if (self.is_workflow and 
+            self.last_tool_output and 
+            self.last_tool_output.get("metadata", {}).get("tool_name") == "CoreLLMTask" and
+            self.last_tool_output.get("results") and 
+            isinstance(self.last_tool_output["results"][0], dict) and
+            "response" in self.last_tool_output["results"][0]):
+            
+            yield self._format_sse({"step": "Finalizing Report", "details": "Using pre-formatted summary from last workflow step."}, "llm_thought")
+            final_summary_text = self.last_tool_output["results"][0]["response"]
+            app_logger.info("Using pre-formatted FINAL_ANSWER text from the last CoreLLMTask in workflow.")
         
         elif self.last_tool_output and self.last_tool_output.get("type") == "chart":
             yield self._format_sse({"step": "Finalizing Report", "details": "Invoking chart-specific report writer to analyze visualization data."}, "llm_thought")
             data_for_llm_analysis = None
-            if self.collected_data and len(self.collected_data) >= 2:
-                data_for_llm_analysis = self.collected_data[-2]
+            if final_collected_data and len(final_collected_data) >= 2:
+                data_for_llm_analysis = final_collected_data[-2]
             
             if not data_for_llm_analysis:
                 app_logger.warning("Could not find source data for chart analysis. Reverting to simple summary.")
