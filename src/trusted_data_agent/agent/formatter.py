@@ -37,6 +37,10 @@ class OutputFormatter:
         """
         clean_summary = self.raw_summary
         
+        markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
+        if markdown_block_match:
+            clean_summary = markdown_block_match.group(1).strip()
+
         markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
         if markdown_table_pattern.search(clean_summary):
             replacement_text = "\n(Data table is shown below)\n" if self._has_renderable_tables() else ""
@@ -50,13 +54,6 @@ class OutputFormatter:
         
         def process_inline_markdown(text_content):
             text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
-            
-            # --- MODIFIED: Robust key-value replacer for inline content (e.g., in lists) ---
-            def key_replacer(match):
-                key = match.group(1).strip().rstrip(':').strip()
-                return f'<strong>{key}:</strong>'
-            
-            text_content = re.sub(r'\*{2,3}(.*?):?\*{2,3}:?', key_replacer, text_content)
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
 
@@ -65,48 +62,42 @@ class OutputFormatter:
         for line in lines:
             stripped_line = line.strip()
             
-            # --- MODIFIED: Robust regex for top-level keys, handling colon inside or outside asterisks ---
-            key_value_match = re.match(r'^\*{2,3}(.*?):?\*{2,3}:?\s*(.*)$', stripped_line)
-            list_item_match = re.match(r'^[*-]\s*(.*)$', stripped_line)
+            # --- MODIFIED: More robust markdown parsing for various elements ---
+            heading_match = re.match(r'^(#{1,6})\s+(.*)$', stripped_line)
+            list_item_match = re.match(r'^[*-]\s+(.*)$', stripped_line)
+            key_value_match = re.match(r'^\*\*(.*?):\*\*\s*(.*)$', stripped_line)
 
-            if key_value_match:
-                if current_list_items:
-                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
-                    for item in current_list_items:
-                        html_output.append(f'<li>{item}</li>')
-                    html_output.append('</ul>')
-                    current_list_items = []
+            if current_list_items and not list_item_match:
+                html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
+                for item in current_list_items:
+                    html_output.append(f'<li>{item}</li>')
+                html_output.append('</ul>')
+                current_list_items = []
 
-                key = key_value_match.group(1).strip().rstrip(':').strip()
-                value = key_value_match.group(2).strip()
-                
-                if "description" in key.lower():
-                     html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}:</strong></p>')
-                     html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(value)}</p>')
+            if heading_match:
+                level = len(heading_match.group(1))
+                content = heading_match.group(2).strip()
+                if level == 1:
+                    html_output.append(f'<h2 class="text-2xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h2>')
+                elif level == 2:
+                    html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
+                elif level == 3:
+                    html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{content}</h4>')
                 else:
-                    html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}:</strong> {process_inline_markdown(value)}</p>')
+                    html_output.append(f'<h5 class="text-md font-semibold text-white mt-3 mb-1">{content}</h5>')
+
+            elif key_value_match:
+                key = key_value_match.group(1).strip()
+                value = key_value_match.group(2).strip()
+                html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}:</strong> {process_inline_markdown(value)}</p>')
 
             elif list_item_match:
                 content = list_item_match.group(1).strip()
                 if content:
                     current_list_items.append(process_inline_markdown(content))
             
-            else:
-                if current_list_items:
-                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
-                    for item in current_list_items:
-                        html_output.append(f'<li>{item}</li>')
-                    html_output.append('</ul>')
-                    current_list_items = []
-
-                if stripped_line.startswith('# '):
-                    content = stripped_line[2:]
-                    html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
-                elif stripped_line.startswith('## '):
-                    content = stripped_line[3:]
-                    html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{content}</h4>')
-                elif stripped_line:
-                    html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(stripped_line)}</p>')
+            elif stripped_line:
+                html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(stripped_line)}</p>')
 
         if current_list_items:
             html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
@@ -245,7 +236,6 @@ class OutputFormatter:
             return html
 
         for context_key, data_items in data_to_process.items():
-            # --- MODIFIED: Clean up the context key for display ---
             display_key = context_key.replace("Workflow: ", "").replace(">", "&gt;")
             html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
             

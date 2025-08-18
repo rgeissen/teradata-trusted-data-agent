@@ -161,6 +161,7 @@ class PlanExecutor:
     async def run(self):
         # Main execution loop for tool calls and decisions.
         for i in range(self.max_steps):
+            # --- MODIFIED: Added ERROR state to the loop termination condition ---
             if self.state in [self.AgentState.SUMMARIZING, self.AgentState.DONE, self.AgentState.ERROR]:
                 break
             try:
@@ -188,8 +189,9 @@ class PlanExecutor:
         if self.state == self.AgentState.SUMMARIZING:
             async for event in self._generate_final_summary():
                 yield event
+        # --- MODIFIED: Added a final check to emit a user-facing error message ---
         elif self.state == self.AgentState.ERROR:
-             yield self._format_sse({"error": "Execution stopped due to an error.", "details": "The agent entered an unrecoverable error state."}, "error")
+             yield self._format_sse({"error": "Execution stopped due to an unrecoverable workflow error.", "details": "The agent entered an error state and could not complete the multi-step plan."}, "error")
 
 
     async def _recover_with_llm(self, error_message: str):
