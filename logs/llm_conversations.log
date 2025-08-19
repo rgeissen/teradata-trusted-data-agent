@@ -1,4 +1,4 @@
-2025-08-19 18:18:44,404 - --- FULL CONTEXT (Session: d61166ad-aca7-42c9-9a2f-d6dbc0bda1f8) ---
+2025-08-19 18:43:29,847 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the 'base_tableBusinessDesc' workflow.
 
@@ -17,7 +17,7 @@ You are a Teradata DBA who is an expert in describing the business use of tables
 Perform the phases in order, and do not skip any phase.
 
 ## Phase 0 - Get the table name and database name
-- The table name is equipment
+- The table name is callcenter
 - The database name is DEMO_customer360_db
 
 ## Phase 1 - Get the table DDL
@@ -88,26 +88,26 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 USER PROMPT:
 Generate the meta-plan based on the instructions and context provided in the system prompt.
 
-2025-08-19 18:18:44,404 - --- RESPONSE ---
+2025-08-19 18:43:29,847 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get the DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.",
+    "goal": "Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.",
     "relevant_tools": ["base_tableDDL"]
   },
   {
     "phase": 2,
-    "goal": "Describe the 'equipment' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.",
+    "goal": "Describe the 'callcenter' table in a business context, including the purpose of the table and the purpose of the columns in the table, and format the output as markdown according to the Final output guidelines, using `***` for keys.",
     "relevant_tools": ["CoreLLMTask"]
   }
 ]
 ```
 --------------------------------------------------
 
-2025-08-19 18:18:44,884 - --- FULL CONTEXT (Session: d61166ad-aca7-42c9-9a2f-d6dbc0bda1f8) ---
+2025-08-19 18:43:30,329 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get the DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Deciding next tactical action for phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
 --- History ---
 [user]: Manual execution of prompt: base_tableBusinessDesc
@@ -124,7 +124,7 @@ You are a Teradata DBA who is an expert in describing the business use of tables
 Perform the phases in order, and do not skip any phase.
 
 ## Phase 0 - Get the table name and database name
-- The table name is equipment
+- The table name is callcenter
 - The database name is DEMO_customer360_db
 
 ## Phase 1 - Get the table DDL
@@ -156,7 +156,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase: ["base_tableDDL"]
@@ -183,19 +183,70 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 18:18:44,884 - --- RESPONSE ---
+2025-08-19 18:43:30,330 - --- RESPONSE ---
 {
   "tool": "base_tableDDL",
-  "tool_input": {
+  "args": {
     "database_name": "DEMO_customer360_db",
-    "table_name": "equipment"
+    "table_name": "callcenter"
   }
 }
 --------------------------------------------------
 
-2025-08-19 18:18:45,720 - --- FULL CONTEXT (Session: d61166ad-aca7-42c9-9a2f-d6dbc0bda1f8) ---
+2025-08-19 18:43:30,682 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Describe the 'equipment' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.
+Checking for completion of phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- History ---
+[user]: Manual execution of prompt: base_tableBusinessDesc
+
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
+
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
+
+--- CURRENT PHASE GOAL ---
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
+
+Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
+
+
+USER PROMPT:
+Is the phase complete based on the system prompt? Respond with only YES or NO.
+
+2025-08-19 18:43:30,682 - --- RESPONSE ---
+NO
+--------------------------------------------------
+
+2025-08-19 18:43:31,237 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
+--- REASON FOR CALL ---
+Deciding next tactical action for phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
 --- History ---
 [user]: Manual execution of prompt: base_tableBusinessDesc
@@ -212,7 +263,7 @@ You are a Teradata DBA who is an expert in describing the business use of tables
 Perform the phases in order, and do not skip any phase.
 
 ## Phase 0 - Get the table name and database name
-- The table name is equipment
+- The table name is callcenter
 - The database name is DEMO_customer360_db
 
 ## Phase 1 - Get the table DDL
@@ -244,21 +295,21 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Describe the 'equipment' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
 --- CONSTRAINTS ---
-- Permitted Tools for this Phase: ["CoreLLMTask"]
+- Permitted Tools for this Phase: ["base_tableDDL"]
 - Previous Attempt (if any): None
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
   {
     "action": {
-      "tool_name": "base_tableDDL",
-      "arguments": {
+      "args": {
         "database_name": "DEMO_customer360_db",
-        "table_name": "equipment"
-      }
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
     },
     "result": "success"
   }
@@ -266,17 +317,9 @@ Describe the 'equipment' table in a business context and format the output as ma
 - Data Collected So Far: {
   "result_of_phase_1": [
     {
-      "status": "success",
-      "metadata": {
-        "tool_name": "base_tableDDL",
-        "database": "DEMO_customer360_db",
-        "table": "equipment"
-      },
-      "results": [
-        {
-          "Request Text": "CREATE MULTISET TABLE DEMO_customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"
-        }
-      ]
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
     }
   ]
 }
@@ -298,102 +341,624 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 18:18:45,720 - --- RESPONSE ---
+2025-08-19 18:43:31,237 - --- RESPONSE ---
 {
-  "tool_name": "CoreLLMTask",
-  "arguments": {
-    "task_description": "Describe the 'equipment' table in a business context and format the output as markdown according to the Final output guidelines, using '***' for keys.",
-    "source_data": ["result_of_phase_1"]
+  "action": {
+    "tool_name": "base_tableDDL",
+    "args": {
+      "database_name": "DEMO_customer360_db",
+      "table_name": "callcenter"
+    }
   }
 }
 --------------------------------------------------
 
-2025-08-19 18:18:48,940 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-19 18:43:31,751 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
 --- REASON FOR CALL ---
-Executing CoreLLMTask: Describe the 'equipment' table in a business context and format the output as markdown according to the Final output guidelines, using '***' for keys.
+Deciding next tactical action for phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
 --- History ---
-
+[user]: Manual execution of prompt: base_tableBusinessDesc
 
 --- Current User Prompt (with System Prompt) ---
 SYSTEM PROMPT:
-You are a text processing and synthesis assistant.
 
-USER PROMPT:
-You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
---- TASK ---
-Describe the 'equipment' table in a business context and format the output as markdown according to the Final output guidelines, using '***' for keys.
+--- OVERALL WORKFLOW GOAL ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
 
---- RELEVANT DATA (Selected from Previous Phases) ---
-{
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CURRENT PHASE GOAL ---
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["base_tableDDL"]
+- Previous Attempt (if any): Your last attempt to use the tool '{'tool_name': 'base_tableDDL', 'args': {'database_name': 'DEMO_customer360_db', 'table_name': 'callcenter'}}' was invalid because it is not in the list of permitted tools for this phase.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
   "result_of_phase_1": [
     {
-      "status": "success",
-      "metadata": {
-        "tool_name": "base_tableDDL",
-        "database": "DEMO_customer360_db",
-        "table": "equipment"
-      },
-      "results": [
-        {
-          "Request Text": "CREATE MULTISET TABLE DEMO_customer360_db.equipment ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      CUST_ID SMALLINT,\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRSTNAME VARCHAR(11) CHARACTER SET LATIN CASESPECIFIC,\r      LASTNAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIP INTEGER,\r      EQUIP_LTV SMALLINT)\rNO PRIMARY INDEX ;"
-        }
-      ]
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
     }
   ]
 }
 
---- CRITICAL RULES ---
-1. **Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.
-2. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.
-3. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.
-4. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
-Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 
-2025-08-19 18:18:48,941 - --- RESPONSE ---
-***
-Description:*** The `equipment` table is designed to store detailed information about customer equipment within the `DEMO_customer360_db` database. This table captures various attributes related to customers and their equipment, facilitating comprehensive customer relationship management and analytics.
 
-***
+USER PROMPT:
+Determine the next action based on the instructions and state provided in the system prompt.
 
-Table Name:*** equipment
+2025-08-19 18:43:31,751 - --- RESPONSE ---
+{
+  "tool_name": "base_tableDDL",
+  "args": {
+    "database_name": "DEMO_customer360_db",
+    "table_name": "callcenter"
+  }
+}
+--------------------------------------------------
 
-***
+2025-08-19 18:43:32,087 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
+--- REASON FOR CALL ---
+Checking for completion of phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
-Columns:***
+--- History ---
+[user]: Manual execution of prompt: base_tableBusinessDesc
 
-***CUST_ID:*** A small integer representing the unique identifier for each customer.
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
 
-***GENDER:*** A single character VARCHAR field indicating the gender of the customer, using the Latin character set and case-specific collation.
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
-***FIRSTNAME:*** An 11-character VARCHAR field for the customer's first name, using the Latin character set and case-specific collation.
+--- CURRENT PHASE GOAL ---
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
-***LASTNAME:*** A 9-character VARCHAR field for the customer's last name, using the Latin character set and case-specific collation.
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    }
+  ]
+}
 
-***ADDRESS:*** A 25-character VARCHAR field for the customer's address, using the Latin character set and case-specific collation.
+--- INSTRUCTIONS ---
+Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
 
-***STATE:*** A 2-character VARCHAR field for the customer's state, using the Latin character set and case-specific collation.
+Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
 
-***CITY:*** A 16-character VARCHAR field for the customer's city, using the Latin character set and case-specific collation.
 
-***ZIP:*** An integer field representing the customer's ZIP code.
+USER PROMPT:
+Is the phase complete based on the system prompt? Respond with only YES or NO.
 
-***EQUIP_LTV:*** A small integer representing the loan-to-value ratio of the customer's equipment.
+2025-08-19 18:43:32,088 - --- RESPONSE ---
+NO
+--------------------------------------------------
 
-***
+2025-08-19 18:43:32,636 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
+--- REASON FOR CALL ---
+Deciding next tactical action for phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
 
-Primary Index:*** The table does not have a primary index defined.
+--- History ---
+[user]: Manual execution of prompt: base_tableBusinessDesc
 
-***
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
 
-Additional Properties:***
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
-- FALLBACK: The table is created with the FALLBACK property, allowing for data recovery in case of failure.
-- JOURNAL: The table is created without BEFORE or AFTER JOURNAL, meaning no journaling is applied.
-- CHECKSUM: The table uses the default checksum.
-- MERGEBLOCKRATIO: The table uses the default merge block ratio.
-- MAP: The table is mapped to `TD_MAP1`.
+--- OVERALL WORKFLOW GOAL ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CURRENT PHASE GOAL ---
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["base_tableDDL"]
+- Previous Attempt (if any): None
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
+
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
+
+
+USER PROMPT:
+Determine the next action based on the instructions and state provided in the system prompt.
+
+2025-08-19 18:43:32,636 - --- RESPONSE ---
+{
+  "tool_name": "base_tableDDL",
+  "args": {
+    "database_name": "DEMO_customer360_db",
+    "table_name": "callcenter"
+  }
+}
+--------------------------------------------------
+
+2025-08-19 18:43:32,975 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
+--- REASON FOR CALL ---
+Checking for completion of phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- History ---
+[user]: Manual execution of prompt: base_tableBusinessDesc
+
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
+
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
+
+--- CURRENT PHASE GOAL ---
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
+
+Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
+
+
+USER PROMPT:
+Is the phase complete based on the system prompt? Respond with only YES or NO.
+
+2025-08-19 18:43:32,975 - --- RESPONSE ---
+NO
+--------------------------------------------------
+
+2025-08-19 18:43:33,492 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
+--- REASON FOR CALL ---
+Deciding next tactical action for phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- History ---
+[user]: Manual execution of prompt: base_tableBusinessDesc
+
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
+
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
+
+--- OVERALL WORKFLOW GOAL ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CURRENT PHASE GOAL ---
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["base_tableDDL"]
+- Previous Attempt (if any): None
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
+
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
+
+
+USER PROMPT:
+Determine the next action based on the instructions and state provided in the system prompt.
+
+2025-08-19 18:43:33,492 - --- RESPONSE ---
+{
+  "tool_name": "base_tableDDL",
+  "args": {
+    "database_name": "DEMO_customer360_db",
+    "table_name": "callcenter"
+  }
+}
+--------------------------------------------------
+
+2025-08-19 18:43:33,797 - --- FULL CONTEXT (Session: e05ce6be-bfb9-4680-86be-033d39370b6f) ---
+--- REASON FOR CALL ---
+Checking for completion of phase: Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- History ---
+[user]: Manual execution of prompt: base_tableBusinessDesc
+
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
+
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
+
+--- CURRENT PHASE GOAL ---
+Get the DDL for the table 'callcenter' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      },
+      "tool_name": "base_tableDDL"
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "args": {
+        "database_name": "DEMO_customer360_db",
+        "table_name": "callcenter"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    },
+    {
+      "status": "error",
+      "error": "Tool returned non-JSON string",
+      "data": "Error executing tool base_tableDDL: 2 validation errors for handle_base_tableDDLArguments\ndatabase_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing\ntable_name\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.11/v/missing"
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
+
+Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
+
+
+USER PROMPT:
+Is the phase complete based on the system prompt? Respond with only YES or NO.
+
+2025-08-19 18:43:33,798 - --- RESPONSE ---
+NO
 --------------------------------------------------
 

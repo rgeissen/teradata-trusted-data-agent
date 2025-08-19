@@ -337,7 +337,7 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFIED: The prompt for the CoreLLMTask is now much stricter to enforce consistent formatting. ---
+# --- MODIFIED: The CoreLLMTask now extracts known context and injects it into the prompt. ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
     Executes a task handled by the LLM itself, based on a generic task_description
@@ -361,17 +361,36 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         app_logger.warning(f"CoreLLMTask was called for '{task_description}' but no source data was found for keys: {source_data_keys}. Passing all data as a fallback.")
         focused_data_for_task = full_workflow_state
 
+    # --- NEW: Deterministically find known key entities from the workflow history ---
+    known_context = {}
+    if isinstance(full_workflow_state, dict):
+        for phase_results in full_workflow_state.values():
+            if isinstance(phase_results, list):
+                for result in phase_results:
+                    if isinstance(result, dict) and "metadata" in result:
+                        metadata = result.get("metadata", {})
+                        if "database" in metadata and "database_name" not in known_context:
+                            known_context["database_name"] = metadata["database"]
+                        if "table" in metadata and "table_name" not in known_context:
+                            known_context["table_name"] = metadata["table"]
+
+    known_context_str = "\n".join([f"- {key}: {value}" for key, value in known_context.items()]) if known_context else "None"
+
     final_prompt = (
         "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.\n\n"
         "--- TASK ---\n"
         f"{task_description}\n\n"
         "--- RELEVANT DATA (Selected from Previous Phases) ---\n"
         f"{json.dumps(focused_data_for_task, indent=2)}\n\n"
+        "--- KNOWN CONTEXT ---\n"
+        "The following key information has already been established in previous steps. You MUST include this information in your final formatted output.\n"
+        f"{known_context_str}\n\n"
         "--- CRITICAL RULES ---\n"
         "1. **Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.\n"
         "2. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
         "3. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
-        "4. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
+        "4. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n"
+        "5. **Incorporate Known Context:** You MUST ensure that all items listed in the 'KNOWN CONTEXT' section are present in your final output, formatted according to the task's guidelines.\n\n"
         "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
 
