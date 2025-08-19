@@ -1,9 +1,10 @@
-2025-08-19 13:05:07,184 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
+2025-08-19 15:15:15,252 - --- FULL CONTEXT (Session: 22609a2d-deb9-43e9-a908-1fd3bba280d7) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the 'base_tableBusinessDesc' workflow.
 
 --- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
+[user]: You are a helpful assistant.
+[model]: Understood.
 
 --- Current User Prompt (with System Prompt) ---
 SYSTEM PROMPT:
@@ -59,26 +60,21 @@ Perform the phases in order, and do not skip any phase.
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
-4.  **Final Phase**: The final phase should always be dedicated to synthesizing and formatting the final report according to the "Final output guidelines" in the master prompt.
-5.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
-If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get DDL. Phase 3 - describe database.", your output should look like this:
+If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get the list of all tables in the database using the `base_tableList` tool."
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
   },
   {
     "phase": 2,
-    "goal": "For each table identified in Phase 1, get its DDL using the `base_tableDDL` tool.",
-    "type": "loop",
-    "loop_over": "result_of_phase_1"
-  },
-  {
-    "phase": 3,
-    "goal": "Synthesize a final, holistic business description of the entire database by analyzing the DDLs collected in Phase 2."
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
   }
 ]
 ```
@@ -89,33 +85,117 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 USER PROMPT:
 Generate the meta-plan based on the instructions and context provided in the system prompt.
 
-2025-08-19 13:05:07,184 - --- RESPONSE ---
+2025-08-19 15:15:15,252 - --- RESPONSE ---
+```json
 [
   {
-    "phase": 0,
-    "goal": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt."
-  },
-  {
     "phase": 1,
-    "goal": "Get the table DDL for the 'callcenter' table in 'DEMO_Customer360_db' using the base_tableDDL tool."
+    "goal": "Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters."
   },
   {
     "phase": 2,
-    "goal": "Describe the 'callcenter' table in a business context, including the purpose of the table and its columns, based on the DDL obtained in Phase 1."
-  },
-  {
-    "phase": 3,
-    "goal": "Format and present the final output in markdown following the specified guidelines, including table name, database name, table description, and column descriptions."
+    "goal": "Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`."
   }
 ]
+```
 --------------------------------------------------
 
-2025-08-19 13:05:08,756 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
+2025-08-19 15:15:16,169 - --- FULL CONTEXT (Session: 22609a2d-deb9-43e9-a908-1fd3bba280d7) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
+Deciding next tactical action for phase: Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
 
 --- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
+[user]: You are a helpful assistant.
+[model]: Understood.
+[user]: SYSTEM PROMPT:
+
+You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
+
+--- MASTER PROMPT (The User's Goal) ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CONTEXT ---
+- User's Original Question: Manual execution of prompt: base_tableBusinessDesc
+
+--- INSTRUCTIONS ---
+1.  **Analyze the Master Prompt**: Carefully read the entire "MASTER PROMPT" to identify the distinct phases, steps, and communication requirements.
+2.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step in the process.
+3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
+    -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
+    -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
+    -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
+4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+
+--- EXAMPLE ---
+If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
+```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+  }
+]
+```
+
+Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
+
+
+USER PROMPT:
+Generate the meta-plan based on the instructions and context provided in the system prompt.
+[model]: ```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`."
+  }
+]
+```
 
 --- Current User Prompt (with System Prompt) ---
 SYSTEM PROMPT:
@@ -161,7 +241,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
+Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -170,7 +250,11 @@ Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' prov
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
 2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE**: You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt. For any task that involves synthesis, analysis, description, or summarization (like the current phase goal might be), you **MUST** use the `CoreLLMTask` tool. Pass the current phase's goal as the `task_description` argument for the `CoreLLMTask`.
+3.  **CRITICAL RULE (CoreLLMTask Usage)**:
+    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
 4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
 5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
 
@@ -180,984 +264,188 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 13:05:08,756 - --- RESPONSE ---
+2025-08-19 15:15:16,170 - --- RESPONSE ---
+```json
 {
-  "tool": "CoreLLMTask",
-  "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt."
-}
---------------------------------------------------
-
-2025-08-19 13:05:11,561 - --- FULL CONTEXT (Session: one-off) ---
---- REASON FOR CALL ---
-Executing CoreLLMTask: None
-
---- History ---
-
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-You are a text processing and synthesis assistant.
-
-USER PROMPT:
-You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.
-
---- TASK ---
-None
-
---- DATA (Full Workflow State & History) ---
-{
-  "workflow_history": [],
-  "all_collected_data": {}
-}
-
-Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
-
-2025-08-19 13:05:11,561 - --- RESPONSE ---
-I notice that the task is specified as "None" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. 
-
-To assist you effectively, I'll need:
-1. A clear task description
-2. Any relevant data to process or synthesize
-
-Please provide the necessary information, and I'll be happy to help with your text processing needs.
---------------------------------------------------
-
-2025-08-19 13:05:13,041 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
---- REASON FOR CALL ---
-Checking for completion of phase: Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
-
---- CURRENT PHASE GOAL ---
-Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: [
-  {
-    "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  }
-]
-- Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    }
-  ]
-}
-
---- INSTRUCTIONS ---
-Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
-
-Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
-
-
-USER PROMPT:
-Is the phase complete based on the system prompt? Respond with only YES or NO.
-
-2025-08-19 13:05:13,041 - --- RESPONSE ---
-NO
---------------------------------------------------
-
-2025-08-19 13:05:15,567 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
---- REASON FOR CALL ---
-Deciding next tactical action for phase: Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
-
---- OVERALL WORKFLOW GOAL ---
-You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-
-## your role will work through the phases
-Perform the phases in order, and do not skip any phase.
-
-## Phase 0 - Get the table name and database name
-- The table name is callcenter
-- The database name is DEMO_Customer360_db
-
-## Phase 1 - Get the table DDL
-- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
-
-## Phase 2 - Describe the table
-- Describe the table in a business context. The description should be a single string. 
-- The description should include the following: 
-    - The purpose of the table
-    - The purpose of the columns in the table
-
-## Communication guidelines:
-      - Be concise but informative in your explanations
-      - Clearly indicate which phase the process is currently in
-      - summarize the outcome of the phase before moving to the next phase
-
-## Final output guidelines:
-      - return in markdown
-      - Example:
-      ***Table Name:*** `table_name`
-
-      ***Database Name:*** `database_name`
-
-      ***Description:*** `table_description`
-
-         - ***Column1:*** `column1_descriptions`
-         - ***Column2:*** `column2_descriptions`
-         - ***Column3:*** `column3_descriptions`
-
-
---- CURRENT PHASE GOAL ---
-Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: [
-  {
-    "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  }
-]
-- Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    }
-  ]
-}
-
---- INSTRUCTIONS ---
-1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE**: You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt. For any task that involves synthesis, analysis, description, or summarization (like the current phase goal might be), you **MUST** use the `CoreLLMTask` tool. Pass the current phase's goal as the `task_description` argument for the `CoreLLMTask`.
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
-
-Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
-
-
-USER PROMPT:
-Determine the next action based on the instructions and state provided in the system prompt.
-
-2025-08-19 13:05:15,567 - --- RESPONSE ---
-{
-  "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-  "tool_name": "CoreLLMTask",
-  "arguments": {
-    "data": {
-      "workflow_history": [],
-      "all_collected_data": {}
-    }
-  }
-}
---------------------------------------------------
-
-2025-08-19 13:05:17,448 - --- FULL CONTEXT (Session: one-off) ---
---- REASON FOR CALL ---
-Executing CoreLLMTask: None
-
---- History ---
-
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-You are a text processing and synthesis assistant.
-
-USER PROMPT:
-You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.
-
---- TASK ---
-None
-
---- DATA (Full Workflow State & History) ---
-{
-  "workflow_history": [
-    {
-      "action": {
-        "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-        "tool_name": "CoreLLMTask",
-        "arguments": {
-          "data": {
-            "workflow_history": [],
-            "all_collected_data": {}
-          }
-        }
-      },
-      "result": "success"
-    }
-  ],
-  "all_collected_data": {
-    "result_of_phase_0": [
-      {
-        "status": "success",
-        "results": [
-          {
-            "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-          }
-        ]
-      }
-    ]
-  }
-}
-
-Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
-
-2025-08-19 13:05:17,448 - --- RESPONSE ---
-I notice that the task is specified as "None" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. 
-
-To assist you effectively, I'll need:
-1. A clear task description
-2. Any relevant data to process or synthesize
-
-Please provide the necessary information, and I'll be happy to help with your text processing needs.
---------------------------------------------------
-
-2025-08-19 13:05:18,871 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
---- REASON FOR CALL ---
-Checking for completion of phase: Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
-
---- CURRENT PHASE GOAL ---
-Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: [
-  {
-    "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  }
-]
-- Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    }
-  ]
-}
-
---- INSTRUCTIONS ---
-Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
-
-Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
-
-
-USER PROMPT:
-Is the phase complete based on the system prompt? Respond with only YES or NO.
-
-2025-08-19 13:05:18,872 - --- RESPONSE ---
-NO
---------------------------------------------------
-
-2025-08-19 13:05:21,024 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
---- REASON FOR CALL ---
-Deciding next tactical action for phase: Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
-
---- OVERALL WORKFLOW GOAL ---
-You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-
-## your role will work through the phases
-Perform the phases in order, and do not skip any phase.
-
-## Phase 0 - Get the table name and database name
-- The table name is callcenter
-- The database name is DEMO_Customer360_db
-
-## Phase 1 - Get the table DDL
-- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
-
-## Phase 2 - Describe the table
-- Describe the table in a business context. The description should be a single string. 
-- The description should include the following: 
-    - The purpose of the table
-    - The purpose of the columns in the table
-
-## Communication guidelines:
-      - Be concise but informative in your explanations
-      - Clearly indicate which phase the process is currently in
-      - summarize the outcome of the phase before moving to the next phase
-
-## Final output guidelines:
-      - return in markdown
-      - Example:
-      ***Table Name:*** `table_name`
-
-      ***Database Name:*** `database_name`
-
-      ***Description:*** `table_description`
-
-         - ***Column1:*** `column1_descriptions`
-         - ***Column2:*** `column2_descriptions`
-         - ***Column3:*** `column3_descriptions`
-
-
---- CURRENT PHASE GOAL ---
-Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: [
-  {
-    "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  }
-]
-- Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    }
-  ]
-}
-
---- INSTRUCTIONS ---
-1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE**: You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt. For any task that involves synthesis, analysis, description, or summarization (like the current phase goal might be), you **MUST** use the `CoreLLMTask` tool. Pass the current phase's goal as the `task_description` argument for the `CoreLLMTask`.
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
-
-Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
-
-
-USER PROMPT:
-Determine the next action based on the instructions and state provided in the system prompt.
-
-2025-08-19 13:05:21,025 - --- RESPONSE ---
-{
-  "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
   "tool_name": "base_tableDDL",
   "arguments": {
-    "database_name": "DEMO_Customer360_db",
-    "table_name": "callcenter"
+    "table_name": "callcenter",
+    "database_name": "DEMO_Customer360_db"
   }
 }
---------------------------------------------------
-
-2025-08-19 13:05:22,842 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
---- REASON FOR CALL ---
-Checking for completion of phase: Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
-
---- CURRENT PHASE GOAL ---
-Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: [
-  {
-    "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-      "tool_name": "base_tableDDL",
-      "arguments": {
-        "database_name": "DEMO_Customer360_db",
-        "table_name": "callcenter"
-      }
-    },
-    "result": "success"
-  }
-]
-- Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "metadata": {
-        "tool_name": "base_tableDDL",
-        "database": "DEMO_Customer360_db",
-        "table": "callcenter"
-      },
-      "results": [
-        {
-          "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-        }
-      ]
-    }
-  ]
-}
-
---- INSTRUCTIONS ---
-Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
-
-Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
-
-
-USER PROMPT:
-Is the phase complete based on the system prompt? Respond with only YES or NO.
-
-2025-08-19 13:05:22,842 - --- RESPONSE ---
-YES
---------------------------------------------------
-
-2025-08-19 13:05:28,911 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
---- REASON FOR CALL ---
-Deciding next tactical action for phase: Get the table DDL for the 'callcenter' table in 'DEMO_Customer360_db' using the base_tableDDL tool.
-
---- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
-
---- OVERALL WORKFLOW GOAL ---
-You are a Teradata DBA who is an expert in describing the business use of tables in a database.
-
-## your role will work through the phases
-Perform the phases in order, and do not skip any phase.
-
-## Phase 0 - Get the table name and database name
-- The table name is callcenter
-- The database name is DEMO_Customer360_db
-
-## Phase 1 - Get the table DDL
-- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
-
-## Phase 2 - Describe the table
-- Describe the table in a business context. The description should be a single string. 
-- The description should include the following: 
-    - The purpose of the table
-    - The purpose of the columns in the table
-
-## Communication guidelines:
-      - Be concise but informative in your explanations
-      - Clearly indicate which phase the process is currently in
-      - summarize the outcome of the phase before moving to the next phase
-
-## Final output guidelines:
-      - return in markdown
-      - Example:
-      ***Table Name:*** `table_name`
-
-      ***Database Name:*** `database_name`
-
-      ***Description:*** `table_description`
-
-         - ***Column1:*** `column1_descriptions`
-         - ***Column2:*** `column2_descriptions`
-         - ***Column3:*** `column3_descriptions`
-
-
---- CURRENT PHASE GOAL ---
-Get the table DDL for the 'callcenter' table in 'DEMO_Customer360_db' using the base_tableDDL tool.
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: [
-  {
-    "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-      "tool_name": "base_tableDDL",
-      "arguments": {
-        "database_name": "DEMO_Customer360_db",
-        "table_name": "callcenter"
-      }
-    },
-    "result": "success"
-  }
-]
-- Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "metadata": {
-        "tool_name": "base_tableDDL",
-        "database": "DEMO_Customer360_db",
-        "table": "callcenter"
-      },
-      "results": [
-        {
-          "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-        }
-      ]
-    }
-  ]
-}
-
---- INSTRUCTIONS ---
-1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE**: You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt. For any task that involves synthesis, analysis, description, or summarization (like the current phase goal might be), you **MUST** use the `CoreLLMTask` tool. Pass the current phase's goal as the `task_description` argument for the `CoreLLMTask`.
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
-
-Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
-
-
-USER PROMPT:
-Determine the next action based on the instructions and state provided in the system prompt.
-
-2025-08-19 13:05:28,912 - --- RESPONSE ---
-{
-  "task_description": "Now that I have the table DDL for the 'callcenter' table in 'DEMO_Customer360_db', I need to proceed to Phase 2 to describe the table in a business context based on the DDL information collected.",
-  "tool_name": "CoreLLMTask",
-  "arguments": {
-    "data": {
-      "table_name": "callcenter",
-      "database_name": "DEMO_Customer360_db",
-      "table_ddl": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-    }
-  }
-}
---------------------------------------------------
-
-2025-08-19 13:05:32,968 - --- FULL CONTEXT (Session: one-off) ---
---- REASON FOR CALL ---
-Executing CoreLLMTask: None
-
---- History ---
-
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-You are a text processing and synthesis assistant.
-
-USER PROMPT:
-You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.
-
---- TASK ---
-None
-
---- DATA (Full Workflow State & History) ---
-{
-  "workflow_history": [
-    {
-      "action": {
-        "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-        "tool_name": "CoreLLMTask",
-        "arguments": {
-          "data": {
-            "workflow_history": [],
-            "all_collected_data": {}
-          }
-        }
-      },
-      "result": "success"
-    },
-    {
-      "action": {
-        "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-        "tool_name": "CoreLLMTask",
-        "arguments": {
-          "data": {
-            "workflow_history": [
-              {
-                "action": {
-                  "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                  "tool_name": "CoreLLMTask",
-                  "arguments": {
-                    "data": {
-                      "workflow_history": [],
-                      "all_collected_data": {}
-                    }
-                  }
-                },
-                "result": "success"
-              }
-            ],
-            "all_collected_data": {
-              "result_of_phase_0": [
-                {
-                  "status": "success",
-                  "results": [
-                    {
-                      "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      },
-      "result": "success"
-    },
-    {
-      "action": {
-        "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-        "tool_name": "base_tableDDL",
-        "arguments": {
-          "database_name": "DEMO_Customer360_db",
-          "table_name": "callcenter"
-        }
-      },
-      "result": "success"
-    }
-  ],
-  "all_collected_data": {
-    "result_of_phase_0": [
-      {
-        "status": "success",
-        "results": [
-          {
-            "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-          }
-        ]
-      },
-      {
-        "status": "success",
-        "results": [
-          {
-            "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-          }
-        ]
-      },
-      {
-        "status": "success",
-        "metadata": {
-          "tool_name": "base_tableDDL",
-          "database": "DEMO_Customer360_db",
-          "table": "callcenter"
-        },
-        "results": [
-          {
-            "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-          }
-        ]
-      }
-    ]
-  }
-}
-
-Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
-
-2025-08-19 13:05:32,968 - --- RESPONSE ---
-Based on the provided workflow history and collected data, I can provide the DDL (Data Definition Language) for the callcenter table in the DEMO_Customer360_db database:
-
-```sql
-CREATE MULTISET TABLE DEMO_Customer360_db.callcenter, FALLBACK,
-     NO BEFORE JOURNAL,
-     NO AFTER JOURNAL,
-     CHECKSUM = DEFAULT,
-     DEFAULT MERGEBLOCKRATIO,
-     MAP = TD_MAP1
-     (
-      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,
-      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,
-      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,
-      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,
-      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,
-      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,
-      ZIPCODE INTEGER,
-      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,
-      CALL_CENTER_COST BYTEINT)
-NO PRIMARY INDEX;
 ```
 --------------------------------------------------
 
-2025-08-19 13:05:34,210 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
+2025-08-19 15:15:16,926 - --- FULL CONTEXT (Session: 22609a2d-deb9-43e9-a908-1fd3bba280d7) ---
 --- REASON FOR CALL ---
-Checking for completion of phase: Get the table DDL for the 'callcenter' table in 'DEMO_Customer360_db' using the base_tableDDL tool.
+Checking for completion of phase: Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
 
 --- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
+[user]: You are a helpful assistant.
+[model]: Understood.
+[user]: SYSTEM PROMPT:
+
+You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
+
+--- MASTER PROMPT (The User's Goal) ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CONTEXT ---
+- User's Original Question: Manual execution of prompt: base_tableBusinessDesc
+
+--- INSTRUCTIONS ---
+1.  **Analyze the Master Prompt**: Carefully read the entire "MASTER PROMPT" to identify the distinct phases, steps, and communication requirements.
+2.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step in the process.
+3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
+    -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
+    -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
+    -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
+4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+
+--- EXAMPLE ---
+If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
+```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+  }
+]
+```
+
+Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
+
+
+USER PROMPT:
+Generate the meta-plan based on the instructions and context provided in the system prompt.
+[model]: ```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`."
+  }
+]
+```
+[user]: SYSTEM PROMPT:
+
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+
+--- OVERALL WORKFLOW GOAL ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CURRENT PHASE GOAL ---
+Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: []
+- Data Collected So Far: {}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
+3.  **CRITICAL RULE (CoreLLMTask Usage)**:
+    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
+
+
+USER PROMPT:
+Determine the next action based on the instructions and state provided in the system prompt.
+[model]: ```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "table_name": "callcenter",
+    "database_name": "DEMO_Customer360_db"
+  }
+}
+```
 
 --- Current User Prompt (with System Prompt) ---
 SYSTEM PROMPT:
@@ -1165,199 +453,23 @@ SYSTEM PROMPT:
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the 'callcenter' table in 'DEMO_Customer360_db' using the base_tableDDL tool.
+Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
   {
     "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
       "tool_name": "base_tableDDL",
       "arguments": {
-        "database_name": "DEMO_Customer360_db",
-        "table_name": "callcenter"
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Now that I have the table DDL for the 'callcenter' table in 'DEMO_Customer360_db', I need to proceed to Phase 2 to describe the table in a business context based on the DDL information collected.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [
-                      {
-                        "action": {
-                          "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                          "tool_name": "CoreLLMTask",
-                          "arguments": {
-                            "data": {
-                              "workflow_history": [],
-                              "all_collected_data": {}
-                            }
-                          }
-                        },
-                        "result": "success"
-                      }
-                    ],
-                    "all_collected_data": {
-                      "result_of_phase_0": [
-                        {
-                          "status": "success",
-                          "results": [
-                            {
-                              "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-                "tool_name": "base_tableDDL",
-                "arguments": {
-                  "database_name": "DEMO_Customer360_db",
-                  "table_name": "callcenter"
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "metadata": {
-                  "tool_name": "base_tableDDL",
-                  "database": "DEMO_Customer360_db",
-                  "table": "callcenter"
-                },
-                "results": [
-                  {
-                    "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-                  }
-                ]
-              }
-            ]
-          }
-        }
+        "table_name": "callcenter",
+        "database_name": "DEMO_Customer360_db"
       }
     },
     "result": "success"
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -1368,16 +480,6 @@ Get the table DDL for the 'callcenter' table in 'DEMO_Customer360_db' using the 
       "results": [
         {
           "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-        }
-      ]
-    }
-  ],
-  "result_of_phase_1": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "Based on the provided workflow history and collected data, I can provide the DDL (Data Definition Language) for the callcenter table in the DEMO_Customer360_db database:\n\n```sql\nCREATE MULTISET TABLE DEMO_Customer360_db.callcenter, FALLBACK,\n     NO BEFORE JOURNAL,\n     NO AFTER JOURNAL,\n     CHECKSUM = DEFAULT,\n     DEFAULT MERGEBLOCKRATIO,\n     MAP = TD_MAP1\n     (\n      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\n      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\n      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\n      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\n      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\n      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\n      ZIPCODE INTEGER,\n      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\n      CALL_CENTER_COST BYTEINT)\nNO PRIMARY INDEX;\n```"
         }
       ]
     }
@@ -1393,16 +495,228 @@ Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explana
 USER PROMPT:
 Is the phase complete based on the system prompt? Respond with only YES or NO.
 
-2025-08-19 13:05:34,211 - --- RESPONSE ---
+2025-08-19 15:15:16,927 - --- RESPONSE ---
 YES
 --------------------------------------------------
 
-2025-08-19 13:05:44,117 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
+2025-08-19 15:15:18,499 - --- FULL CONTEXT (Session: 22609a2d-deb9-43e9-a908-1fd3bba280d7) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Describe the 'callcenter' table in a business context, including the purpose of the table and its columns, based on the DDL obtained in Phase 1.
+Deciding next tactical action for phase: Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.
 
 --- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
+[user]: You are a helpful assistant.
+[model]: Understood.
+[user]: SYSTEM PROMPT:
+
+You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
+
+--- MASTER PROMPT (The User's Goal) ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CONTEXT ---
+- User's Original Question: Manual execution of prompt: base_tableBusinessDesc
+
+--- INSTRUCTIONS ---
+1.  **Analyze the Master Prompt**: Carefully read the entire "MASTER PROMPT" to identify the distinct phases, steps, and communication requirements.
+2.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step in the process.
+3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
+    -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
+    -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
+    -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
+4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+
+--- EXAMPLE ---
+If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
+```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+  }
+]
+```
+
+Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
+
+
+USER PROMPT:
+Generate the meta-plan based on the instructions and context provided in the system prompt.
+[model]: ```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`."
+  }
+]
+```
+[user]: SYSTEM PROMPT:
+
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+
+--- OVERALL WORKFLOW GOAL ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CURRENT PHASE GOAL ---
+Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: []
+- Data Collected So Far: {}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
+3.  **CRITICAL RULE (CoreLLMTask Usage)**:
+    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
+
+
+USER PROMPT:
+Determine the next action based on the instructions and state provided in the system prompt.
+[model]: ```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "table_name": "callcenter",
+    "database_name": "DEMO_Customer360_db"
+  }
+}
+```
+[user]: SYSTEM PROMPT:
+
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
+
+--- CURRENT PHASE GOAL ---
+Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "arguments": {
+        "table_name": "callcenter",
+        "database_name": "DEMO_Customer360_db"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "success",
+      "metadata": {
+        "tool_name": "base_tableDDL",
+        "database": "DEMO_Customer360_db",
+        "table": "callcenter"
+      },
+      "results": [
+        {
+          "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
+        }
+      ]
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
+
+Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
+
+
+USER PROMPT:
+Is the phase complete based on the system prompt? Respond with only YES or NO.
+[model]: YES
+
 
 --- Current User Prompt (with System Prompt) ---
 SYSTEM PROMPT:
@@ -1448,199 +762,23 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Describe the 'callcenter' table in a business context, including the purpose of the table and its columns, based on the DDL obtained in Phase 1.
+Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
   {
     "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
       "tool_name": "base_tableDDL",
       "arguments": {
-        "database_name": "DEMO_Customer360_db",
-        "table_name": "callcenter"
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Now that I have the table DDL for the 'callcenter' table in 'DEMO_Customer360_db', I need to proceed to Phase 2 to describe the table in a business context based on the DDL information collected.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [
-                      {
-                        "action": {
-                          "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                          "tool_name": "CoreLLMTask",
-                          "arguments": {
-                            "data": {
-                              "workflow_history": [],
-                              "all_collected_data": {}
-                            }
-                          }
-                        },
-                        "result": "success"
-                      }
-                    ],
-                    "all_collected_data": {
-                      "result_of_phase_0": [
-                        {
-                          "status": "success",
-                          "results": [
-                            {
-                              "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-                "tool_name": "base_tableDDL",
-                "arguments": {
-                  "database_name": "DEMO_Customer360_db",
-                  "table_name": "callcenter"
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "metadata": {
-                  "tool_name": "base_tableDDL",
-                  "database": "DEMO_Customer360_db",
-                  "table": "callcenter"
-                },
-                "results": [
-                  {
-                    "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-                  }
-                ]
-              }
-            ]
-          }
-        }
+        "table_name": "callcenter",
+        "database_name": "DEMO_Customer360_db"
       }
     },
     "result": "success"
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -1654,23 +792,17 @@ Describe the 'callcenter' table in a business context, including the purpose of 
         }
       ]
     }
-  ],
-  "result_of_phase_1": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "Based on the provided workflow history and collected data, I can provide the DDL (Data Definition Language) for the callcenter table in the DEMO_Customer360_db database:\n\n```sql\nCREATE MULTISET TABLE DEMO_Customer360_db.callcenter, FALLBACK,\n     NO BEFORE JOURNAL,\n     NO AFTER JOURNAL,\n     CHECKSUM = DEFAULT,\n     DEFAULT MERGEBLOCKRATIO,\n     MAP = TD_MAP1\n     (\n      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\n      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\n      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\n      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\n      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\n      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\n      ZIPCODE INTEGER,\n      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\n      CALL_CENTER_COST BYTEINT)\nNO PRIMARY INDEX;\n```"
-        }
-      ]
-    }
   ]
 }
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
 2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE**: You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt. For any task that involves synthesis, analysis, description, or summarization (like the current phase goal might be), you **MUST** use the `CoreLLMTask` tool. Pass the current phase's goal as the `task_description` argument for the `CoreLLMTask`.
+3.  **CRITICAL RULE (CoreLLMTask Usage)**:
+    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
 4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
 5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
 
@@ -1680,27 +812,23 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 13:05:44,117 - --- RESPONSE ---
+2025-08-19 15:15:18,499 - --- RESPONSE ---
+```json
 {
-  "task_description": "Based on the DDL for the 'callcenter' table, I need to describe the table in a business context, explaining its purpose and the purpose of each column.",
   "tool_name": "CoreLLMTask",
   "arguments": {
-    "data": {
-      "workflow_history": [
-        {"action": {"task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool", "tool_name": "base_tableDDL", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "callcenter"}}, "result": "success"}
-      ],
-      "all_collected_data": {
-        "result_of_phase_0": [{"status": "success", "metadata": {"tool_name": "base_tableDDL", "database": "DEMO_Customer360_db", "table": "callcenter"}, "results": [{"Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"}]}],
-        "result_of_phase_1": [{"status": "success", "results": [{"response": "Based on the provided workflow history and collected data, I can provide the DDL (Data Definition Language) for the callcenter table in the DEMO_Customer360_db database:\n\n```sql\nCREATE MULTISET TABLE DEMO_Customer360_db.callcenter, FALLBACK,\n     NO BEFORE JOURNAL,\n     NO AFTER JOURNAL,\n     CHECKSUM = DEFAULT,\n     DEFAULT MERGEBLOCKRATIO,\n     MAP = TD_MAP1\n     (\n      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\n      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\n      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\n      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\n      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\n      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\n      ZIPCODE INTEGER,\n      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\n      CALL_CENTER_COST BYTEINT)\nNO PRIMARY INDEX;\n```"}]}]
-      }
-    }
+    "task_description": "Describe the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.",
+    "source_data": [
+      "result_of_phase_1"
+    ]
   }
 }
+```
 --------------------------------------------------
 
-2025-08-19 13:05:51,705 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-19 15:15:20,478 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
-Executing CoreLLMTask: None
+Executing CoreLLMTask: Describe the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.
 
 --- History ---
 
@@ -1713,683 +841,11 @@ USER PROMPT:
 You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.
 
 --- TASK ---
-None
+Describe the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.
 
---- DATA (Full Workflow State & History) ---
+--- RELEVANT DATA (Selected from Previous Phases) ---
 {
-  "workflow_history": [
-    {
-      "action": {
-        "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-        "tool_name": "CoreLLMTask",
-        "arguments": {
-          "data": {
-            "workflow_history": [],
-            "all_collected_data": {}
-          }
-        }
-      },
-      "result": "success"
-    },
-    {
-      "action": {
-        "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-        "tool_name": "CoreLLMTask",
-        "arguments": {
-          "data": {
-            "workflow_history": [
-              {
-                "action": {
-                  "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                  "tool_name": "CoreLLMTask",
-                  "arguments": {
-                    "data": {
-                      "workflow_history": [],
-                      "all_collected_data": {}
-                    }
-                  }
-                },
-                "result": "success"
-              }
-            ],
-            "all_collected_data": {
-              "result_of_phase_0": [
-                {
-                  "status": "success",
-                  "results": [
-                    {
-                      "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      },
-      "result": "success"
-    },
-    {
-      "action": {
-        "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-        "tool_name": "base_tableDDL",
-        "arguments": {
-          "database_name": "DEMO_Customer360_db",
-          "table_name": "callcenter"
-        }
-      },
-      "result": "success"
-    },
-    {
-      "action": {
-        "task_description": "Now that I have the table DDL for the 'callcenter' table in 'DEMO_Customer360_db', I need to proceed to Phase 2 to describe the table in a business context based on the DDL information collected.",
-        "tool_name": "CoreLLMTask",
-        "arguments": {
-          "data": {
-            "workflow_history": [
-              {
-                "action": {
-                  "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                  "tool_name": "CoreLLMTask",
-                  "arguments": {
-                    "data": {
-                      "workflow_history": [],
-                      "all_collected_data": {}
-                    }
-                  }
-                },
-                "result": "success"
-              },
-              {
-                "action": {
-                  "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-                  "tool_name": "CoreLLMTask",
-                  "arguments": {
-                    "data": {
-                      "workflow_history": [
-                        {
-                          "action": {
-                            "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                            "tool_name": "CoreLLMTask",
-                            "arguments": {
-                              "data": {
-                                "workflow_history": [],
-                                "all_collected_data": {}
-                              }
-                            }
-                          },
-                          "result": "success"
-                        }
-                      ],
-                      "all_collected_data": {
-                        "result_of_phase_0": [
-                          {
-                            "status": "success",
-                            "results": [
-                              {
-                                "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                              }
-                            ]
-                          }
-                        ]
-                      }
-                    }
-                  }
-                },
-                "result": "success"
-              },
-              {
-                "action": {
-                  "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-                  "tool_name": "base_tableDDL",
-                  "arguments": {
-                    "database_name": "DEMO_Customer360_db",
-                    "table_name": "callcenter"
-                  }
-                },
-                "result": "success"
-              }
-            ],
-            "all_collected_data": {
-              "result_of_phase_0": [
-                {
-                  "status": "success",
-                  "results": [
-                    {
-                      "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                    }
-                  ]
-                },
-                {
-                  "status": "success",
-                  "results": [
-                    {
-                      "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                    }
-                  ]
-                },
-                {
-                  "status": "success",
-                  "metadata": {
-                    "tool_name": "base_tableDDL",
-                    "database": "DEMO_Customer360_db",
-                    "table": "callcenter"
-                  },
-                  "results": [
-                    {
-                      "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      },
-      "result": "success"
-    }
-  ],
-  "all_collected_data": {
-    "result_of_phase_0": [
-      {
-        "status": "success",
-        "results": [
-          {
-            "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-          }
-        ]
-      },
-      {
-        "status": "success",
-        "results": [
-          {
-            "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-          }
-        ]
-      },
-      {
-        "status": "success",
-        "metadata": {
-          "tool_name": "base_tableDDL",
-          "database": "DEMO_Customer360_db",
-          "table": "callcenter"
-        },
-        "results": [
-          {
-            "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-          }
-        ]
-      }
-    ],
-    "result_of_phase_1": [
-      {
-        "status": "success",
-        "results": [
-          {
-            "response": "Based on the provided workflow history and collected data, I can provide the DDL (Data Definition Language) for the callcenter table in the DEMO_Customer360_db database:\n\n```sql\nCREATE MULTISET TABLE DEMO_Customer360_db.callcenter, FALLBACK,\n     NO BEFORE JOURNAL,\n     NO AFTER JOURNAL,\n     CHECKSUM = DEFAULT,\n     DEFAULT MERGEBLOCKRATIO,\n     MAP = TD_MAP1\n     (\n      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\n      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\n      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\n      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\n      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\n      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\n      ZIPCODE INTEGER,\n      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\n      CALL_CENTER_COST BYTEINT)\nNO PRIMARY INDEX;\n```"
-          }
-        ]
-      }
-    ]
-  }
-}
-
-Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
-
-2025-08-19 13:05:51,705 - --- RESPONSE ---
-# Business Description of the Callcenter Table
-
-The "callcenter" table in the DEMO_Customer360_db database stores information about call center representatives and their associated operational costs. This table appears to be part of a customer relationship management system.
-
-## Table Purpose
-This table maintains personal and contact information for call center employees along with a cost metric associated with each representative.
-
-## Key Data Elements
-- **Personal Information**: Gender, first name, and last name of call center representatives
-- **Contact Information**: Complete address (street address, city, state, ZIP code) and phone number
-- **Operational Metrics**: Call center cost metric (stored as a BYTEINT, suggesting a small numeric value, possibly a cost code or efficiency rating)
-
-## Technical Characteristics
-- The table is implemented as a MULTISET table, allowing duplicate rows
-- It has FALLBACK protection for data recovery
-- No journaling is configured (NO BEFORE/AFTER JOURNAL)
-- No primary index is defined, indicating the table may be relatively small or that uniqueness is not enforced
-
-This table likely serves as a reference for managing call center personnel costs and facilitating contact with representatives as part of a broader customer service or sales operation.
---------------------------------------------------
-
-2025-08-19 13:05:53,123 - --- FULL CONTEXT (Session: 44e527eb-c3fc-4fe6-b1f5-0df3af45db28) ---
---- REASON FOR CALL ---
-Checking for completion of phase: Describe the 'callcenter' table in a business context, including the purpose of the table and its columns, based on the DDL obtained in Phase 1.
-
---- History ---
-[user]: Manual execution of prompt: base_tableBusinessDesc
-
---- Current User Prompt (with System Prompt) ---
-SYSTEM PROMPT:
-
-You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
-
---- CURRENT PHASE GOAL ---
-Describe the 'callcenter' table in a business context, including the purpose of the table and its columns, based on the DDL obtained in Phase 1.
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: [
-  {
-    "action": {
-      "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [],
-          "all_collected_data": {}
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-      "tool_name": "base_tableDDL",
-      "arguments": {
-        "database_name": "DEMO_Customer360_db",
-        "table_name": "callcenter"
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Now that I have the table DDL for the 'callcenter' table in 'DEMO_Customer360_db', I need to proceed to Phase 2 to describe the table in a business context based on the DDL information collected.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [
-                      {
-                        "action": {
-                          "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                          "tool_name": "CoreLLMTask",
-                          "arguments": {
-                            "data": {
-                              "workflow_history": [],
-                              "all_collected_data": {}
-                            }
-                          }
-                        },
-                        "result": "success"
-                      }
-                    ],
-                    "all_collected_data": {
-                      "result_of_phase_0": [
-                        {
-                          "status": "success",
-                          "results": [
-                            {
-                              "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-                "tool_name": "base_tableDDL",
-                "arguments": {
-                  "database_name": "DEMO_Customer360_db",
-                  "table_name": "callcenter"
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "metadata": {
-                  "tool_name": "base_tableDDL",
-                  "database": "DEMO_Customer360_db",
-                  "table": "callcenter"
-                },
-                "results": [
-                  {
-                    "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  },
-  {
-    "action": {
-      "task_description": "Based on the DDL for the 'callcenter' table, I need to describe the table in a business context, explaining its purpose and the purpose of each column.",
-      "tool_name": "CoreLLMTask",
-      "arguments": {
-        "data": {
-          "workflow_history": [
-            {
-              "action": {
-                "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [],
-                    "all_collected_data": {}
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [
-                      {
-                        "action": {
-                          "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                          "tool_name": "CoreLLMTask",
-                          "arguments": {
-                            "data": {
-                              "workflow_history": [],
-                              "all_collected_data": {}
-                            }
-                          }
-                        },
-                        "result": "success"
-                      }
-                    ],
-                    "all_collected_data": {
-                      "result_of_phase_0": [
-                        {
-                          "status": "success",
-                          "results": [
-                            {
-                              "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-                "tool_name": "base_tableDDL",
-                "arguments": {
-                  "database_name": "DEMO_Customer360_db",
-                  "table_name": "callcenter"
-                }
-              },
-              "result": "success"
-            },
-            {
-              "action": {
-                "task_description": "Now that I have the table DDL for the 'callcenter' table in 'DEMO_Customer360_db', I need to proceed to Phase 2 to describe the table in a business context based on the DDL information collected.",
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                  "data": {
-                    "workflow_history": [
-                      {
-                        "action": {
-                          "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                          "tool_name": "CoreLLMTask",
-                          "arguments": {
-                            "data": {
-                              "workflow_history": [],
-                              "all_collected_data": {}
-                            }
-                          }
-                        },
-                        "result": "success"
-                      },
-                      {
-                        "action": {
-                          "task_description": "Based on the current phase goal, I need to confirm the table name and database name provided in the master prompt, then proceed to Phase 1 to get the table DDL.",
-                          "tool_name": "CoreLLMTask",
-                          "arguments": {
-                            "data": {
-                              "workflow_history": [
-                                {
-                                  "action": {
-                                    "task_description": "Confirm the table name 'callcenter' and database name 'DEMO_Customer360_db' provided in the master prompt.",
-                                    "tool_name": "CoreLLMTask",
-                                    "arguments": {
-                                      "data": {
-                                        "workflow_history": [],
-                                        "all_collected_data": {}
-                                      }
-                                    }
-                                  },
-                                  "result": "success"
-                                }
-                              ],
-                              "all_collected_data": {
-                                "result_of_phase_0": [
-                                  {
-                                    "status": "success",
-                                    "results": [
-                                      {
-                                        "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                                      }
-                                    ]
-                                  }
-                                ]
-                              }
-                            }
-                          }
-                        },
-                        "result": "success"
-                      },
-                      {
-                        "action": {
-                          "task_description": "Get the table DDL for callcenter in DEMO_Customer360_db using the base_tableDDL tool",
-                          "tool_name": "base_tableDDL",
-                          "arguments": {
-                            "database_name": "DEMO_Customer360_db",
-                            "table_name": "callcenter"
-                          }
-                        },
-                        "result": "success"
-                      }
-                    ],
-                    "all_collected_data": {
-                      "result_of_phase_0": [
-                        {
-                          "status": "success",
-                          "results": [
-                            {
-                              "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                            }
-                          ]
-                        },
-                        {
-                          "status": "success",
-                          "results": [
-                            {
-                              "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                            }
-                          ]
-                        },
-                        {
-                          "status": "success",
-                          "metadata": {
-                            "tool_name": "base_tableDDL",
-                            "database": "DEMO_Customer360_db",
-                            "table": "callcenter"
-                          },
-                          "results": [
-                            {
-                              "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  }
-                }
-              },
-              "result": "success"
-            }
-          ],
-          "all_collected_data": {
-            "result_of_phase_0": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-                  }
-                ]
-              },
-              {
-                "status": "success",
-                "metadata": {
-                  "tool_name": "base_tableDDL",
-                  "database": "DEMO_Customer360_db",
-                  "table": "callcenter"
-                },
-                "results": [
-                  {
-                    "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
-                  }
-                ]
-              }
-            ],
-            "result_of_phase_1": [
-              {
-                "status": "success",
-                "results": [
-                  {
-                    "response": "Based on the provided workflow history and collected data, I can provide the DDL (Data Definition Language) for the callcenter table in the DEMO_Customer360_db database:\n\n```sql\nCREATE MULTISET TABLE DEMO_Customer360_db.callcenter, FALLBACK,\n     NO BEFORE JOURNAL,\n     NO AFTER JOURNAL,\n     CHECKSUM = DEFAULT,\n     DEFAULT MERGEBLOCKRATIO,\n     MAP = TD_MAP1\n     (\n      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\n      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\n      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\n      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\n      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\n      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\n      ZIPCODE INTEGER,\n      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\n      CALL_CENTER_COST BYTEINT)\nNO PRIMARY INDEX;\n```"
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      }
-    },
-    "result": "success"
-  }
-]
-- Data Collected So Far: {
-  "result_of_phase_0": [
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
-    {
-      "status": "success",
-      "results": [
-        {
-          "response": "I notice that the task is specified as \"None\" and there's no data in the workflow history or collected data. Without a specific task to perform or data to process, I cannot generate a meaningful result. \n\nTo assist you effectively, I'll need:\n1. A clear task description\n2. Any relevant data to process or synthesize\n\nPlease provide the necessary information, and I'll be happy to help with your text processing needs."
-        }
-      ]
-    },
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -2403,13 +859,412 @@ Describe the 'callcenter' table in a business context, including the purpose of 
         }
       ]
     }
-  ],
+  ]
+}
+
+--- CRITICAL RULE ---
+You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.
+
+Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
+
+2025-08-19 15:15:20,478 - --- RESPONSE ---
+***Table Name:*** `callcenter`, ***Database Name:*** `DEMO_Customer360_db`, ***Description:*** This table stores customer information related to call center interactions. It includes personal details and call-related cost information.
+
+- ***GENDER:*** `The gender of the customer.`
+- ***FIRST_NAME:*** `The first name of the customer.`
+- ***LAST_NAME:*** `The last name of the customer.`
+- ***ADDRESS:*** `The address of the customer.`
+- ***STATE:*** `The state of the customer.`
+- ***CITY:*** `The city of the customer.`
+- ***ZIPCODE:*** `The zipcode of the customer.`
+- ***PHONE:*** `The phone number of the customer.`
+- ***CALL_CENTER_COST:*** `The cost associated with the customer's interaction with the call center.`
+--------------------------------------------------
+
+2025-08-19 15:15:21,069 - --- FULL CONTEXT (Session: 22609a2d-deb9-43e9-a908-1fd3bba280d7) ---
+--- REASON FOR CALL ---
+Checking for completion of phase: Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.
+
+--- History ---
+[user]: You are a helpful assistant.
+[model]: Understood.
+[user]: SYSTEM PROMPT:
+
+You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
+
+--- MASTER PROMPT (The User's Goal) ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CONTEXT ---
+- User's Original Question: Manual execution of prompt: base_tableBusinessDesc
+
+--- INSTRUCTIONS ---
+1.  **Analyze the Master Prompt**: Carefully read the entire "MASTER PROMPT" to identify the distinct phases, steps, and communication requirements.
+2.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step in the process.
+3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
+    -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
+    -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
+    -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
+4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+
+--- EXAMPLE ---
+If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
+```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+  }
+]
+```
+
+Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
+
+
+USER PROMPT:
+Generate the meta-plan based on the instructions and context provided in the system prompt.
+[model]: ```json
+[
+  {
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters."
+  },
+  {
+    "phase": 2,
+    "goal": "Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`."
+  }
+]
+```
+[user]: SYSTEM PROMPT:
+
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+
+--- OVERALL WORKFLOW GOAL ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CURRENT PHASE GOAL ---
+Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: []
+- Data Collected So Far: {}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
+3.  **CRITICAL RULE (CoreLLMTask Usage)**:
+    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
+
+
+USER PROMPT:
+Determine the next action based on the instructions and state provided in the system prompt.
+[model]: ```json
+{
+  "tool_name": "base_tableDDL",
+  "arguments": {
+    "table_name": "callcenter",
+    "database_name": "DEMO_Customer360_db"
+  }
+}
+```
+[user]: SYSTEM PROMPT:
+
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
+
+--- CURRENT PHASE GOAL ---
+Get the table DDL for the table 'callcenter' in database 'DEMO_Customer360_db' using the `base_tableDDL` tool. The DDL should be a single string, and it should not contain any new lines or special characters.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "arguments": {
+        "table_name": "callcenter",
+        "database_name": "DEMO_Customer360_db"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
   "result_of_phase_1": [
     {
       "status": "success",
+      "metadata": {
+        "tool_name": "base_tableDDL",
+        "database": "DEMO_Customer360_db",
+        "table": "callcenter"
+      },
       "results": [
         {
-          "response": "Based on the provided workflow history and collected data, I can provide the DDL (Data Definition Language) for the callcenter table in the DEMO_Customer360_db database:\n\n```sql\nCREATE MULTISET TABLE DEMO_Customer360_db.callcenter, FALLBACK,\n     NO BEFORE JOURNAL,\n     NO AFTER JOURNAL,\n     CHECKSUM = DEFAULT,\n     DEFAULT MERGEBLOCKRATIO,\n     MAP = TD_MAP1\n     (\n      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\n      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\n      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\n      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\n      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\n      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\n      ZIPCODE INTEGER,\n      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\n      CALL_CENTER_COST BYTEINT)\nNO PRIMARY INDEX;\n```"
+          "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
+        }
+      ]
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
+
+Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
+
+
+USER PROMPT:
+Is the phase complete based on the system prompt? Respond with only YES or NO.
+[model]: YES
+
+[user]: SYSTEM PROMPT:
+
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+
+--- OVERALL WORKFLOW GOAL ---
+You are a Teradata DBA who is an expert in describing the business use of tables in a database.
+
+## your role will work through the phases
+Perform the phases in order, and do not skip any phase.
+
+## Phase 0 - Get the table name and database name
+- The table name is callcenter
+- The database name is DEMO_Customer360_db
+
+## Phase 1 - Get the table DDL
+- Get the table DDL from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the base_tableDDL tool to get the DDL.
+
+## Phase 2 - Describe the table
+- Describe the table in a business context. The description should be a single string. 
+- The description should include the following: 
+    - The purpose of the table
+    - The purpose of the columns in the table
+
+## Communication guidelines:
+      - Be concise but informative in your explanations
+      - Clearly indicate which phase the process is currently in
+      - summarize the outcome of the phase before moving to the next phase
+
+## Final output guidelines:
+      - return in markdown
+      - Example:
+      ***Table Name:*** `table_name`
+
+      ***Database Name:*** `database_name`
+
+      ***Description:*** `table_description`
+
+         - ***Column1:*** `column1_descriptions`
+         - ***Column2:*** `column2_descriptions`
+         - ***Column3:*** `column3_descriptions`
+
+
+--- CURRENT PHASE GOAL ---
+Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "arguments": {
+        "table_name": "callcenter",
+        "database_name": "DEMO_Customer360_db"
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "success",
+      "metadata": {
+        "tool_name": "base_tableDDL",
+        "database": "DEMO_Customer360_db",
+        "table": "callcenter"
+      },
+      "results": [
+        {
+          "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
+        }
+      ]
+    }
+  ]
+}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
+2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
+3.  **CRITICAL RULE (CoreLLMTask Usage)**:
+    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+
+Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
+
+
+USER PROMPT:
+Determine the next action based on the instructions and state provided in the system prompt.
+[model]: ```json
+{
+  "tool_name": "CoreLLMTask",
+  "arguments": {
+    "task_description": "Describe the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.",
+    "source_data": [
+      "result_of_phase_1"
+    ]
+  }
+}
+```
+
+--- Current User Prompt (with System Prompt) ---
+SYSTEM PROMPT:
+
+You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
+
+--- CURRENT PHASE GOAL ---
+Synthesize a final report by describing the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.
+
+--- WORKFLOW STATE & HISTORY ---
+- Actions Taken So Far: [
+  {
+    "action": {
+      "tool_name": "base_tableDDL",
+      "arguments": {
+        "table_name": "callcenter",
+        "database_name": "DEMO_Customer360_db"
+      }
+    },
+    "result": "success"
+  },
+  {
+    "action": {
+      "tool_name": "CoreLLMTask",
+      "arguments": {
+        "task_description": "Describe the 'callcenter' table in database 'DEMO_Customer360_db' in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including: Table Name, Database Name, Description, and a description for each column using the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, - ***Column3:*** `column3_descriptions`.",
+        "source_data": [
+          "result_of_phase_1"
+        ],
+        "data": {
+          "result_of_phase_1": [
+            {
+              "status": "success",
+              "metadata": {
+                "tool_name": "base_tableDDL",
+                "database": "DEMO_Customer360_db",
+                "table": "callcenter"
+              },
+              "results": [
+                {
+                  "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "result": "success"
+  }
+]
+- Data Collected So Far: {
+  "result_of_phase_1": [
+    {
+      "status": "success",
+      "metadata": {
+        "tool_name": "base_tableDDL",
+        "database": "DEMO_Customer360_db",
+        "table": "callcenter"
+      },
+      "results": [
+        {
+          "Request Text": "CREATE MULTISET TABLE DEMO_Customer360_db.callcenter ,FALLBACK ,\r     NO BEFORE JOURNAL,\r     NO AFTER JOURNAL,\r     CHECKSUM = DEFAULT,\r     DEFAULT MERGEBLOCKRATIO,\r     MAP = TD_MAP1\r     (\r      GENDER VARCHAR(1) CHARACTER SET LATIN CASESPECIFIC,\r      FIRST_NAME VARCHAR(10) CHARACTER SET LATIN CASESPECIFIC,\r      LAST_NAME VARCHAR(9) CHARACTER SET LATIN CASESPECIFIC,\r      ADDRESS VARCHAR(25) CHARACTER SET LATIN CASESPECIFIC,\r      STATE VARCHAR(2) CHARACTER SET LATIN CASESPECIFIC,\r      CITY VARCHAR(16) CHARACTER SET LATIN CASESPECIFIC,\r      ZIPCODE INTEGER,\r      PHONE VARCHAR(14) CHARACTER SET LATIN CASESPECIFIC,\r      CALL_CENTER_COST BYTEINT)\rNO PRIMARY INDEX ;"
         }
       ]
     }
@@ -2419,7 +1274,7 @@ Describe the 'callcenter' table in a business context, including the purpose of 
       "status": "success",
       "results": [
         {
-          "response": "# Business Description of the Callcenter Table\n\nThe \"callcenter\" table in the DEMO_Customer360_db database stores information about call center representatives and their associated operational costs. This table appears to be part of a customer relationship management system.\n\n## Table Purpose\nThis table maintains personal and contact information for call center employees along with a cost metric associated with each representative.\n\n## Key Data Elements\n- **Personal Information**: Gender, first name, and last name of call center representatives\n- **Contact Information**: Complete address (street address, city, state, ZIP code) and phone number\n- **Operational Metrics**: Call center cost metric (stored as a BYTEINT, suggesting a small numeric value, possibly a cost code or efficiency rating)\n\n## Technical Characteristics\n- The table is implemented as a MULTISET table, allowing duplicate rows\n- It has FALLBACK protection for data recovery\n- No journaling is configured (NO BEFORE/AFTER JOURNAL)\n- No primary index is defined, indicating the table may be relatively small or that uniqueness is not enforced\n\nThis table likely serves as a reference for managing call center personnel costs and facilitating contact with representatives as part of a broader customer service or sales operation."
+          "response": "***Table Name:*** `callcenter`, ***Database Name:*** `DEMO_Customer360_db`, ***Description:*** This table stores customer information related to call center interactions. It includes personal details and call-related cost information.\n\n- ***GENDER:*** `The gender of the customer.`\n- ***FIRST_NAME:*** `The first name of the customer.`\n- ***LAST_NAME:*** `The last name of the customer.`\n- ***ADDRESS:*** `The address of the customer.`\n- ***STATE:*** `The state of the customer.`\n- ***CITY:*** `The city of the customer.`\n- ***ZIPCODE:*** `The zipcode of the customer.`\n- ***PHONE:*** `The phone number of the customer.`\n- ***CALL_CENTER_COST:*** `The cost associated with the customer's interaction with the call center.`"
         }
       ]
     }
@@ -2435,7 +1290,7 @@ Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explana
 USER PROMPT:
 Is the phase complete based on the system prompt? Respond with only YES or NO.
 
-2025-08-19 13:05:53,123 - --- RESPONSE ---
+2025-08-19 15:15:21,070 - --- RESPONSE ---
 YES
 --------------------------------------------------
 

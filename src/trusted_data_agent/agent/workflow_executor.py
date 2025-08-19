@@ -2,7 +2,7 @@
 import json
 import logging
 import re
-import copy # --- NEW: Import the copy module ---
+import copy 
 
 from trusted_data_agent.agent.prompts import (
     WORKFLOW_META_PLANNING_PROMPT,
@@ -42,7 +42,6 @@ class WorkflowExecutor:
         reason = f"Generating a strategic meta-plan for the '{self.active_prompt_name}' workflow."
         yield self.parent._format_sse({"step": "Calling LLM", "details": reason})
 
-        # --- MODIFIED: Pass the detailed prompt as a system prompt ---
         planning_system_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input
@@ -78,7 +77,6 @@ class WorkflowExecutor:
         Makes a tactical LLM call to decide the single next best action for the current phase.
         Can now return a string for early completion signals.
         """
-        # --- MODIFIED: Pass the detailed prompt as a system prompt ---
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
@@ -107,7 +105,6 @@ class WorkflowExecutor:
 
             action = json.loads(json_str.strip())
             
-            # --- MODIFIED: Normalize common key name hallucinations ---
             if "tool" in action and "tool_name" not in action:
                 action["tool_name"] = action.pop("tool")
             if "action" in action and "tool_name" not in action:
@@ -128,7 +125,6 @@ class WorkflowExecutor:
         """
         Asks the LLM if the current phase's goal has been met.
         """
-        # --- MODIFIED: Pass the detailed prompt as a system prompt ---
         completion_system_prompt = WORKFLOW_PHASE_COMPLETION_PROMPT.format(
             current_phase_goal=current_phase_goal,
             workflow_history=json.dumps(self.action_history, indent=2),
@@ -165,7 +161,6 @@ class WorkflowExecutor:
                     "phase_details": current_phase
                 })
 
-                # --- NEW: Add a circuit breaker to prevent infinite loops ---
                 phase_attempts = 0
                 max_phase_attempts = 3
 
@@ -174,7 +169,6 @@ class WorkflowExecutor:
                     if phase_attempts > max_phase_attempts:
                         raise RuntimeError(f"Phase '{phase_goal}' failed to complete after {max_phase_attempts} attempts.")
 
-                    # 1. Get the next action to perform.
                     reason_action = f"Deciding next tactical action for phase: {phase_goal}"
                     yield self.parent._format_sse({"step": "Calling LLM", "details": reason_action})
                     
@@ -196,18 +190,15 @@ class WorkflowExecutor:
                     if not tool_name:
                         raise ValueError("Tactical LLM response is missing a 'tool_name'.")
 
-                    # 2. Execute the action.
                     if current_phase.get("type") == "loop":
                         loop_data_key = current_phase.get("loop_over")
                         if loop_data_key and loop_data_key in self.workflow_state:
                              next_action['arguments']['data_from_previous_phase'] = self.workflow_state[loop_data_key]
                     
+                    # --- MODIFIED: Pass only collected data to CoreLLMTask to prevent context explosion ---
                     if tool_name == "CoreLLMTask":
                         if "arguments" not in next_action: next_action["arguments"] = {}
-                        next_action["arguments"]["data"] = {
-                            "workflow_history": copy.deepcopy(self.action_history),
-                            "all_collected_data": copy.deepcopy(self.workflow_state)
-                        }
+                        next_action["arguments"]["data"] = copy.deepcopy(self.workflow_state)
 
                     yield self.parent._format_sse({"step": "Tool Execution Intent", "details": next_action}, "tool_result")
                     
@@ -229,7 +220,6 @@ class WorkflowExecutor:
 
                     yield self.parent._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
 
-                    # 3. After executing, check if the phase is now complete.
                     reason_check = f"Checking for completion of phase: {phase_goal}"
                     yield self.parent._format_sse({"step": "Calling LLM", "details": reason_check})
                     phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal)
@@ -240,7 +230,7 @@ class WorkflowExecutor:
 
                     if phase_is_complete:
                         yield self.parent._format_sse({"step": f"Phase {phase_num} Complete", "details": "Goal has been achieved."})
-                        break # Exit the inner loop and move to the next phase
+                        break 
 
                 self.current_phase_index += 1
 

@@ -245,7 +245,7 @@ This is the goal you need to break down into a step-by-step plan.
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """
 
-# --- MODIFIED: Added a more forceful critical rule to prevent non-actionable phases. ---
+# --- MODIFIED: Streamlined the planning process to combine description and formatting into one final step. ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
 
@@ -263,26 +263,21 @@ You are an expert strategic planning assistant. Your task is to analyze a comple
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
-4.  **Final Phase**: The final phase should always be dedicated to synthesizing and formatting the final report according to the "Final output guidelines" in the master prompt.
-5.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
-If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get DDL. Phase 3 - describe database.", your output should look like this:
+If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
 ```json
 [
   {{
     "phase": 1,
-    "goal": "Get the list of all tables in the database using the `base_tableList` tool."
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
   }},
   {{
     "phase": 2,
-    "goal": "For each table identified in Phase 1, get its DDL using the `base_tableDDL` tool.",
-    "type": "loop",
-    "loop_over": "result_of_phase_1"
-  }},
-  {{
-    "phase": 3,
-    "goal": "Synthesize a final, holistic business description of the entire database by analyzing the DDLs collected in Phase 2."
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
   }}
 ]
 ```
@@ -290,7 +285,7 @@ If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get 
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 """
 
-# --- MODIFIED: Added a critical rule to enforce using CoreLLMTask for synthesis. ---
+# --- MODIFIED: Added instructions for specifying source_data for CoreLLMTask. ---
 WORKFLOW_TACTICAL_PROMPT = """
 You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
 
@@ -307,7 +302,11 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
 2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE**: You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt. For any task that involves synthesis, analysis, description, or summarization (like the current phase goal might be), you **MUST** use the `CoreLLMTask` tool. Pass the current phase's goal as the `task_description` argument for the `CoreLLMTask`.
+3.  **CRITICAL RULE (CoreLLMTask Usage)**:
+    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+    -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
 4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
 5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
 

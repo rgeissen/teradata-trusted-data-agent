@@ -44,7 +44,7 @@ UTIL_TOOL_DEFINITIONS = [
     }
 ]
 
-# --- MODIFIED: Define the CoreLLMTask tool with a generic 'task_description' ---
+# --- MODIFIED: Added source_data argument for context scoping. ---
 CORE_LLM_TASK_DEFINITION = {
     "name": "CoreLLMTask",
     "description": "Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.",
@@ -54,9 +54,9 @@ CORE_LLM_TASK_DEFINITION = {
             "description": "A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.",
             "required": True
         },
-        "data": {
-            "type": "dict",
-            "description": "A dictionary containing all necessary data for the task, intelligently extracted by the LLM from the workflow's CONTEXT & HISTORY.",
+        "source_data": {
+            "type": "list[string]",
+            "description": "A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.",
             "required": True
         }
     }
@@ -72,13 +72,10 @@ def _extract_and_clean_description(description: str | None) -> tuple[str, str]:
         return "", "unknown"
 
     datatype = "unknown"
-    # Regex to find "(type: xxx)" where xxx is one of the allowed types, case-insensitive
     match = re.search(r'\s*\((type:\s*(str|int|float|bool))\)', description, re.IGNORECASE)
     
     if match:
-        # Extract the specific type (e.g., "str") from the second main capture group
         datatype = match.group(2).lower()
-        # Remove the entire matched part (e.g., " (type: str)") from the description
         cleaned_description = description.replace(match.group(0), "").strip()
     else:
         cleaned_description = description
@@ -95,7 +92,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
     async with mcp_client.session("teradata_mcp_server") as temp_session:
         app_logger.info("--- Loading and classifying Teradata tools and prompts... ---")
 
-        # Step 1: Load all capabilities (tools and prompts) from the server
         loaded_tools = await load_mcp_tools(temp_session)
         loaded_prompts = []
         try:
@@ -113,7 +109,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         loaded_tools.append(viz_tool_obj)
         for util_tool_def in UTIL_TOOL_DEFINITIONS:
             loaded_tools.append(SimpleTool(**util_tool_def))
-        # --- NEW: Add the CoreLLMTask tool to the list of loaded tools ---
         loaded_tools.append(SimpleTool(**CORE_LLM_TASK_DEFINITION))
 
 
@@ -121,13 +116,10 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         if loaded_prompts:
             STATE['mcp_prompts'] = {prompt.name: prompt for prompt in loaded_prompts}
 
-        # Step 2: Prepare a single list of all capabilities for the LLM
         all_capabilities = []
-        # --- MODIFIED: Add an explicit '(tool)' label for unambiguous classification ---
         all_capabilities.extend([f"- {tool.name} (tool): {tool.description}" for tool in loaded_tools])
         
         for p in loaded_prompts:
-            # --- MODIFIED: Add an explicit '(prompt)' label for unambiguous classification ---
             prompt_str = f"- {p.name} (prompt): {p.description or 'No description available.'}"
             if hasattr(p, 'arguments') and p.arguments:
                 prompt_str += "\n  - Arguments:"
@@ -139,7 +131,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
         capabilities_list_str = "\n".join(all_capabilities)
 
-        # Step 3: Create a single, unified prompt for categorization
         classification_prompt = (
             "You are a helpful assistant that analyzes a list of technical capabilities (tools and prompts) for a Teradata database system and classifies them. "
             "For each capability, you must determine a single user-friendly 'category' for a UI. "
@@ -155,7 +146,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         )
         categorization_system_prompt = "You are an expert assistant that only responds with valid JSON."
         
-        # Step 4: Make a single LLM call for all classifications
         classified_capabilities_str, _, _ = await llm_handler.call_llm_api(
             llm_instance, classification_prompt, raise_on_error=True,
             system_prompt_override=categorization_system_prompt
@@ -168,7 +158,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         cleaned_str = match.group(0)
         classified_data = json.loads(cleaned_str)
 
-        # Step 5: Process the unified response for Tools and build the new categorized context
         STATE['structured_tools'] = {}
         disabled_tools_list = STATE.get("disabled_tools", [])
         
@@ -186,13 +175,11 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
         tool_context_parts = ["--- Available Tools ---"]
         for category, tools in sorted(STATE['structured_tools'].items()):
-            # --- MODIFIED: Check for enabled tools before adding the category header ---
             enabled_tools_in_category = [t for t in tools if not t['disabled']]
             if enabled_tools_in_category:
                 tool_context_parts.append(f"--- Category: {category} ---")
                 for tool_info in enabled_tools_in_category:
                     tool_obj = STATE['mcp_tools'][tool_info['name']]
-                    # --- MODIFIED: Add explicit '(tool)' label to the context string ---
                     tool_str = f"- `{tool_obj.name}` (tool): {tool_obj.description}"
                     args_dict = tool_obj.args if isinstance(tool_obj.args, dict) else {}
 
@@ -208,7 +195,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         
         STATE['tools_context'] = "\n".join(tool_context_parts)
 
-        # Step 6: Process the unified response for Prompts and build the new categorized context
         STATE['structured_prompts'] = {}
         disabled_prompts_list = STATE.get("disabled_prompts", [])
         
@@ -244,7 +230,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 prompt_context_parts.append(f"--- Category: {category} ---")
                 for prompt_info in enabled_prompts_in_category:
                     prompt_description = prompt_info.get("description", "No description available.")
-                    # --- MODIFIED: Add explicit '(prompt)' label to the context string ---
                     prompt_str = f"- `{prompt_info['name']}` (prompt): {prompt_description}"
                     
                     processed_args = prompt_info.get('arguments', [])
@@ -259,17 +244,13 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                             prompt_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
                     prompt_context_parts.append(prompt_str)
 
-        if prompt_context_parts:
-            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_context_parts)
+        if len(prompt_context_parts) > 1:
+            STATE['prompts_context'] = "\n".join(prompt_context_parts)
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
 
 
 def _transform_chart_data(data: any) -> list[dict]:
-    """
-    Checks for and corrects common LLM data format hallucinations for charts.
-    Also renames 'ColumnName' to 'SourceColumnName' for clarity in charting.
-    """
     if isinstance(data, dict) and 'labels' in data and 'values' in data:
         app_logger.warning("Correcting hallucinated chart data format from labels/values to list of dicts.")
         labels = data.get('labels', [])
@@ -295,27 +276,18 @@ def _transform_chart_data(data: any) -> list[dict]:
     return data
 
 def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
-    """
-    Constructs the G2Plot JSON specification from the LLM's request.
-    
-    This version uses a more robust mapping approach, relying on canonical keys from the prompt
-    and dynamically matching them to column names in the data.
-    """
     chart_type = args.get("chart_type", "").lower()
     mapping = args.get("mapping", {})
     
-    # Define a canonical to G2Plot mapping
-    # This centralizes the logic and makes it robust to minor LLM variations.
     canonical_map = {
         'x_axis': 'xField', 
         'y_axis': 'yField', 
         'color': 'seriesField',
         'angle': 'angleField',
-        'category': 'xField', # Add aliases for flexibility
-        'value': 'yField'      # Add aliases for flexibility
+        'category': 'xField', 
+        'value': 'yField'      
     }
 
-    # Reverse map for checking against LLM output
     reverse_canonical_map = {
         alias.lower(): canonical for canonical, aliases in canonical_map.items() 
         for alias in [canonical] + [key for key in aliases]
@@ -338,11 +310,9 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     options.update(processed_mapping)
 
-    # Special handling for pie charts where 'seriesField' needs to be 'colorField'
     if chart_type == 'pie' and 'seriesField' in options:
         options['colorField'] = options.pop('seriesField')
 
-    # Ensure numeric fields are correctly typed.
     final_data = []
     if data:
         for row in data:
@@ -352,7 +322,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
                     cell_value = new_row.get(actual_col_name)
                     if cell_value is not None:
                         try:
-                            # Convert to float for G2Plot compatibility
                             new_row[actual_col_name] = float(cell_value)
                         except (ValueError, TypeError):
                             app_logger.warning(f"Non-numeric value '{cell_value}' encountered for numeric field '{actual_col_name}'. Conversion failed.")
@@ -369,24 +338,40 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFIED: _invoke_core_llm_task now takes the full workflow state for better context ---
+# --- MODIFIED: Added a CRITICAL RULE to the internal prompt to enforce strict formatting adherence. ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
-    Executes a task handled by the LLM itself, based on a generic task_description.
+    Executes a task handled by the LLM itself, based on a generic task_description
+    and a focused subset of the workflow's collected data.
     """
-    task_description = command.get("arguments", {}).get("task_description")
-    # The 'data' argument now contains the full workflow state and history
-    data = command.get("arguments", {}).get("data", {})
+    args = command.get("arguments", {})
+    task_description = args.get("task_description")
+    source_data_keys = args.get("source_data", [])
+    
+    # This is the full history of all data collected in the workflow so far.
+    full_workflow_state = args.get("data", {}) 
     
     app_logger.info(f"Executing client-side LLM task: {task_description}")
 
-    # --- NEW: Generic prompt template for internal LLM tasks ---
+    # Build a focused data payload containing only the data specified by the tactical LLM.
+    focused_data_for_task = {}
+    if isinstance(full_workflow_state, dict):
+        for key in source_data_keys:
+            if key in full_workflow_state:
+                focused_data_for_task[key] = full_workflow_state[key]
+    
+    if not focused_data_for_task:
+        app_logger.warning(f"CoreLLMTask was called for '{task_description}' but no source data was found for keys: {source_data_keys}. Passing all data as a fallback.")
+        focused_data_for_task = full_workflow_state
+
     final_prompt = (
         "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.\n\n"
         "--- TASK ---\n"
         f"{task_description}\n\n"
-        "--- DATA (Full Workflow State & History) ---\n"
-        f"{json.dumps(data, indent=2)}\n\n"
+        "--- RELEVANT DATA (Selected from Previous Phases) ---\n"
+        f"{json.dumps(focused_data_for_task, indent=2)}\n\n"
+        "--- CRITICAL RULE ---\n"
+        "You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.\n\n"
         "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
 
@@ -404,7 +389,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
     
-    # --- MODIFIED: Pass STATE to _invoke_core_llm_task ---
     if tool_name == "CoreLLMTask":
         return await _invoke_core_llm_task(STATE, command)
 
@@ -423,8 +407,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
         try:
             args = command.get("arguments", {})
             data = args.get("data")
-            # This transform is still useful for correcting LLM hallucinations
-            # about data structure, but the hardcoded mapping logic is removed.
             data = _transform_chart_data(data) 
             
             if not isinstance(data, list) or not data:
@@ -437,7 +419,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
             return {"error": "Chart Generation Failed", "data": str(e)}
 
-    # --- MODIFIED: Make argument parsing more robust to LLM hallucinations ---
     args = command.get("arguments") or command.get("parameters") or command.get("tool_input") or command.get("action_input") or command.get("tool_arguments") or {}
     
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
@@ -446,7 +427,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             call_tool_result = await temp_session.call_tool(tool_name, args)
     except Exception as e:
         app_logger.error(f"Error during tool invocation for '{tool_name}': {e}", exc_info=True)
-        # --- MODIFIED: Return a structured JSON error object ---
         return {"status": "error", "error": f"An exception occurred while invoking tool '{tool_name}'.", "data": str(e)}
     
     if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
@@ -456,7 +436,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
                 return json.loads(text_content.text)
             except json.JSONDecodeError:
                 app_logger.warning(f"Tool '{tool_name}' returned a non-JSON string: '{text_content.text}'")
-                # --- MODIFIED: Return a structured JSON error object ---
                 return {"status": "error", "error": "Tool returned non-JSON string", "data": text_content.text}
     
     raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
