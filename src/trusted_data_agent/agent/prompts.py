@@ -245,7 +245,7 @@ This is the goal you need to break down into a step-by-step plan.
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """
 
-# --- MODIFIED: The meta-planning prompt now requires the LLM to specify relevant tools for each phase. ---
+# --- MODIFIED: Removed the restrictive two-phase mandate and kept the self-exclusion rule. ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
 
@@ -266,7 +266,8 @@ You are an expert strategic planning assistant. Your task is to analyze a comple
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
 5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
-6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+6.  **CRITICAL RULE (Execution Focus)**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
+7.  **CRITICAL RULE (Capability Types)**: You are generating a plan of executable **tools**. The `relevant_tools` list **MUST ONLY** contain names of capabilities that are explicitly marked as `(tool)` in the system's "Capabilities" list. You **MUST NOT** include the name of any capability marked as `(prompt)`, especially not the name of the master prompt you are currently processing.
 
 --- EXAMPLE ---
 If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:

@@ -33,7 +33,6 @@ class WorkflowExecutor:
         self.current_phase_index = 0
         self.workflow_state = {} # Stores results keyed by phase, e.g., {"result_of_phase_1": [...]}
         self.action_history = []
-        # --- NEW: State for the self-correction loop ---
         self.last_failed_action_info = "None"
 
     async def _generate_meta_plan(self):
@@ -74,7 +73,6 @@ class WorkflowExecutor:
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
 
-    # --- MODIFIED: The tactical call now accepts and passes more context for validation and correction. ---
     async def _get_next_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """
         Makes a tactical LLM call to decide the single next best action for the current phase.
@@ -95,7 +93,6 @@ class WorkflowExecutor:
             system_prompt_override=tactical_system_prompt
         )
         
-        # --- NEW: Reset the failed action info after the LLM has been prompted with it. ---
         self.last_failed_action_info = "None"
 
         if "FINAL_ANSWER:" in response_text.upper():
@@ -130,10 +127,57 @@ class WorkflowExecutor:
         except json.JSONDecodeError:
             raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}")
 
-    async def _is_phase_complete(self, current_phase_goal: str) -> tuple[bool, int, int]:
+    # --- MODIFIED: Fixed the SyntaxError by removing `return` with value from the async generator. ---
+    async def _normalize_tool_arguments(self, next_action: dict):
         """
-        Asks the LLM if the current phase's goal has been met.
+        Deterministically corrects common LLM argument name hallucinations.
+        Modifies the next_action dictionary in place.
         """
+        if "arguments" not in next_action or not isinstance(next_action["arguments"], dict):
+            return # Exit early, no value returned
+
+        # A mapping of common synonyms to the canonical argument name.
+        synonym_map = {
+            "database": "database_name",
+            "db": "database_name",
+            "table": "table_name",
+            "tbl": "table_name",
+            "column": "column_name",
+            "col": "column_name"
+        }
+        
+        normalized_args = {}
+        corrected = False
+        for arg_name, arg_value in next_action["arguments"].items():
+            canonical_name = synonym_map.get(arg_name.lower(), arg_name)
+            if canonical_name != arg_name:
+                corrected = True
+            normalized_args[canonical_name] = arg_value
+        
+        if corrected:
+            yield self.parent._format_sse({
+                "step": "System Correction",
+                "details": f"LLM used non-standard argument names. System corrected them before execution.",
+                "type": "workaround"
+            })
+            next_action["arguments"] = normalized_args
+        
+        # No return statement at the end, as this is an async generator.
+
+    async def _is_phase_complete(self, current_phase_goal: str, phase_num: int) -> tuple[bool, int, int]:
+        """
+        Checks if the current phase's goal has been met. It now includes a deterministic
+        check for success before falling back to the LLM.
+        """
+        # --- NEW: Success-Oriented Deterministic Check ---
+        phase_result_key = f"result_of_phase_{phase_num}"
+        if phase_result_key in self.workflow_state:
+            results_for_phase = self.workflow_state[phase_result_key]
+            if any(isinstance(res, dict) and res.get("status") == "success" for res in results_for_phase):
+                app_logger.info(f"Deterministic check found a successful result for phase {phase_num}. Marking as complete.")
+                return True, 0, 0 # No token cost for this check
+
+        # Fallback to LLM if no success is found
         completion_system_prompt = WORKFLOW_PHASE_COMPLETION_PROMPT.format(
             current_phase_goal=current_phase_goal,
             workflow_history=json.dumps(self.action_history, indent=2),
@@ -163,7 +207,6 @@ class WorkflowExecutor:
                 current_phase = self.meta_plan[self.current_phase_index]
                 phase_goal = current_phase.get("goal", "No goal defined for this phase.")
                 phase_num = current_phase.get("phase", self.current_phase_index + 1)
-                # --- NEW: Get the list of allowed tools for this phase ---
                 relevant_tools = current_phase.get("relevant_tools", [])
 
                 yield self.parent._format_sse({
@@ -173,7 +216,7 @@ class WorkflowExecutor:
                 })
 
                 phase_attempts = 0
-                max_phase_attempts = 5 # Increased attempts for self-correction
+                max_phase_attempts = 5
 
                 while True:
                     phase_attempts += 1
@@ -183,7 +226,6 @@ class WorkflowExecutor:
                     reason_action = f"Deciding next tactical action for phase: {phase_goal}"
                     yield self.parent._format_sse({"step": "Calling LLM", "details": reason_action})
                     
-                    # --- MODIFIED: Pass the relevant_tools to the tactical LLM call ---
                     next_action, input_tokens, output_tokens = await self._get_next_action(phase_goal, relevant_tools)
                     
                     updated_session = session_manager.get_session(self.session_id)
@@ -198,11 +240,14 @@ class WorkflowExecutor:
                     if not isinstance(next_action, dict):
                         raise RuntimeError(f"Tactical LLM failed to provide a valid action. Received: {next_action}")
 
+                    # --- MODIFIED: Normalize arguments before validation and execution ---
+                    async for event in self._normalize_tool_arguments(next_action):
+                        yield event
+
                     tool_name = next_action.get("tool_name")
                     if not tool_name:
                         raise ValueError("Tactical LLM response is missing a 'tool_name'.")
 
-                    # --- NEW: Validation Gate and Self-Correction Loop ---
                     if relevant_tools and tool_name not in relevant_tools:
                         app_logger.warning(f"LLM proposed an invalid tool '{tool_name}' for the current phase. Expected one of: {relevant_tools}. Initiating self-correction.")
                         self.last_failed_action_info = f"Your last attempt to use the tool '{tool_name}' was invalid because it is not in the list of permitted tools for this phase."
@@ -211,7 +256,7 @@ class WorkflowExecutor:
                             "details": f"LLM chose an invalid tool ('{tool_name}'). Retrying with constraints.",
                             "type": "workaround"
                         })
-                        continue # Restart the loop to get a new action
+                        continue 
 
                     if current_phase.get("type") == "loop":
                         loop_data_key = current_phase.get("loop_over")
@@ -242,13 +287,13 @@ class WorkflowExecutor:
 
                     yield self.parent._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
 
-                    reason_check = f"Checking for completion of phase: {phase_goal}"
-                    yield self.parent._format_sse({"step": "Calling LLM", "details": reason_check})
-                    phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal)
+                    # --- MODIFIED: Use the new, more robust completion check ---
+                    phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal, phase_num)
                     
-                    updated_session = session_manager.get_session(self.session_id)
-                    if updated_session:
-                        yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+                    if input_tokens > 0 or output_tokens > 0: # Only send token update if LLM was called
+                        updated_session = session_manager.get_session(self.session_id)
+                        if updated_session:
+                            yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
 
                     if phase_is_complete:
                         yield self.parent._format_sse({"step": f"Phase {phase_num} Complete", "details": "Goal has been achieved."})
