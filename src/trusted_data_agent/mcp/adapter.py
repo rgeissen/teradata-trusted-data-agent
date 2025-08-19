@@ -337,6 +337,7 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
+# --- MODIFIED: The prompt for the CoreLLMTask is now much stricter to enforce consistent formatting. ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
     Executes a task handled by the LLM itself, based on a generic task_description

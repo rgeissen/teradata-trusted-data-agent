@@ -30,31 +30,44 @@ class OutputFormatter:
                     return True
         return False
 
+    # --- MODIFIED: The parser is now more flexible and uses a synonym map to handle LLM variations. ---
     def _parse_structured_markdown(self, text: str) -> dict | None:
         """
         Parses a specific markdown format like '***Key:*** value' into a structured dictionary,
-        making it robust to formatting errors like missing newlines or commas.
+        making it robust to formatting errors like missing newlines, commas, and key name variations.
         """
         data = {'columns': []}
-        pattern = re.compile(r'\*{3}(.*?):\*{3}\s*`?(.*?)`?(?=\s*,?\s*(?:- )?\*{3}|$)', re.DOTALL)
+        # This regex is designed to be very forgiving about whitespace and optional backticks.
+        pattern = re.compile(r'\*{3}(.*?):\*{3}\s*`?(.*?)`?(?=\s*(?:- )?\*{3}|$)', re.DOTALL)
         
         matches = pattern.findall(text)
         
         if not matches:
             return None
 
-        header_keys = ['table_name', 'database_name', 'description']
+        # A mapping of possible LLM-generated keys to our canonical, internal keys.
+        header_key_synonyms = {
+            'table name': 'table_name',
+            'database name': 'database_name',
+            'database': 'database_name',
+            'description': 'description',
+            'table description': 'description'
+        }
         
         for key, value in matches:
-            key_clean = key.strip().lower().replace(' ', '_')
+            key_clean = key.strip().lower()
             value_clean = value.strip()
 
-            if key_clean in header_keys:
-                data[key_clean] = value_clean
+            canonical_key = header_key_synonyms.get(key_clean)
+
+            if canonical_key:
+                data[canonical_key] = value_clean
             else:
+                # If it's not a known header key, treat it as a column description.
                 data['columns'].append({'name': key.strip(), 'description': value_clean})
 
-        if 'table_name' in data:
+        # Only return data if we successfully parsed at least one of the core header fields.
+        if 'table_name' in data or 'description' in data:
             return data
         return None
 
@@ -115,7 +128,6 @@ class OutputFormatter:
             
             heading_match = re.match(r'^(#{1,6})\s+(.*)$', stripped_line)
             list_item_match = re.match(r'^[*-]\s+(.*)$', stripped_line)
-            # --- MODIFIED: Regex now accepts one or more asterisks for keys ---
             key_value_match = re.match(r'^\*+(.*?):\*+\s*(.*)$', stripped_line)
 
             if current_list_items and not list_item_match:

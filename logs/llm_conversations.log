@@ -1,4 +1,4 @@
-2025-08-19 17:01:42,008 - --- FULL CONTEXT (Session: 936b3959-8e4c-4eb7-a86b-12881c7b0279) ---
+2025-08-19 17:24:41,277 - --- FULL CONTEXT (Session: 7a9cbf70-90d2-4a8d-aab5-c66246c7cf09) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the 'base_tableBusinessDesc' workflow.
 
@@ -58,10 +58,11 @@ Perform the phases in order, and do not skip any phase.
 3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
     -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   `"relevant_tools"`: A list of tool names that are permitted to be used during this phase. You MUST select the most appropriate and specific tools from the full "Capabilities" list provided in the main system prompt to achieve the phase's goal.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
 6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
@@ -70,11 +71,13 @@ If the master prompt requires getting DDL and then describing/formatting, your o
 [
   {
     "phase": 1,
-    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool.",
+    "relevant_tools": ["base_tableDDL"]
   },
   {
     "phase": 2,
-    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.",
+    "relevant_tools": ["CoreLLMTask"]
   }
 ]
 ```
@@ -85,24 +88,30 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 USER PROMPT:
 Generate the meta-plan based on the instructions and context provided in the system prompt.
 
-2025-08-19 17:01:42,008 - --- RESPONSE ---
+2025-08-19 17:24:41,277 - --- RESPONSE ---
 ```json
 [
   {
-    "phase": 0,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool."
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.",
+    "relevant_tools": [
+      "base_tableDDL"
+    ]
   },
   {
-    "phase": 1,
-    "goal": "Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys."
+    "phase": 2,
+    "goal": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.",
+    "relevant_tools": [
+      "CoreLLMTask"
+    ]
   }
 ]
 ```
 --------------------------------------------------
 
-2025-08-19 17:01:42,675 - --- FULL CONTEXT (Session: 936b3959-8e4c-4eb7-a86b-12881c7b0279) ---
+2025-08-19 17:24:42,422 - --- FULL CONTEXT (Session: 7a9cbf70-90d2-4a8d-aab5-c66246c7cf09) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Deciding next tactical action for phase: Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -158,10 +167,11 @@ Perform the phases in order, and do not skip any phase.
 3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
     -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   `"relevant_tools"`: A list of tool names that are permitted to be used during this phase. You MUST select the most appropriate and specific tools from the full "Capabilities" list provided in the main system prompt to achieve the phase's goal.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
 6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
@@ -170,11 +180,13 @@ If the master prompt requires getting DDL and then describing/formatting, your o
 [
   {
     "phase": 1,
-    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool.",
+    "relevant_tools": ["base_tableDDL"]
   },
   {
     "phase": 2,
-    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.",
+    "relevant_tools": ["CoreLLMTask"]
   }
 ]
 ```
@@ -187,12 +199,18 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [model]: ```json
 [
   {
-    "phase": 0,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool."
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.",
+    "relevant_tools": [
+      "base_tableDDL"
+    ]
   },
   {
-    "phase": 1,
-    "goal": "Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys."
+    "phase": 2,
+    "goal": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.",
+    "relevant_tools": [
+      "CoreLLMTask"
+    ]
   }
 ]
 ```
@@ -200,7 +218,7 @@ Generate the meta-plan based on the instructions and context provided in the sys
 --- Current User Prompt (with System Prompt) ---
 SYSTEM PROMPT:
 
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
 --- OVERALL WORKFLOW GOAL ---
 You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -241,7 +259,11 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["base_tableDDL"]
+- Previous Attempt (if any): None
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -249,14 +271,14 @@ Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' us
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE (CoreLLMTask Usage)**:
-    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
-    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 
@@ -264,21 +286,21 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 17:01:42,675 - --- RESPONSE ---
+2025-08-19 17:24:42,423 - --- RESPONSE ---
 ```json
 {
   "tool_name": "base_tableDDL",
-  "parameters": {
-    "table_name": "equipment",
-    "database_name": "DEMO_customer360_db"
+  "arguments": {
+    "database_name": "DEMO_customer360_db",
+    "table_name": "equipment"
   }
 }
 ```
 --------------------------------------------------
 
-2025-08-19 17:01:43,489 - --- FULL CONTEXT (Session: 936b3959-8e4c-4eb7-a86b-12881c7b0279) ---
+2025-08-19 17:24:43,242 - --- FULL CONTEXT (Session: 7a9cbf70-90d2-4a8d-aab5-c66246c7cf09) ---
 --- REASON FOR CALL ---
-Checking for completion of phase: Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Checking for completion of phase: Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -334,10 +356,11 @@ Perform the phases in order, and do not skip any phase.
 3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
     -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   `"relevant_tools"`: A list of tool names that are permitted to be used during this phase. You MUST select the most appropriate and specific tools from the full "Capabilities" list provided in the main system prompt to achieve the phase's goal.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
 6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
@@ -346,11 +369,13 @@ If the master prompt requires getting DDL and then describing/formatting, your o
 [
   {
     "phase": 1,
-    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool.",
+    "relevant_tools": ["base_tableDDL"]
   },
   {
     "phase": 2,
-    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.",
+    "relevant_tools": ["CoreLLMTask"]
   }
 ]
 ```
@@ -363,18 +388,24 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [model]: ```json
 [
   {
-    "phase": 0,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool."
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.",
+    "relevant_tools": [
+      "base_tableDDL"
+    ]
   },
   {
-    "phase": 1,
-    "goal": "Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys."
+    "phase": 2,
+    "goal": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.",
+    "relevant_tools": [
+      "CoreLLMTask"
+    ]
   }
 ]
 ```
 [user]: SYSTEM PROMPT:
 
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
 --- OVERALL WORKFLOW GOAL ---
 You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -415,7 +446,11 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["base_tableDDL"]
+- Previous Attempt (if any): None
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -423,14 +458,14 @@ Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' us
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE (CoreLLMTask Usage)**:
-    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
-    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 
@@ -440,9 +475,9 @@ Determine the next action based on the instructions and state provided in the sy
 [model]: ```json
 {
   "tool_name": "base_tableDDL",
-  "parameters": {
-    "table_name": "equipment",
-    "database_name": "DEMO_customer360_db"
+  "arguments": {
+    "database_name": "DEMO_customer360_db",
+    "table_name": "equipment"
   }
 }
 ```
@@ -453,7 +488,7 @@ SYSTEM PROMPT:
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -461,15 +496,15 @@ Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' us
     "action": {
       "tool_name": "base_tableDDL",
       "arguments": {
-        "table_name": "equipment",
-        "database_name": "DEMO_customer360_db"
+        "database_name": "DEMO_customer360_db",
+        "table_name": "equipment"
       }
     },
     "result": "success"
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -495,13 +530,13 @@ Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explana
 USER PROMPT:
 Is the phase complete based on the system prompt? Respond with only YES or NO.
 
-2025-08-19 17:01:43,490 - --- RESPONSE ---
+2025-08-19 17:24:43,243 - --- RESPONSE ---
 YES
 --------------------------------------------------
 
-2025-08-19 17:01:44,719 - --- FULL CONTEXT (Session: 936b3959-8e4c-4eb7-a86b-12881c7b0279) ---
+2025-08-19 17:24:44,482 - --- FULL CONTEXT (Session: 7a9cbf70-90d2-4a8d-aab5-c66246c7cf09) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.
+Deciding next tactical action for phase: Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -557,10 +592,11 @@ Perform the phases in order, and do not skip any phase.
 3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
     -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   `"relevant_tools"`: A list of tool names that are permitted to be used during this phase. You MUST select the most appropriate and specific tools from the full "Capabilities" list provided in the main system prompt to achieve the phase's goal.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
 6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
@@ -569,11 +605,13 @@ If the master prompt requires getting DDL and then describing/formatting, your o
 [
   {
     "phase": 1,
-    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool.",
+    "relevant_tools": ["base_tableDDL"]
   },
   {
     "phase": 2,
-    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.",
+    "relevant_tools": ["CoreLLMTask"]
   }
 ]
 ```
@@ -586,18 +624,24 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [model]: ```json
 [
   {
-    "phase": 0,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool."
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.",
+    "relevant_tools": [
+      "base_tableDDL"
+    ]
   },
   {
-    "phase": 1,
-    "goal": "Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys."
+    "phase": 2,
+    "goal": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.",
+    "relevant_tools": [
+      "CoreLLMTask"
+    ]
   }
 ]
 ```
 [user]: SYSTEM PROMPT:
 
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
 --- OVERALL WORKFLOW GOAL ---
 You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -638,7 +682,11 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["base_tableDDL"]
+- Previous Attempt (if any): None
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -646,14 +694,14 @@ Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' us
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE (CoreLLMTask Usage)**:
-    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
-    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 
@@ -663,9 +711,9 @@ Determine the next action based on the instructions and state provided in the sy
 [model]: ```json
 {
   "tool_name": "base_tableDDL",
-  "parameters": {
-    "table_name": "equipment",
-    "database_name": "DEMO_customer360_db"
+  "arguments": {
+    "database_name": "DEMO_customer360_db",
+    "table_name": "equipment"
   }
 }
 ```
@@ -674,7 +722,7 @@ Determine the next action based on the instructions and state provided in the sy
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -682,15 +730,15 @@ Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' us
     "action": {
       "tool_name": "base_tableDDL",
       "arguments": {
-        "table_name": "equipment",
-        "database_name": "DEMO_customer360_db"
+        "database_name": "DEMO_customer360_db",
+        "table_name": "equipment"
       }
     },
     "result": "success"
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -721,7 +769,7 @@ Is the phase complete based on the system prompt? Respond with only YES or NO.
 --- Current User Prompt (with System Prompt) ---
 SYSTEM PROMPT:
 
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
 --- OVERALL WORKFLOW GOAL ---
 You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -762,7 +810,11 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.
+Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["CoreLLMTask"]
+- Previous Attempt (if any): None
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -770,15 +822,15 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
     "action": {
       "tool_name": "base_tableDDL",
       "arguments": {
-        "table_name": "equipment",
-        "database_name": "DEMO_customer360_db"
+        "database_name": "DEMO_customer360_db",
+        "table_name": "equipment"
       }
     },
     "result": "success"
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -797,14 +849,14 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE (CoreLLMTask Usage)**:
-    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
-    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 
@@ -812,23 +864,23 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 17:01:44,719 - --- RESPONSE ---
+2025-08-19 17:24:44,482 - --- RESPONSE ---
 ```json
 {
   "tool_name": "CoreLLMTask",
-  "parameters": {
-    "task_description": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.",
+  "arguments": {
+    "task_description": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context. The description should include the purpose of the table and the purpose of the columns in the table. Return in markdown format, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys. ",
     "source_data": [
-      "result_of_phase_0"
+      "result_of_phase_1"
     ]
   }
 }
 ```
 --------------------------------------------------
 
-2025-08-19 17:01:46,516 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-19 17:24:45,934 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
-Executing CoreLLMTask: Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.
+Executing CoreLLMTask: Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context. The description should include the purpose of the table and the purpose of the columns in the table. Return in markdown format, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys. 
 
 --- History ---
 
@@ -841,11 +893,11 @@ USER PROMPT:
 You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.
 
 --- TASK ---
-Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.
+Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context. The description should include the purpose of the table and the purpose of the columns in the table. Return in markdown format, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys. 
 
 --- RELEVANT DATA (Selected from Previous Phases) ---
 {
-  "result_of_phase_0": [
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -870,27 +922,26 @@ Describe the 'equipment' table from the 'DEMO_customer360_db' database in a busi
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-19 17:01:46,516 - --- RESPONSE ---
+2025-08-19 17:24:45,934 - --- RESPONSE ---
 ```markdown
 ***Database Name:*** DEMO_customer360_db
 ***Table Name:*** equipment
-***Description:*** This table stores customer equipment information, likely used to understand the value of equipment owned by each customer.
-
-***CUST_ID:*** Customer ID, a small integer representing a unique identifier for each customer.
-***GENDER:*** Customer's gender, a single character.
-***FIRSTNAME:*** Customer's first name, a string of up to 11 characters.
-***LASTNAME:*** Customer's last name, a string of up to 9 characters.
-***ADDRESS:*** Customer's address, a string of up to 25 characters.
-***STATE:*** Customer's state, a string of 2 characters.
-***CITY:*** Customer's city, a string of up to 16 characters.
-***ZIP:*** Customer's zip code, an integer.
-***EQUIP_LTV:*** Equipment Lifetime Value, a small integer representing the estimated lifetime value of the customer's equipment.
+***Description:*** This table stores customer equipment information, specifically the customer's lifetime value (LTV) associated with their equipment. This information can be used for customer segmentation, targeted marketing campaigns, and risk assessment.
+***CUST_ID:*** The unique identifier for the customer.
+***GENDER:*** The gender of the customer.
+***FIRSTNAME:*** The first name of the customer.
+***LASTNAME:*** The last name of the customer.
+***ADDRESS:*** The address of the customer.
+***STATE:*** The state of the customer.
+***CITY:*** The city of the customer.
+***ZIP:*** The zip code of the customer.
+***EQUIP_LTV:*** The lifetime value associated with the customer's equipment.
 ```
 --------------------------------------------------
 
-2025-08-19 17:01:47,014 - --- FULL CONTEXT (Session: 936b3959-8e4c-4eb7-a86b-12881c7b0279) ---
+2025-08-19 17:24:46,521 - --- FULL CONTEXT (Session: 7a9cbf70-90d2-4a8d-aab5-c66246c7cf09) ---
 --- REASON FOR CALL ---
-Checking for completion of phase: Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.
+Checking for completion of phase: Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -946,10 +997,11 @@ Perform the phases in order, and do not skip any phase.
 3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
     -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
+    -   `"relevant_tools"`: A list of tool names that are permitted to be used during this phase. You MUST select the most appropriate and specific tools from the full "Capabilities" list provided in the main system prompt to achieve the phase's goal.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. Do not create separate phases for describing and formatting.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
 6.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
@@ -958,11 +1010,13 @@ If the master prompt requires getting DDL and then describing/formatting, your o
 [
   {
     "phase": 1,
-    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool."
+    "goal": "Get the DDL for the table 'customers' in database 'sales' using the `base_tableDDL` tool.",
+    "relevant_tools": ["base_tableDDL"]
   },
   {
     "phase": 2,
-    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys."
+    "goal": "Synthesize a final report by describing the 'customers' table in a business context and format the output as markdown according to the Final output guidelines, using `***` for keys.",
+    "relevant_tools": ["CoreLLMTask"]
   }
 ]
 ```
@@ -975,18 +1029,24 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [model]: ```json
 [
   {
-    "phase": 0,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool."
+    "phase": 1,
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.",
+    "relevant_tools": [
+      "base_tableDDL"
+    ]
   },
   {
-    "phase": 1,
-    "goal": "Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys."
+    "phase": 2,
+    "goal": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.",
+    "relevant_tools": [
+      "CoreLLMTask"
+    ]
   }
 ]
 ```
 [user]: SYSTEM PROMPT:
 
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
 --- OVERALL WORKFLOW GOAL ---
 You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -1027,7 +1087,11 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["base_tableDDL"]
+- Previous Attempt (if any): None
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -1035,14 +1099,14 @@ Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' us
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE (CoreLLMTask Usage)**:
-    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
-    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 
@@ -1052,9 +1116,9 @@ Determine the next action based on the instructions and state provided in the sy
 [model]: ```json
 {
   "tool_name": "base_tableDDL",
-  "parameters": {
-    "table_name": "equipment",
-    "database_name": "DEMO_customer360_db"
+  "arguments": {
+    "database_name": "DEMO_customer360_db",
+    "table_name": "equipment"
   }
 }
 ```
@@ -1063,7 +1127,7 @@ Determine the next action based on the instructions and state provided in the sy
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the `base_tableDDL` tool.
+Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -1071,15 +1135,15 @@ Get the table DDL for the table 'equipment' in database 'DEMO_customer360_db' us
     "action": {
       "tool_name": "base_tableDDL",
       "arguments": {
-        "table_name": "equipment",
-        "database_name": "DEMO_customer360_db"
+        "database_name": "DEMO_customer360_db",
+        "table_name": "equipment"
       }
     },
     "result": "success"
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -1108,7 +1172,7 @@ Is the phase complete based on the system prompt? Respond with only YES or NO.
 
 [user]: SYSTEM PROMPT:
 
-You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
+You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
 --- OVERALL WORKFLOW GOAL ---
 You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -1149,7 +1213,11 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.
+Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.
+
+--- CONSTRAINTS ---
+- Permitted Tools for this Phase: ["CoreLLMTask"]
+- Previous Attempt (if any): None
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -1157,15 +1225,15 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
     "action": {
       "tool_name": "base_tableDDL",
       "arguments": {
-        "table_name": "equipment",
-        "database_name": "DEMO_customer360_db"
+        "database_name": "DEMO_customer360_db",
+        "table_name": "equipment"
       }
     },
     "result": "success"
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -1184,14 +1252,14 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
-3.  **CRITICAL RULE (CoreLLMTask Usage)**:
-    -   You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt.
-    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool.
+2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
+4.  **CoreLLMTask Usage**:
+    -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
-4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 
@@ -1201,10 +1269,10 @@ Determine the next action based on the instructions and state provided in the sy
 [model]: ```json
 {
   "tool_name": "CoreLLMTask",
-  "parameters": {
-    "task_description": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.",
+  "arguments": {
+    "task_description": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context. The description should include the purpose of the table and the purpose of the columns in the table. Return in markdown format, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys. ",
     "source_data": [
-      "result_of_phase_0"
+      "result_of_phase_1"
     ]
   }
 }
@@ -1216,7 +1284,7 @@ SYSTEM PROMPT:
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Synthesize a final report by describing the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.
+Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Synthesize a final report and format the output as markdown, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -1224,8 +1292,8 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
     "action": {
       "tool_name": "base_tableDDL",
       "arguments": {
-        "table_name": "equipment",
-        "database_name": "DEMO_customer360_db"
+        "database_name": "DEMO_customer360_db",
+        "table_name": "equipment"
       }
     },
     "result": "success"
@@ -1234,12 +1302,12 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
     "action": {
       "tool_name": "CoreLLMTask",
       "arguments": {
-        "task_description": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Format the output as markdown, including the table name and database name, and use the format specified in the Final output guidelines, using `***` for keys.",
+        "task_description": "Describe the 'equipment' table from the 'DEMO_customer360_db' database in a business context. The description should include the purpose of the table and the purpose of the columns in the table. Return in markdown format, including Table Name, Database Name and Description, according to the Final output guidelines using `***` for keys. ",
         "source_data": [
-          "result_of_phase_0"
+          "result_of_phase_1"
         ],
         "data": {
-          "result_of_phase_0": [
+          "result_of_phase_1": [
             {
               "status": "success",
               "metadata": {
@@ -1261,7 +1329,7 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
   }
 ]
 - Data Collected So Far: {
-  "result_of_phase_0": [
+  "result_of_phase_1": [
     {
       "status": "success",
       "metadata": {
@@ -1276,12 +1344,12 @@ Synthesize a final report by describing the 'equipment' table from the 'DEMO_cus
       ]
     }
   ],
-  "result_of_phase_1": [
+  "result_of_phase_2": [
     {
       "status": "success",
       "results": [
         {
-          "response": "```markdown\n***Database Name:*** DEMO_customer360_db\n***Table Name:*** equipment\n***Description:*** This table stores customer equipment information, likely used to understand the value of equipment owned by each customer.\n\n***CUST_ID:*** Customer ID, a small integer representing a unique identifier for each customer.\n***GENDER:*** Customer's gender, a single character.\n***FIRSTNAME:*** Customer's first name, a string of up to 11 characters.\n***LASTNAME:*** Customer's last name, a string of up to 9 characters.\n***ADDRESS:*** Customer's address, a string of up to 25 characters.\n***STATE:*** Customer's state, a string of 2 characters.\n***CITY:*** Customer's city, a string of up to 16 characters.\n***ZIP:*** Customer's zip code, an integer.\n***EQUIP_LTV:*** Equipment Lifetime Value, a small integer representing the estimated lifetime value of the customer's equipment.\n```"
+          "response": "```markdown\n***Database Name:*** DEMO_customer360_db\n***Table Name:*** equipment\n***Description:*** This table stores customer equipment information, specifically the customer's lifetime value (LTV) associated with their equipment. This information can be used for customer segmentation, targeted marketing campaigns, and risk assessment.\n***CUST_ID:*** The unique identifier for the customer.\n***GENDER:*** The gender of the customer.\n***FIRSTNAME:*** The first name of the customer.\n***LASTNAME:*** The last name of the customer.\n***ADDRESS:*** The address of the customer.\n***STATE:*** The state of the customer.\n***CITY:*** The city of the customer.\n***ZIP:*** The zip code of the customer.\n***EQUIP_LTV:*** The lifetime value associated with the customer's equipment.\n```"
         }
       ]
     }
@@ -1297,7 +1365,7 @@ Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explana
 USER PROMPT:
 Is the phase complete based on the system prompt? Respond with only YES or NO.
 
-2025-08-19 17:01:47,014 - --- RESPONSE ---
+2025-08-19 17:24:46,522 - --- RESPONSE ---
 YES
 --------------------------------------------------
 

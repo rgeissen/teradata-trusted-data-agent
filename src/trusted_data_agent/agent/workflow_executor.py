@@ -33,6 +33,8 @@ class WorkflowExecutor:
         self.current_phase_index = 0
         self.workflow_state = {} # Stores results keyed by phase, e.g., {"result_of_phase_1": [...]}
         self.action_history = []
+        # --- NEW: State for the self-correction loop ---
+        self.last_failed_action_info = "None"
 
     async def _generate_meta_plan(self):
         """
@@ -72,7 +74,8 @@ class WorkflowExecutor:
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
 
-    async def _get_next_action(self, current_phase_goal: str) -> tuple[dict | str, int, int]:
+    # --- MODIFIED: The tactical call now accepts and passes more context for validation and correction. ---
+    async def _get_next_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """
         Makes a tactical LLM call to decide the single next best action for the current phase.
         Can now return a string for early completion signals.
@@ -80,6 +83,8 @@ class WorkflowExecutor:
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
+            relevant_tools_for_phase=json.dumps(relevant_tools),
+            last_attempt_info=self.last_failed_action_info,
             workflow_history=json.dumps(self.action_history, indent=2),
             all_collected_data=json.dumps(self.workflow_state, indent=2)
         )
@@ -89,6 +94,9 @@ class WorkflowExecutor:
             reason=f"Deciding next tactical action for phase: {current_phase_goal}",
             system_prompt_override=tactical_system_prompt
         )
+        
+        # --- NEW: Reset the failed action info after the LLM has been prompted with it. ---
+        self.last_failed_action_info = "None"
 
         if "FINAL_ANSWER:" in response_text.upper():
             app_logger.info("Tactical LLM signaled early completion with FINAL_ANSWER.")
@@ -105,7 +113,6 @@ class WorkflowExecutor:
 
             action = json.loads(json_str.strip())
             
-            # --- MODIFIED: Normalize common key name hallucinations from the LLM ---
             if "tool" in action and "tool_name" not in action:
                 action["tool_name"] = action.pop("tool")
             if "action" in action and "tool_name" not in action:
@@ -156,6 +163,8 @@ class WorkflowExecutor:
                 current_phase = self.meta_plan[self.current_phase_index]
                 phase_goal = current_phase.get("goal", "No goal defined for this phase.")
                 phase_num = current_phase.get("phase", self.current_phase_index + 1)
+                # --- NEW: Get the list of allowed tools for this phase ---
+                relevant_tools = current_phase.get("relevant_tools", [])
 
                 yield self.parent._format_sse({
                     "step": "Starting Workflow Phase",
@@ -164,7 +173,7 @@ class WorkflowExecutor:
                 })
 
                 phase_attempts = 0
-                max_phase_attempts = 3
+                max_phase_attempts = 5 # Increased attempts for self-correction
 
                 while True:
                     phase_attempts += 1
@@ -174,7 +183,8 @@ class WorkflowExecutor:
                     reason_action = f"Deciding next tactical action for phase: {phase_goal}"
                     yield self.parent._format_sse({"step": "Calling LLM", "details": reason_action})
                     
-                    next_action, input_tokens, output_tokens = await self._get_next_action(phase_goal)
+                    # --- MODIFIED: Pass the relevant_tools to the tactical LLM call ---
+                    next_action, input_tokens, output_tokens = await self._get_next_action(phase_goal, relevant_tools)
                     
                     updated_session = session_manager.get_session(self.session_id)
                     if updated_session:
@@ -191,6 +201,17 @@ class WorkflowExecutor:
                     tool_name = next_action.get("tool_name")
                     if not tool_name:
                         raise ValueError("Tactical LLM response is missing a 'tool_name'.")
+
+                    # --- NEW: Validation Gate and Self-Correction Loop ---
+                    if relevant_tools and tool_name not in relevant_tools:
+                        app_logger.warning(f"LLM proposed an invalid tool '{tool_name}' for the current phase. Expected one of: {relevant_tools}. Initiating self-correction.")
+                        self.last_failed_action_info = f"Your last attempt to use the tool '{tool_name}' was invalid because it is not in the list of permitted tools for this phase."
+                        yield self.parent._format_sse({
+                            "step": "System Correction",
+                            "details": f"LLM chose an invalid tool ('{tool_name}'). Retrying with constraints.",
+                            "type": "workaround"
+                        })
+                        continue # Restart the loop to get a new action
 
                     if current_phase.get("type") == "loop":
                         loop_data_key = current_phase.get("loop_over")
