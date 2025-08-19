@@ -184,7 +184,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                 "name": tool.name, "description": tool.description, "disabled": is_disabled
             })
 
-        tool_context_parts = []
+        tool_context_parts = ["--- Available Tools ---"]
         for category, tools in sorted(STATE['structured_tools'].items()):
             # --- MODIFIED: Check for enabled tools before adding the category header ---
             enabled_tools_in_category = [t for t in tools if not t['disabled']]
@@ -237,7 +237,7 @@ async def load_and_categorize_teradata_resources(STATE: dict):
                     "disabled": is_disabled
                 })
 
-        prompt_context_parts = []
+        prompt_context_parts = ["--- Available Prompts ---"]
         for category, prompts in sorted(STATE['structured_prompts'].items()):
             enabled_prompts_in_category = [p for p in prompts if not p['disabled']]
             if enabled_prompts_in_category:
@@ -369,12 +369,13 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFIED: _invoke_core_llm_task now takes a generic task_description and data ---
+# --- MODIFIED: _invoke_core_llm_task now takes the full workflow state for better context ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
     Executes a task handled by the LLM itself, based on a generic task_description.
     """
     task_description = command.get("arguments", {}).get("task_description")
+    # The 'data' argument now contains the full workflow state and history
     data = command.get("arguments", {}).get("data", {})
     
     app_logger.info(f"Executing client-side LLM task: {task_description}")
@@ -386,7 +387,7 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         f"{task_description}\n\n"
         "--- DATA (Full Workflow State & History) ---\n"
         f"{json.dumps(data, indent=2)}\n\n"
-        "Your response should be the direct result of the task. Use the full data context provided to inform your response. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
+        "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
 
     response_text, _, _ = await llm_handler.call_llm_api(
@@ -436,7 +437,8 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
             return {"error": "Chart Generation Failed", "data": str(e)}
 
-    args = command.get("arguments", command.get("parameters", {}))
+    # --- MODIFIED: Make argument parsing more robust to LLM hallucinations ---
+    args = command.get("arguments") or command.get("parameters") or command.get("tool_input") or command.get("action_input") or command.get("tool_arguments") or {}
     
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
     try:
@@ -444,7 +446,8 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             call_tool_result = await temp_session.call_tool(tool_name, args)
     except Exception as e:
         app_logger.error(f"Error during tool invocation for '{tool_name}': {e}", exc_info=True)
-        return {"error": f"An exception occurred while invoking tool '{tool_name}'.", "data": str(e)}
+        # --- MODIFIED: Return a structured JSON error object ---
+        return {"status": "error", "error": f"An exception occurred while invoking tool '{tool_name}'.", "data": str(e)}
     
     if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
         text_content = call_tool_result.content[0]
@@ -453,6 +456,7 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
                 return json.loads(text_content.text)
             except json.JSONDecodeError:
                 app_logger.warning(f"Tool '{tool_name}' returned a non-JSON string: '{text_content.text}'")
-                return {"error": "Tool returned non-JSON string", "data": text_content.text}
+                # --- MODIFIED: Return a structured JSON error object ---
+                return {"status": "error", "error": "Tool returned non-JSON string", "data": text_content.text}
     
     raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")

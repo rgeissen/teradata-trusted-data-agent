@@ -245,9 +245,7 @@ This is the goal you need to break down into a step-by-step plan.
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """
 
-# --- NEW: This prompt generates the high-level, strategic meta-plan for the state machine. ---
-# --- FIX: Escaped curly braces in the JSON example to prevent format string errors. ---
-# --- MODIFIED: Added a critical instruction to prevent non-actionable phases. ---
+# --- MODIFIED: Added a more forceful critical rule to prevent non-actionable phases. ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
 
@@ -266,7 +264,7 @@ You are an expert strategic planning assistant. Your task is to analyze a comple
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Final Phase**: The final phase should always be dedicated to synthesizing and formatting the final report according to the "Final output guidelines" in the master prompt.
-5.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). Do **NOT** create phases for simple verification or confirmation of known information (e.g., "Confirm the table name"). All necessary information is already provided; your plan must focus only on the execution steps.
+5.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 
 --- EXAMPLE ---
 If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get DDL. Phase 3 - describe database.", your output should look like this:
@@ -292,7 +290,7 @@ If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get 
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 """
 
-# --- NEW: This prompt is the tactical, step-by-step decider for the state machine. ---
+# --- MODIFIED: Added a critical rule to enforce using CoreLLMTask for synthesis. ---
 WORKFLOW_TACTICAL_PROMPT = """
 You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal.
 
@@ -308,9 +306,10 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **Decide Next Action**: Based on your analysis, determine the single best tool or prompt to call next to make progress on the current phase's goal.
-3.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
-4.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
+2.  **Decide Next Action**: Based on your analysis, determine the single best tool to call next to make progress on the current phase's goal.
+3.  **CRITICAL RULE**: You **MUST** select from the list of available **TOOLS ONLY**. You are not allowed to call a prompt. For any task that involves synthesis, analysis, description, or summarization (like the current phase goal might be), you **MUST** use the `CoreLLMTask` tool. Pass the current phase's goal as the `task_description` argument for the `CoreLLMTask`.
+4.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+5.  **Format Response**: Your response MUST be a single JSON object for a tool/prompt call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 """

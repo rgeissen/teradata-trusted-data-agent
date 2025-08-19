@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+import copy # --- NEW: Import the copy module ---
 
 from trusted_data_agent.agent.prompts import (
     WORKFLOW_META_PLANNING_PROMPT,
@@ -41,15 +42,16 @@ class WorkflowExecutor:
         reason = f"Generating a strategic meta-plan for the '{self.active_prompt_name}' workflow."
         yield self.parent._format_sse({"step": "Calling LLM", "details": reason})
 
-        planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
+        # --- MODIFIED: Pass the detailed prompt as a system prompt ---
+        planning_system_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input
         )
         
         response_text, input_tokens, output_tokens = await self.parent._call_llm_and_update_tokens(
-            prompt=planning_prompt, 
+            prompt="Generate the meta-plan based on the instructions and context provided in the system prompt.", 
             reason=reason,
-            system_prompt_override="You are a JSON-only strategic planning assistant."
+            system_prompt_override=planning_system_prompt
         )
 
         updated_session = session_manager.get_session(self.session_id)
@@ -76,7 +78,8 @@ class WorkflowExecutor:
         Makes a tactical LLM call to decide the single next best action for the current phase.
         Can now return a string for early completion signals.
         """
-        tactical_prompt = WORKFLOW_TACTICAL_PROMPT.format(
+        # --- MODIFIED: Pass the detailed prompt as a system prompt ---
+        tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
             workflow_history=json.dumps(self.action_history, indent=2),
@@ -84,9 +87,9 @@ class WorkflowExecutor:
         )
 
         response_text, input_tokens, output_tokens = await self.parent._call_llm_and_update_tokens(
-            prompt=tactical_prompt,
+            prompt="Determine the next action based on the instructions and state provided in the system prompt.",
             reason=f"Deciding next tactical action for phase: {current_phase_goal}",
-            system_prompt_override="You are a JSON-only tactical assistant."
+            system_prompt_override=tactical_system_prompt
         )
 
         if "FINAL_ANSWER:" in response_text.upper():
@@ -103,6 +106,20 @@ class WorkflowExecutor:
                  raise json.JSONDecodeError("Extracted JSON string is empty", response_text, 0)
 
             action = json.loads(json_str.strip())
+            
+            # --- MODIFIED: Normalize common key name hallucinations ---
+            if "tool" in action and "tool_name" not in action:
+                action["tool_name"] = action.pop("tool")
+            if "action" in action and "tool_name" not in action:
+                action["tool_name"] = action.pop("action")
+            if "tool_input" in action and "arguments" not in action:
+                action["arguments"] = action.pop("tool_input")
+            if "action_input" in action and "arguments" not in action:
+                action["arguments"] = action.pop("action_input")
+            if "tool_arguments" in action and "arguments" not in action:
+                action["arguments"] = action.pop("tool_arguments")
+
+
             return action, input_tokens, output_tokens
         except json.JSONDecodeError:
             raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}")
@@ -111,16 +128,17 @@ class WorkflowExecutor:
         """
         Asks the LLM if the current phase's goal has been met.
         """
-        completion_prompt = WORKFLOW_PHASE_COMPLETION_PROMPT.format(
+        # --- MODIFIED: Pass the detailed prompt as a system prompt ---
+        completion_system_prompt = WORKFLOW_PHASE_COMPLETION_PROMPT.format(
             current_phase_goal=current_phase_goal,
             workflow_history=json.dumps(self.action_history, indent=2),
             all_collected_data=json.dumps(self.workflow_state, indent=2)
         )
 
         response_text, input_tokens, output_tokens = await self.parent._call_llm_and_update_tokens(
-            prompt=completion_prompt,
+            prompt="Is the phase complete based on the system prompt? Respond with only YES or NO.",
             reason=f"Checking for completion of phase: {current_phase_goal}",
-            system_prompt_override="You are a YES/NO validation assistant."
+            system_prompt_override=completion_system_prompt
         )
         
         is_complete = "yes" in response_text.lower()
@@ -147,8 +165,15 @@ class WorkflowExecutor:
                     "phase_details": current_phase
                 })
 
-                # --- MODIFIED: More efficient state machine logic ---
+                # --- NEW: Add a circuit breaker to prevent infinite loops ---
+                phase_attempts = 0
+                max_phase_attempts = 3
+
                 while True:
+                    phase_attempts += 1
+                    if phase_attempts > max_phase_attempts:
+                        raise RuntimeError(f"Phase '{phase_goal}' failed to complete after {max_phase_attempts} attempts.")
+
                     # 1. Get the next action to perform.
                     reason_action = f"Deciding next tactical action for phase: {phase_goal}"
                     yield self.parent._format_sse({"step": "Calling LLM", "details": reason_action})
@@ -177,6 +202,13 @@ class WorkflowExecutor:
                         if loop_data_key and loop_data_key in self.workflow_state:
                              next_action['arguments']['data_from_previous_phase'] = self.workflow_state[loop_data_key]
                     
+                    if tool_name == "CoreLLMTask":
+                        if "arguments" not in next_action: next_action["arguments"] = {}
+                        next_action["arguments"]["data"] = {
+                            "workflow_history": copy.deepcopy(self.action_history),
+                            "all_collected_data": copy.deepcopy(self.workflow_state)
+                        }
+
                     yield self.parent._format_sse({"step": "Tool Execution Intent", "details": next_action}, "tool_result")
                     
                     status_target = "db"

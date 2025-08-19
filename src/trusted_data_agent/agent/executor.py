@@ -404,6 +404,14 @@ class PlanExecutor:
         
         command = json.loads(command_str.strip())
 
+        # --- MODIFIED: Normalize common key name hallucinations ---
+        if "tool" in command and "tool_name" not in command:
+            command["tool_name"] = command.pop("tool")
+        if "toolInput" in command and "arguments" not in command:
+            command["arguments"] = command.pop("toolInput")
+        if "prompt" in command and "prompt_name" not in command:
+            command["prompt_name"] = command.pop("prompt")
+
         if "tool_name" in command:
             potential_prompt_name = command.get("tool_name")
             all_prompts = self.dependencies['STATE'].get('mcp_prompts', {})
@@ -846,4 +854,4 @@ class PlanExecutor:
                     return json.loads(json_like_match.group(0))
                 except json.JSONDecodeError:
                     return None
-        return Non
+        return None

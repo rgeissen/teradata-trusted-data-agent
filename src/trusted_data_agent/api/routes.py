@@ -62,13 +62,18 @@ def _regenerate_contexts():
         all_tools = STATE['mcp_tools']
         disabled_tools_list = STATE.get("disabled_tools", [])
         
+        # First, update the 'disabled' flag in the structured data
+        for category, tool_list in STATE['structured_tools'].items():
+            for tool_info in tool_list:
+                tool_info['disabled'] = tool_info['name'] in disabled_tools_list
+        
         enabled_count = sum(1 for category in STATE['structured_tools'].values() for t in category if not t['disabled'])
         
         print(f"\n[ Tools Status ]")
         print(f"  - Active: {enabled_count}")
         print(f"  - Inactive: {len(disabled_tools_list)}")
 
-        tool_context_parts = []
+        tool_context_parts = ["--- Available Tools ---"]
         for category, tools in sorted(STATE['structured_tools'].items()):
             enabled_tools_in_category = [t for t in tools if not t['disabled']]
             if not enabled_tools_in_category:
@@ -77,7 +82,6 @@ def _regenerate_contexts():
             tool_context_parts.append(f"--- Category: {category} ---")
             for tool_info in enabled_tools_in_category:
                 tool = all_tools[tool_info['name']]
-                # --- MODIFIED: Add explicit '(tool)' label to the context string ---
                 tool_str = f"- `{tool.name}` (tool): {tool.description}"
                 args_dict = tool.args if isinstance(tool.args, dict) else {}
                 
@@ -91,25 +95,29 @@ def _regenerate_contexts():
                         tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
                 tool_context_parts.append(tool_str)
         
-        STATE['tools_context'] = "\n".join(tool_context_parts)
+        if len(tool_context_parts) > 1:
+            STATE['tools_context'] = "\n".join(tool_context_parts)
+        else:
+            STATE['tools_context'] = "--- No Tools Available ---"
         app_logger.info(f"Regenerated LLM tool context. {enabled_count} tools are active.")
 
-        for category, tool_list in STATE['structured_tools'].items():
-            for tool_info in tool_list:
-                tool_info['disabled'] = tool_info['name'] in disabled_tools_list
-        app_logger.info("Updated 'disabled' status in structured tools for the UI.")
 
     # Regenerate Prompt Contexts
     if STATE.get('mcp_prompts') and STATE.get('structured_prompts'):
         disabled_prompts_list = STATE.get("disabled_prompts", [])
-        
+
+        # First, update the 'disabled' flag in the structured data
+        for category, prompt_list in STATE['structured_prompts'].items():
+            for prompt_info in prompt_list:
+                prompt_info['disabled'] = prompt_info['name'] in disabled_prompts_list
+
         enabled_count = sum(1 for category in STATE['structured_prompts'].values() for p in category if not p['disabled'])
         
         print(f"\n[ Prompts Status ]")
         print(f"  - Active: {enabled_count}")
         print(f"  - Inactive: {len(disabled_prompts_list)}")
         
-        prompt_context_parts = []
+        prompt_context_parts = ["--- Available Prompts ---"]
         for category, prompts in sorted(STATE['structured_prompts'].items()):
             enabled_prompts_in_category = [p for p in prompts if not p['disabled']]
             if not enabled_prompts_in_category:
@@ -118,7 +126,6 @@ def _regenerate_contexts():
             prompt_context_parts.append(f"--- Category: {category} ---")
             for prompt_info in enabled_prompts_in_category:
                 prompt_description = prompt_info.get("description", "No description available.")
-                # --- MODIFIED: Add explicit '(prompt)' label to the context string ---
                 prompt_str = f"- `{prompt_info['name']}` (prompt): {prompt_description}"
                 
                 processed_args = prompt_info.get('arguments', [])
@@ -133,17 +140,12 @@ def _regenerate_contexts():
                         prompt_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
                 prompt_context_parts.append(prompt_str)
 
-        if prompt_context_parts:
-            STATE['prompts_context'] = "--- Available Prompts ---\n" + "\n".join(prompt_context_parts)
+        if len(prompt_context_parts) > 1:
+            STATE['prompts_context'] = "\n".join(prompt_context_parts)
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
         
         app_logger.info(f"Regenerated LLM prompt context. {enabled_count} prompts are active.")
-
-        for category, prompt_list in STATE['structured_prompts'].items():
-            for prompt_info in prompt_list:
-                prompt_info['disabled'] = prompt_info['name'] in disabled_prompts_list
-        app_logger.info("Updated 'disabled' status in structured prompts for the UI.")
     
     print("\n" + "-"*44)
 
