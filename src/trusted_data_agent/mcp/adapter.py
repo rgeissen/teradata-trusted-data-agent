@@ -368,8 +368,9 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         f"{json.dumps(focused_data_for_task, indent=2)}\n\n"
         "--- CRITICAL RULES ---\n"
         "1. **Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.\n"
-        "2. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
-        "3. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
+        "2. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
+        "3. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
+        "4. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
         "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
 
