@@ -22,7 +22,6 @@ def get_prompt_text_content(prompt_obj):
     Extracts the text content from a loaded prompt object, handling different
     potential formats returned by the MCP adapter.
     """
-    # --- FIX: Add a check for a simple string response first ---
     if isinstance(prompt_obj, str):
         return prompt_obj
     if (isinstance(prompt_obj, list) and
@@ -134,8 +133,6 @@ class PlanExecutor:
         if context_key not in self.structured_collected_data:
             self.structured_collected_data[context_key] = []
         
-        # --- MODIFIED: More robust check for CoreLLMTask output and injecting a descriptive tool_name. ---
-        # This condition now correctly identifies CoreLLMTask results based on their structure.
         if (self.is_workflow and 
             isinstance(tool_result, dict) and
             tool_result.get("status") == "success" and
@@ -145,9 +142,8 @@ class PlanExecutor:
             isinstance(tool_result["results"][0], dict) and
             "response" in tool_result["results"][0]):
             
-            task_name = "CoreLLMTask Result" # Default fallback
+            task_name = "CoreLLMTask Result"
             
-            # Create a copy of the tool_result to modify its metadata
             modified_tool_result = tool_result.copy()
             modified_tool_result.setdefault("metadata", {})["tool_name"] = task_name
             self.structured_collected_data[context_key].append(modified_tool_result)
@@ -159,9 +155,7 @@ class PlanExecutor:
              self.structured_collected_data[context_key].extend(tool_result)
 
     async def run(self):
-        # Main execution loop for tool calls and decisions.
         for i in range(self.max_steps):
-            # --- MODIFIED: Added ERROR state to the loop termination condition ---
             if self.state in [self.AgentState.SUMMARIZING, self.AgentState.DONE, self.AgentState.ERROR]:
                 break
             try:
@@ -169,8 +163,6 @@ class PlanExecutor:
                     workflow_executor = WorkflowExecutor(parent_executor=self)
                     async for event in workflow_executor.run():
                         yield event
-                    # After the workflow runs, it will set the parent's state.
-                    # If it's time to summarize, break the loop to proceed to summarization.
                     if self.state == self.AgentState.SUMMARIZING:
                         break
                 elif self.state == self.AgentState.DECIDING:
@@ -189,7 +181,6 @@ class PlanExecutor:
         if self.state == self.AgentState.SUMMARIZING:
             async for event in self._generate_final_summary():
                 yield event
-        # --- MODIFIED: Added a final check to emit a user-facing error message ---
         elif self.state == self.AgentState.ERROR:
              yield self._format_sse({"error": "Execution stopped due to an unrecoverable workflow error.", "details": "The agent entered an error state and could not complete the multi-step plan."}, "error")
 
@@ -403,19 +394,15 @@ class PlanExecutor:
             return
 
         command_str = None
-        markdown_match = re.search(r"```json\s*\n(.*?)\n\s*```", self.next_action_str, re.DOTALL)
-        if markdown_match:
-            command_str = markdown_match.group(1).strip()
-        else:
-            json_like_match = re.search(r'\{.*\}', self.next_action_str, re.DOTALL)
-            if json_like_match:
-                command_str = json_like_match.group(0)
-
+        json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", self.next_action_str, re.DOTALL)
+        if json_match:
+            command_str = json_match.group(1) or json_match.group(2)
+        
         if not command_str:
             self.state = self.AgentState.SUMMARIZING
             return
         
-        command = json.loads(command_str)
+        command = json.loads(command_str.strip())
 
         if "tool_name" in command:
             potential_prompt_name = command.get("tool_name")
@@ -722,9 +709,6 @@ class PlanExecutor:
         final_collected_data = self.structured_collected_data if self.is_workflow else self.collected_data
         
         final_summary_text = ""
-        # --- MODIFIED: More robust check for CoreLLMTask final response. ---
-        # Checks if it's a workflow, if there's a last_tool_output, and if it has the expected structure
-        # for a CoreLLMTask's successful response containing the final formatted text.
         if (self.is_workflow and 
             isinstance(self.last_tool_output, dict) and
             self.last_tool_output.get("status") == "success" and
@@ -862,4 +846,4 @@ class PlanExecutor:
                     return json.loads(json_like_match.group(0))
                 except json.JSONDecodeError:
                     return None
-        return None
+        return Non

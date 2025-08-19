@@ -247,6 +247,7 @@ Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra t
 
 # --- NEW: This prompt generates the high-level, strategic meta-plan for the state machine. ---
 # --- FIX: Escaped curly braces in the JSON example to prevent format string errors. ---
+# --- MODIFIED: Added a critical instruction to prevent non-actionable phases. ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
 
@@ -265,6 +266,7 @@ You are an expert strategic planning assistant. Your task is to analyze a comple
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Final Phase**: The final phase should always be dedicated to synthesizing and formatting the final report according to the "Final output guidelines" in the master prompt.
+5.  **CRITICAL RULE**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). Do **NOT** create phases for simple verification or confirmation of known information (e.g., "Confirm the table name"). All necessary information is already provided; your plan must focus only on the execution steps.
 
 --- EXAMPLE ---
 If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get DDL. Phase 3 - describe database.", your output should look like this:
@@ -276,7 +278,7 @@ If the master prompt says: "Phase 1 - get tables. Phase 2 - for each table, get 
   }},
   {{
     "phase": 2,
-    "goal": "For each table identified in Phase 1, get its DDL using `base_tableDDL`.",
+    "goal": "For each table identified in Phase 1, get its DDL using the `base_tableDDL` tool.",
     "type": "loop",
     "loop_over": "result_of_phase_1"
   }},

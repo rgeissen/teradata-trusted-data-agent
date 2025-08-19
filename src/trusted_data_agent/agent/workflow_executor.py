@@ -71,9 +71,10 @@ class WorkflowExecutor:
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
 
-    async def _get_next_action(self, current_phase_goal: str) -> tuple[dict, int, int]:
+    async def _get_next_action(self, current_phase_goal: str) -> tuple[dict | str, int, int]:
         """
         Makes a tactical LLM call to decide the single next best action for the current phase.
+        Can now return a string for early completion signals.
         """
         tactical_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
@@ -88,8 +89,12 @@ class WorkflowExecutor:
             system_prompt_override="You are a JSON-only tactical assistant."
         )
 
+        if "FINAL_ANSWER:" in response_text.upper():
+            app_logger.info("Tactical LLM signaled early completion with FINAL_ANSWER.")
+            return "SYSTEM_ACTION_COMPLETE", input_tokens, output_tokens
+
         try:
-            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*?\})", response_text, re.DOTALL)
+            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_text, re.DOTALL)
             if not json_match:
                 raise json.JSONDecodeError("No JSON object found in the response", response_text, 0)
             
@@ -142,24 +147,31 @@ class WorkflowExecutor:
                     "phase_details": current_phase
                 })
 
+                # --- MODIFIED: More efficient state machine logic ---
                 while True:
-                    reason = f"Deciding next tactical action for phase: {phase_goal}"
-                    yield self.parent._format_sse({"step": "Calling LLM", "details": reason})
+                    # 1. Get the next action to perform.
+                    reason_action = f"Deciding next tactical action for phase: {phase_goal}"
+                    yield self.parent._format_sse({"step": "Calling LLM", "details": reason_action})
                     
-                    # --- MODIFIED: Capture token counts from the tactical LLM call ---
                     next_action, input_tokens, output_tokens = await self._get_next_action(phase_goal)
                     
                     updated_session = session_manager.get_session(self.session_id)
                     if updated_session:
                         yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
 
-                    if not next_action:
-                        raise RuntimeError("Tactical LLM failed to provide a next action.")
+                    if isinstance(next_action, str) and next_action == "SYSTEM_ACTION_COMPLETE":
+                        app_logger.info("Workflow signaled early completion. Transitioning to summarization.")
+                        self.parent.state = self.parent.AgentState.SUMMARIZING
+                        return
+
+                    if not isinstance(next_action, dict):
+                        raise RuntimeError(f"Tactical LLM failed to provide a valid action. Received: {next_action}")
 
                     tool_name = next_action.get("tool_name")
                     if not tool_name:
                         raise ValueError("Tactical LLM response is missing a 'tool_name'.")
 
+                    # 2. Execute the action.
                     if current_phase.get("type") == "loop":
                         loop_data_key = current_phase.get("loop_over")
                         if loop_data_key and loop_data_key in self.workflow_state:
@@ -184,11 +196,10 @@ class WorkflowExecutor:
                     self.parent._add_to_structured_data(tool_result)
 
                     yield self.parent._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
-                    
-                    reason = f"Checking for completion of phase: {phase_goal}"
-                    yield self.parent._format_sse({"step": "Calling LLM", "details": reason})
-                    
-                    # --- MODIFIED: Capture token counts from the completion check LLM call ---
+
+                    # 3. After executing, check if the phase is now complete.
+                    reason_check = f"Checking for completion of phase: {phase_goal}"
+                    yield self.parent._format_sse({"step": "Calling LLM", "details": reason_check})
                     phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal)
                     
                     updated_session = session_manager.get_session(self.session_id)
@@ -196,8 +207,8 @@ class WorkflowExecutor:
                         yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
 
                     if phase_is_complete:
-                        yield self.parent._format_sse({"step": f"Phase {phase_num} Complete", "details": phase_goal})
-                        break
+                        yield self.parent._format_sse({"step": f"Phase {phase_num} Complete", "details": "Goal has been achieved."})
+                        break # Exit the inner loop and move to the next phase
 
                 self.current_phase_index += 1
 
