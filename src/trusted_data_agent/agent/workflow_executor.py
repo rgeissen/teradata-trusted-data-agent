@@ -105,6 +105,7 @@ class WorkflowExecutor:
 
             action = json.loads(json_str.strip())
             
+            # --- MODIFIED: Normalize common key name hallucinations from the LLM ---
             if "tool" in action and "tool_name" not in action:
                 action["tool_name"] = action.pop("tool")
             if "action" in action and "tool_name" not in action:
@@ -115,7 +116,8 @@ class WorkflowExecutor:
                 action["arguments"] = action.pop("action_input")
             if "tool_arguments" in action and "arguments" not in action:
                 action["arguments"] = action.pop("tool_arguments")
-
+            if "parameters" in action and "arguments" not in action:
+                action["arguments"] = action.pop("parameters")
 
             return action, input_tokens, output_tokens
         except json.JSONDecodeError:
@@ -195,7 +197,6 @@ class WorkflowExecutor:
                         if loop_data_key and loop_data_key in self.workflow_state:
                              next_action['arguments']['data_from_previous_phase'] = self.workflow_state[loop_data_key]
                     
-                    # --- MODIFIED: Pass only collected data to CoreLLMTask to prevent context explosion ---
                     if tool_name == "CoreLLMTask":
                         if "arguments" not in next_action: next_action["arguments"] = {}
                         next_action["arguments"]["data"] = copy.deepcopy(self.workflow_state)

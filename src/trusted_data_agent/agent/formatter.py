@@ -33,11 +33,10 @@ class OutputFormatter:
     def _parse_structured_markdown(self, text: str) -> dict | None:
         """
         Parses a specific markdown format like '***Key:*** value' into a structured dictionary,
-        making it robust to formatting errors like missing newlines.
+        making it robust to formatting errors like missing newlines or commas.
         """
         data = {'columns': []}
-        # This regex is designed to find all key-value pairs, even if they are on a single line.
-        pattern = re.compile(r'\*{3}(.*?):\*{3}\s*`?(.*?)`?,?(?=\s*\*{3}|$)', re.DOTALL)
+        pattern = re.compile(r'\*{3}(.*?):\*{3}\s*`?(.*?)`?(?=\s*,?\s*(?:- )?\*{3}|$)', re.DOTALL)
         
         matches = pattern.findall(text)
         
@@ -53,44 +52,39 @@ class OutputFormatter:
             if key_clean in header_keys:
                 data[key_clean] = value_clean
             else:
-                # Assume anything else is a column description
                 data['columns'].append({'name': key.strip(), 'description': value_clean})
 
-        # Basic validation to ensure we parsed something meaningful
         if 'table_name' in data:
             return data
         return None
 
     def _render_structured_report(self, data: dict) -> str:
         """
-        Renders the parsed structured data into the final, perfect HTML format.
+        Renders the parsed structured data into its inner HTML format, without the outer card.
         """
-        html = '<div class="response-card summary-card">'
-        html += f'<p><strong class="text-white">Table Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("table_name", "N/A")}</code></p>'
+        html = f'<p><strong class="text-white">Table Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("table_name", "N/A")}</code></p>'
         html += f'<p><strong class="text-white">Database Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("database_name", "N/A")}</code></p>'
         html += f'<p class="mt-2"><strong class="text-white">Description:</strong> {data.get("description", "No description provided.")}</p>'
         
         if data.get('columns'):
             html += '<ul class="list-disc list-inside space-y-2 text-gray-300 mt-4 mb-4 pl-4">'
             for col in data['columns']:
-                # Ensure we add the leading dash and correct formatting here
                 html += f'<li><strong class="text-white">{col.get("name")}:</strong> {col.get("description")}</li>'
             html += '</ul>'
 
-        html += '</div>'
         return html
 
     def _sanitize_summary(self) -> str:
         """
-        Cleans the LLM's summary text, removing markdown elements that will be
-        rendered separately and replacing them intelligently.
+        Cleans the LLM's summary text and converts it to inner HTML content.
+        It handles both a special structured format and generic markdown.
         """
-        # --- NEW: Check for our specific structured markdown format first ---
+        # First, attempt to parse the special structured format.
         parsed_data = self._parse_structured_markdown(self.raw_summary)
         if parsed_data:
             return self._render_structured_report(parsed_data)
 
-        # --- Fallback to original generic markdown parsing if the structured format is not detected ---
+        # If parsing fails, fall back to generic markdown processing.
         clean_summary = self.raw_summary
         
         markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
@@ -110,6 +104,7 @@ class OutputFormatter:
         
         def process_inline_markdown(text_content):
             text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
+            # IMPORTANT: Process double asterisks before single ones to avoid conflicts.
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
 
@@ -120,7 +115,8 @@ class OutputFormatter:
             
             heading_match = re.match(r'^(#{1,6})\s+(.*)$', stripped_line)
             list_item_match = re.match(r'^[*-]\s+(.*)$', stripped_line)
-            key_value_match = re.match(r'^\*\*(.*?):\*\*\s*(.*)$', stripped_line)
+            # --- MODIFIED: Regex now accepts one or more asterisks for keys ---
+            key_value_match = re.match(r'^\*+(.*?):\*+\s*(.*)$', stripped_line)
 
             if current_list_items and not list_item_match:
                 html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
@@ -281,11 +277,7 @@ class OutputFormatter:
         that produces structured, grouped data.
         """
         sanitized_summary = self._sanitize_summary()
-        # --- MODIFICATION: If the summary was rendered as a structured report, don't add the extra card wrapper ---
-        if 'summary-card' in sanitized_summary:
-            html = sanitized_summary
-        else:
-            html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
+        html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
         
         if isinstance(self.collected_data, dict) and self.collected_data:
             data_to_process = self.collected_data
@@ -341,7 +333,7 @@ class OutputFormatter:
         final_html = ""
         data_source = self.collected_data if isinstance(self.collected_data, list) else []
 
-        # 1. Always render the summary first.
+        # 1. Always render the summary first, wrapped in a card.
         clean_summary_html = self._sanitize_summary()
         if clean_summary_html:
             final_html += f'<div class="response-card summary-card">{clean_summary_html}</div>'

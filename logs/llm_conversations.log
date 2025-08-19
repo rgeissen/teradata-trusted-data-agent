@@ -1,4 +1,4 @@
-2025-08-19 15:39:50,810 - --- FULL CONTEXT (Session: 9b89c2ce-f5bc-424f-a1ce-0c329430976b) ---
+2025-08-19 16:21:27,708 - --- FULL CONTEXT (Session: 77730a5f-2496-4150-972d-7fe05bd083b4) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the 'base_tableBusinessDesc' workflow.
 
@@ -85,24 +85,24 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 USER PROMPT:
 Generate the meta-plan based on the instructions and context provided in the system prompt.
 
-2025-08-19 15:39:50,810 - --- RESPONSE ---
+2025-08-19 16:21:27,709 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL."
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool."
   },
   {
     "phase": 2,
-    "goal": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`"
+    "goal": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc."
   }
 ]
 ```
 --------------------------------------------------
 
-2025-08-19 15:39:51,461 - --- FULL CONTEXT (Session: 9b89c2ce-f5bc-424f-a1ce-0c329430976b) ---
+2025-08-19 16:21:28,494 - --- FULL CONTEXT (Session: 77730a5f-2496-4150-972d-7fe05bd083b4) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Deciding next tactical action for phase: Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -188,11 +188,11 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL."
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool."
   },
   {
     "phase": 2,
-    "goal": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`"
+    "goal": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc."
   }
 ]
 ```
@@ -241,7 +241,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -264,7 +264,7 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 15:39:51,462 - --- RESPONSE ---
+2025-08-19 16:21:28,494 - --- RESPONSE ---
 ```json
 {
   "tool_name": "base_tableDDL",
@@ -276,9 +276,9 @@ Determine the next action based on the instructions and state provided in the sy
 ```
 --------------------------------------------------
 
-2025-08-19 15:39:52,166 - --- FULL CONTEXT (Session: 9b89c2ce-f5bc-424f-a1ce-0c329430976b) ---
+2025-08-19 16:21:29,192 - --- FULL CONTEXT (Session: 77730a5f-2496-4150-972d-7fe05bd083b4) ---
 --- REASON FOR CALL ---
-Checking for completion of phase: Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Checking for completion of phase: Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -364,11 +364,11 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL."
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool."
   },
   {
     "phase": 2,
-    "goal": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`"
+    "goal": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc."
   }
 ]
 ```
@@ -415,7 +415,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -453,7 +453,7 @@ SYSTEM PROMPT:
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -495,13 +495,13 @@ Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explana
 USER PROMPT:
 Is the phase complete based on the system prompt? Respond with only YES or NO.
 
-2025-08-19 15:39:52,167 - --- RESPONSE ---
+2025-08-19 16:21:29,192 - --- RESPONSE ---
 YES
 --------------------------------------------------
 
-2025-08-19 15:39:53,684 - --- FULL CONTEXT (Session: 9b89c2ce-f5bc-424f-a1ce-0c329430976b) ---
+2025-08-19 16:21:30,829 - --- FULL CONTEXT (Session: 77730a5f-2496-4150-972d-7fe05bd083b4) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`
+Deciding next tactical action for phase: Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -587,11 +587,11 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL."
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool."
   },
   {
     "phase": 2,
-    "goal": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`"
+    "goal": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc."
   }
 ]
 ```
@@ -638,7 +638,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -674,7 +674,7 @@ Determine the next action based on the instructions and state provided in the sy
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -762,7 +762,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`
+Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -812,12 +812,12 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-19 15:39:53,685 - --- RESPONSE ---
+2025-08-19 16:21:30,829 - --- RESPONSE ---
 ```json
 {
   "tool_name": "CoreLLMTask",
   "arguments": {
-    "task_description": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`",
+    "task_description": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.",
     "source_data": [
       "result_of_phase_1"
     ]
@@ -826,9 +826,9 @@ Determine the next action based on the instructions and state provided in the sy
 ```
 --------------------------------------------------
 
-2025-08-19 15:39:55,333 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-19 16:21:32,784 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
-Executing CoreLLMTask: Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`
+Executing CoreLLMTask: Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.
 
 --- History ---
 
@@ -841,7 +841,7 @@ USER PROMPT:
 You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.
 
 --- TASK ---
-Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`
+Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.
 
 --- RELEVANT DATA (Selected from Previous Phases) ---
 {
@@ -862,20 +862,31 @@ Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a busi
   ]
 }
 
---- CRITICAL RULE ---
-You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.
+--- CRITICAL RULES ---
+1. **Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.
+2. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.
+3. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-19 15:39:55,333 - --- RESPONSE ---
-***Table Name:*** `equipment`
-***Database Name:*** `DEMO_Customer360_db`
-***Description:*** `The equipment table stores customer equipment information, including customer demographics and equipment lifetime value.` - ***CUST_ID:*** `Customer identifier.` - ***GENDER:*** `Customer's gender.` - ***FIRSTNAME:*** `Customer's first name.` - ***LASTNAME:*** `Customer's last name.` - ***ADDRESS:*** `Customer's address.` - ***STATE:*** `Customer's state.` - ***CITY:*** `Customer's city.` - ***ZIP:*** `Customer's zip code.` - ***EQUIP_LTV:*** `Equipment lifetime value for the customer.`
+2025-08-19 16:21:32,785 - --- RESPONSE ---
+***Table Name:*** equipment
+***Database Name:*** DEMO_Customer360_db
+***Description:*** This table stores customer equipment information, including customer demographics, address details, and the Lifetime Value (LTV) of the equipment. It's likely used to understand the customer base and the value associated with the equipment they own.
+- ***CUST_ID:*** The customer's unique identifier.
+- ***GENDER:*** The customer's gender.
+- ***FIRSTNAME:*** The customer's first name.
+- ***LASTNAME:*** The customer's last name.
+- ***ADDRESS:*** The customer's address.
+- ***STATE:*** The state in which the customer resides.
+- ***CITY:*** The city in which the customer resides.
+- ***ZIP:*** The customer's zip code.
+- ***EQUIP_LTV:*** The Lifetime Value of the equipment associated with the customer.
 --------------------------------------------------
 
-2025-08-19 15:39:55,724 - --- FULL CONTEXT (Session: 9b89c2ce-f5bc-424f-a1ce-0c329430976b) ---
+2025-08-19 16:21:33,305 - --- FULL CONTEXT (Session: 77730a5f-2496-4150-972d-7fe05bd083b4) ---
 --- REASON FOR CALL ---
-Checking for completion of phase: Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`
+Checking for completion of phase: Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.
 
 --- History ---
 [user]: You are a helpful assistant.
@@ -961,11 +972,11 @@ Generate the meta-plan based on the instructions and context provided in the sys
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL."
+    "goal": "Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool."
   },
   {
     "phase": 2,
-    "goal": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`"
+    "goal": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc."
   }
 ]
 ```
@@ -1012,7 +1023,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: []
@@ -1048,7 +1059,7 @@ Determine the next action based on the instructions and state provided in the sy
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' from the user. The DDL should be a single string, and it should not contain any new lines or special characters. Use the `base_tableDDL` tool to get the DDL.
+Get the table DDL for the table 'equipment' in database 'DEMO_Customer360_db' using the base_tableDDL tool.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -1134,7 +1145,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`
+Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -1187,7 +1198,7 @@ Determine the next action based on the instructions and state provided in the sy
 {
   "tool_name": "CoreLLMTask",
   "arguments": {
-    "task_description": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`",
+    "task_description": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.",
     "source_data": [
       "result_of_phase_1"
     ]
@@ -1201,7 +1212,7 @@ SYSTEM PROMPT:
 You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
 
 --- CURRENT PHASE GOAL ---
-Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`
+Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.
 
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: [
@@ -1219,7 +1230,7 @@ Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a busi
     "action": {
       "tool_name": "CoreLLMTask",
       "arguments": {
-        "task_description": "Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: The purpose of the table and The purpose of the columns in the table. Synthesize a final report and return in markdown. Include the table name, database name, table description, and column descriptions. Follow this format: ***Table Name:*** `table_name` ***Database Name:*** `database_name` ***Description:*** `table_description` - ***Column1:*** `column1_descriptions` - ***Column2:*** `column2_descriptions` - ***Column3:*** `column3_descriptions`",
+        "task_description": "Describe the 'equipment' table in the 'DEMO_Customer360_db' database in a business context, including the purpose of the table and the purpose of the columns in the table. Then, synthesize a final report and format the output as markdown, including the table name, database name, description of the table, and a description of each column. The markdown should use the following format: ***Table Name:*** `table_name`, ***Database Name:*** `database_name`, ***Description:*** `table_description`, followed by a list of columns with the format: - ***Column1:*** `column1_descriptions`, - ***Column2:*** `column2_descriptions`, etc.",
         "source_data": [
           "result_of_phase_1"
         ],
@@ -1266,7 +1277,7 @@ Describe the 'equipment' table from the 'DEMO_Customer360_db' database in a busi
       "status": "success",
       "results": [
         {
-          "response": "***Table Name:*** `equipment`\n***Database Name:*** `DEMO_Customer360_db`\n***Description:*** `The equipment table stores customer equipment information, including customer demographics and equipment lifetime value.` - ***CUST_ID:*** `Customer identifier.` - ***GENDER:*** `Customer's gender.` - ***FIRSTNAME:*** `Customer's first name.` - ***LASTNAME:*** `Customer's last name.` - ***ADDRESS:*** `Customer's address.` - ***STATE:*** `Customer's state.` - ***CITY:*** `Customer's city.` - ***ZIP:*** `Customer's zip code.` - ***EQUIP_LTV:*** `Equipment lifetime value for the customer.`"
+          "response": "***Table Name:*** equipment\n***Database Name:*** DEMO_Customer360_db\n***Description:*** This table stores customer equipment information, including customer demographics, address details, and the Lifetime Value (LTV) of the equipment. It's likely used to understand the customer base and the value associated with the equipment they own.\n- ***CUST_ID:*** The customer's unique identifier.\n- ***GENDER:*** The customer's gender.\n- ***FIRSTNAME:*** The customer's first name.\n- ***LASTNAME:*** The customer's last name.\n- ***ADDRESS:*** The customer's address.\n- ***STATE:*** The state in which the customer resides.\n- ***CITY:*** The city in which the customer resides.\n- ***ZIP:*** The customer's zip code.\n- ***EQUIP_LTV:*** The Lifetime Value of the equipment associated with the customer."
         }
       ]
     }
@@ -1282,7 +1293,7 @@ Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explana
 USER PROMPT:
 Is the phase complete based on the system prompt? Respond with only YES or NO.
 
-2025-08-19 15:39:55,724 - --- RESPONSE ---
+2025-08-19 16:21:33,306 - --- RESPONSE ---
 YES
 --------------------------------------------------
 

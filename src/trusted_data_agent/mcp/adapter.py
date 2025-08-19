@@ -44,7 +44,6 @@ UTIL_TOOL_DEFINITIONS = [
     }
 ]
 
-# --- MODIFIED: Added source_data argument for context scoping. ---
 CORE_LLM_TASK_DEFINITION = {
     "name": "CoreLLMTask",
     "description": "Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.",
@@ -338,7 +337,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFIED: Added a CRITICAL RULE to the internal prompt to enforce strict formatting adherence. ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
     Executes a task handled by the LLM itself, based on a generic task_description
@@ -348,12 +346,10 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     task_description = args.get("task_description")
     source_data_keys = args.get("source_data", [])
     
-    # This is the full history of all data collected in the workflow so far.
     full_workflow_state = args.get("data", {}) 
     
     app_logger.info(f"Executing client-side LLM task: {task_description}")
 
-    # Build a focused data payload containing only the data specified by the tactical LLM.
     focused_data_for_task = {}
     if isinstance(full_workflow_state, dict):
         for key in source_data_keys:
@@ -370,8 +366,10 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         f"{task_description}\n\n"
         "--- RELEVANT DATA (Selected from Previous Phases) ---\n"
         f"{json.dumps(focused_data_for_task, indent=2)}\n\n"
-        "--- CRITICAL RULE ---\n"
-        "You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.\n\n"
+        "--- CRITICAL RULES ---\n"
+        "1. **Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.\n"
+        "2. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
+        "3. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
         "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
 
