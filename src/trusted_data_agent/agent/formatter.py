@@ -30,7 +30,6 @@ class OutputFormatter:
                     return True
         return False
 
-    # --- MODIFIED: The parser is now more flexible and uses a synonym map to handle LLM variations. ---
     def _parse_structured_markdown(self, text: str) -> dict | None:
         """
         Parses a specific markdown format like '***Key:*** value' into a structured dictionary,
@@ -51,7 +50,8 @@ class OutputFormatter:
             'database name': 'database_name',
             'database': 'database_name',
             'description': 'description',
-            'table description': 'description'
+            'table description': 'description',
+            'business purpose': 'description' # Added for 'callcenter' example
         }
         
         for key, value in matches:
@@ -62,12 +62,21 @@ class OutputFormatter:
 
             if canonical_key:
                 data[canonical_key] = value_clean
+            # Check for column description section header or individual column entries
+            elif 'column descriptions' in key_clean or 'columns' in key_clean:
+                # If the value itself looks like a column entry, process it
+                col_match = re.match(r'^\*+(.*?):\*+\s*(.*)$', value_clean, re.DOTALL)
+                if col_match:
+                    data['columns'].append({'name': col_match.group(1).strip(), 'description': col_match.group(2).strip()})
+                # Otherwise, treat the key as a column header, and subsequent lines will be columns
+                # This part relies on line-by-line processing in _sanitize_summary after this initial parse.
             else:
                 # If it's not a known header key, treat it as a column description.
+                # This handles cases where columns are listed directly without an explicit 'Columns:' header
                 data['columns'].append({'name': key.strip(), 'description': value_clean})
 
-        # Only return data if we successfully parsed at least one of the core header fields.
-        if 'table_name' in data or 'description' in data:
+        # Only return data if we successfully parsed at least one of the core header fields or columns.
+        if 'table_name' in data or 'description' in data or data.get('columns'):
             return data
         return None
 
@@ -92,13 +101,47 @@ class OutputFormatter:
         Cleans the LLM's summary text and converts it to inner HTML content.
         It handles both a special structured format and generic markdown.
         """
-        # First, attempt to parse the special structured format.
-        parsed_data = self._parse_structured_markdown(self.raw_summary)
+        clean_summary = self.raw_summary
+
+        # --- NEW: Attempt to parse if the raw summary is a pure JSON object ---
+        try:
+            json_data = json.loads(clean_summary)
+            # Check if it looks like the CoreLLMTask output
+            if isinstance(json_data, dict) and ("database_name" in json_data or "table_name" in json_data or "columns" in json_data):
+                # Convert the JSON to the internal dictionary format expected by _render_structured_report
+                # This might need more sophisticated mapping if the JSON keys differ significantly
+                parsed_data = {
+                    "database_name": json_data.get("database_name"),
+                    "table_name": json_data.get("table_name"),
+                    "description": json_data.get("description"), # Assuming LLM might put a top-level description
+                    "columns": []
+                }
+                
+                # Extract columns from the JSON structure
+                if "columns" in json_data and isinstance(json_data["columns"], list):
+                    for col_entry in json_data["columns"]:
+                        if isinstance(col_entry, dict):
+                            for col_name, col_desc in col_entry.items():
+                                parsed_data["columns"].append({"name": col_name, "description": col_desc})
+                
+                # If there's no top-level description in the JSON, but there was one in the original prompt (workflow goal)
+                # This is a heuristic based on the typical 'base_tableBusinessDesc' output
+                if not parsed_data.get("description") and "business context" in self.raw_summary.lower():
+                     # This part is tricky as the JSON itself doesn't contain the overall description.
+                     # For now, we'll let _render_structured_report handle a missing description,
+                     # but in a future iteration, we might want to prompt LLM for this directly or infer.
+                     pass
+                
+                return self._render_structured_report(parsed_data)
+        except json.JSONDecodeError:
+            pass # Not a pure JSON object, proceed with markdown parsing
+
+        # First, attempt to parse the special structured markdown format (e.g., ***Key:*** value).
+        parsed_data = self._parse_structured_markdown(clean_summary)
         if parsed_data:
             return self._render_structured_report(parsed_data)
 
         # If parsing fails, fall back to generic markdown processing.
-        clean_summary = self.raw_summary
         
         markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
         if markdown_block_match:
@@ -122,6 +165,7 @@ class OutputFormatter:
             return text_content
 
         current_list_items = []
+        in_column_list = False
 
         for line in lines:
             stripped_line = line.strip()
@@ -130,7 +174,30 @@ class OutputFormatter:
             list_item_match = re.match(r'^[*-]\s+(.*)$', stripped_line)
             key_value_match = re.match(r'^\*+(.*?):\*+\s*(.*)$', stripped_line)
 
-            if current_list_items and not list_item_match:
+            # Check if we are entering or exiting a column list section
+            if "column descriptions" in stripped_line.lower() or "columns:" in stripped_line.lower():
+                # If we were in a list, close it first
+                if current_list_items:
+                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
+                    for item in current_list_items:
+                        html_output.append(f'<li>{item}</li>')
+                    html_output.append('</ul>')
+                    current_list_items = []
+                in_column_list = True
+                html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{process_inline_markdown(stripped_line)}</h4>')
+                continue
+            elif in_column_list and not (list_item_match or key_value_match) and stripped_line:
+                # If we're in a column list but the line doesn't look like a column item,
+                # then we've exited the column list.
+                in_column_list = False
+                if current_list_items:
+                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
+                    for item in current_list_items:
+                        html_output.append(f'<li>{item}</li>')
+                    html_output.append('</ul>')
+                    current_list_items = []
+
+            if current_list_items and not list_item_match and not in_column_list:
                 html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
                 for item in current_list_items:
                     html_output.append(f'<li>{item}</li>')

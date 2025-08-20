@@ -17,7 +17,7 @@ VIZ_TOOL_DEFINITION = {
             "type": "string",
             "description": "The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.",
             "required": True
-        },
+        },\
         "data": {
             "type": "list[dict]",
             "description": "The data to be visualized, passed directly from the output of another tool.",
@@ -337,7 +337,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFIED: The CoreLLMTask now extracts known context and injects it into the prompt. ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
     Executes a task handled by the LLM itself, based on a generic task_description
@@ -361,7 +360,7 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         app_logger.warning(f"CoreLLMTask was called for '{task_description}' but no source data was found for keys: {source_data_keys}. Passing all data as a fallback.")
         focused_data_for_task = full_workflow_state
 
-    # --- NEW: Deterministically find known key entities from the workflow history ---
+    # Deterministically find known key entities from the workflow history
     known_context = {}
     if isinstance(full_workflow_state, dict):
         for phase_results in full_workflow_state.values():
@@ -376,6 +375,7 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     known_context_str = "\n".join([f"- {key}: {value}" for key, value in known_context.items()]) if known_context else "None"
 
+    # --- START MODIFIED PROMPT FOR SEMANTIC GUIDANCE ---
     final_prompt = (
         "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.\n\n"
         "--- TASK ---\n"
@@ -385,14 +385,21 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         "--- KNOWN CONTEXT ---\n"
         "The following key information has already been established in previous steps. You MUST include this information in your final formatted output.\n"
         f"{known_context_str}\n\n"
+        "--- SEMANTIC GUIDANCE ---\n"
+        "When the 'TASK' asks for a 'description', 'analysis', or 'summary', you MUST synthesize new content that reflects the *semantic intent* of the request.\n"
+        "For example:\n"
+        "- If the 'TASK' asks for a 'business description of a table', you MUST explain its purpose from an organizational, functional, or analytical viewpoint, and the business significance of its columns. Do NOT simply reiterate technical DDL (Data Definition Language) information, even if it is present in the `RELEVANT DATA`.\n"
+        "- If the 'TASK' asks for a 'summary of errors', you MUST provide a concise overview of the issues, not just a list of error codes.\n"
+        "Always prioritize generating content that matches the *meaning* and *purpose* of the 'TASK', interpreting the raw data to produce the desired semantic output.\n\n"
         "--- CRITICAL RULES ---\n"
-        "1. **Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way.\n"
+        "1. **Content and Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way. You MUST generate content that genuinely fulfills the semantic goal of the 'TASK'.\n"
         "2. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
         "3. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
         "4. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n"
         "5. **Incorporate Known Context:** You MUST ensure that all items listed in the 'KNOWN CONTEXT' section are present in your final output, formatted according to the task's guidelines.\n\n"
         "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
+    # --- END MODIFIED PROMPT FOR SEMANTIC GUIDANCE ---
 
     response_text, _, _ = await llm_handler.call_llm_api(
         llm_instance=STATE.get('llm'),
@@ -438,8 +445,30 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
             return {"error": "Chart Generation Failed", "data": str(e)}
 
-    args = command.get("arguments") or command.get("parameters") or command.get("tool_input") or command.get("action_input") or command.get("tool_arguments") or {}
-    
+    # Robust argument extraction logic
+    args = {}
+    if isinstance(command, dict):
+        # Prioritize 'arguments' key as it's common and explicit
+        if "arguments" in command and isinstance(command["arguments"], dict):
+            args = command["arguments"]
+        # Check for common synonyms/alternate top-level keys
+        elif "parameters" in command and isinstance(command["parameters"], dict):
+            args = command["parameters"]
+        elif "tool_input" in command and isinstance(command["tool_input"], dict):
+            args = command["tool_input"]
+        elif "action_input" in command and isinstance(command["action_input"], dict):
+            args = command["action_input"]
+        elif "tool_arguments" in command and isinstance(command["tool_arguments"], dict):
+            args = command["tool_arguments"]
+        # Handle common nesting patterns (e.g., {"action": {"tool_name": "...", "args": {...}}})
+        elif "action" in command and isinstance(command["action"], dict) and "args" in command["action"] and isinstance(command["action"]["args"], dict):
+            args = command["action"]["args"]
+        elif "tool" in command and isinstance(command["tool"], dict) and "args" in command["tool"] and isinstance(command["tool"]["args"], dict):
+            args = command["tool"]["args"]
+        elif "args" in command and isinstance(command["args"], dict): # Direct 'args' key at top-level
+            args = command["args"]
+
+
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
     try:
         async with mcp_client.session("teradata_mcp_server") as temp_session:
@@ -458,3 +487,4 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
                 return {"status": "error", "error": "Tool returned non-JSON string", "data": text_content.text}
     
     raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
+
