@@ -17,7 +17,7 @@ VIZ_TOOL_DEFINITION = {
             "type": "string",
             "description": "The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.",
             "required": True
-        },\
+        },
         "data": {
             "type": "list[dict]",
             "description": "The data to be visualized, passed directly from the output of another tool.",
@@ -375,7 +375,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     known_context_str = "\n".join([f"- {key}: {value}" for key, value in known_context.items()]) if known_context else "None"
 
-    # --- START MODIFIED PROMPT FOR SEMANTIC GUIDANCE ---
     final_prompt = (
         "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.\n\n"
         "--- TASK ---\n"
@@ -383,7 +382,7 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         "--- RELEVANT DATA (Selected from Previous Phases) ---\n"
         f"{json.dumps(focused_data_for_task, indent=2)}\n\n"
         "--- KNOWN CONTEXT ---\n"
-        "The following key information has already been established in previous steps. You MUST include this information in your final formatted output.\n"
+        "The following key information has already been established in previous steps. You MUST use this information to populate header fields like 'Table Name' or 'Database Name'.\n"
         f"{known_context_str}\n\n"
         "--- SEMANTIC GUIDANCE ---\n"
         "When the 'TASK' asks for a 'description', 'analysis', or 'summary', you MUST synthesize new content that reflects the *semantic intent* of the request.\n"
@@ -392,14 +391,13 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         "- If the 'TASK' asks for a 'summary of errors', you MUST provide a concise overview of the issues, not just a list of error codes.\n"
         "Always prioritize generating content that matches the *meaning* and *purpose* of the 'TASK', interpreting the raw data to produce the desired semantic output.\n\n"
         "--- CRITICAL RULES ---\n"
-        "1. **Content and Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way. You MUST generate content that genuinely fulfills the semantic goal of the 'TASK'.\n"
-        "2. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
-        "3. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
-        "4. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n"
-        "5. **Incorporate Known Context:** You MUST ensure that all items listed in the 'KNOWN CONTEXT' section are present in your final output, formatted according to the task's guidelines.\n\n"
+        "1. **Separate Data from Description:** If the 'TASK' requires you to output header fields (like `***Table Name:***` or `***Database Name:***`) AND a main description, you MUST treat these as separate steps. First, populate the header fields using the 'KNOWN CONTEXT'. Then, write the main description. Do NOT merge context data (like the database name) into a single header field.\n"
+        "2. **Content and Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way. You MUST generate content that genuinely fulfills the semantic goal of the 'TASK'.\n"
+        "3. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
+        "4. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
+        "5. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
         "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
-    # --- END MODIFIED PROMPT FOR SEMANTIC GUIDANCE ---
 
     response_text, _, _ = await llm_handler.call_llm_api(
         llm_instance=STATE.get('llm'),
@@ -408,6 +406,24 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         system_prompt_override="You are a text processing and synthesis assistant.",
         raise_on_error=True
     )
+
+    # --- MODIFICATION START: Deterministic check for LLM refusal ---
+    # This is a zero-cost guardrail to catch cases where the LLM politely refuses the task.
+    refusal_phrases = [
+        "i'm unable to", "i cannot", "unable to generate", "no specific task", 
+        "as an ai model", "i can't provide"
+    ]
+    
+    # Check if any of the refusal phrases are in the LLM's response (case-insensitive).
+    if any(phrase in response_text.lower() for phrase in refusal_phrases):
+        app_logger.error(f"CoreLLMTask failed due to detected LLM refusal. Response: '{response_text}'")
+        # Override the status to 'error' to force the workflow to retry the phase.
+        return {
+            "status": "error", 
+            "error_message": "LLM refused to perform the synthesis task.",
+            "data": response_text
+        }
+    # --- MODIFICATION END ---
 
     return {"status": "success", "results": [{"response": response_text}]}
 
@@ -445,28 +461,34 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
             return {"error": "Chart Generation Failed", "data": str(e)}
 
-    # Robust argument extraction logic
     args = {}
     if isinstance(command, dict):
-        # Prioritize 'arguments' key as it's common and explicit
-        if "arguments" in command and isinstance(command["arguments"], dict):
-            args = command["arguments"]
-        # Check for common synonyms/alternate top-level keys
-        elif "parameters" in command and isinstance(command["parameters"], dict):
-            args = command["parameters"]
-        elif "tool_input" in command and isinstance(command["tool_input"], dict):
-            args = command["tool_input"]
-        elif "action_input" in command and isinstance(command["action_input"], dict):
-            args = command["action_input"]
-        elif "tool_arguments" in command and isinstance(command["tool_arguments"], dict):
-            args = command["tool_arguments"]
-        # Handle common nesting patterns (e.g., {"action": {"tool_name": "...", "args": {...}}})
-        elif "action" in command and isinstance(command["action"], dict) and "args" in command["action"] and isinstance(command["action"]["args"], dict):
-            args = command["action"]["args"]
-        elif "tool" in command and isinstance(command["tool"], dict) and "args" in command["tool"] and isinstance(command["tool"]["args"], dict):
-            args = command["tool"]["args"]
-        elif "args" in command and isinstance(command["args"], dict): # Direct 'args' key at top-level
-            args = command["args"]
+        potential_arg_keys = [
+            "arguments", "args", "tool_args", "parameters", 
+            "tool_input", "action_input", "tool_arguments"
+        ]
+        
+        found_args = None
+        
+        for key in potential_arg_keys:
+            if key in command and isinstance(command[key], dict):
+                found_args = command[key]
+                break
+        
+        if found_args is None:
+            if "action" in command and isinstance(command["action"], dict):
+                for key in potential_arg_keys:
+                    if key in command["action"] and isinstance(command["action"][key], dict):
+                        found_args = command["action"][key]
+                        break
+            elif "tool" in command and isinstance(command["tool"], dict):
+                 for key in potential_arg_keys:
+                    if key in command["tool"] and isinstance(command["tool"][key], dict):
+                        found_args = command["tool"][key]
+                        break
+        
+        if found_args is not None:
+            args = found_args
 
 
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")
@@ -487,4 +509,3 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
                 return {"status": "error", "error": "Tool returned non-JSON string", "data": text_content.text}
     
     raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
-

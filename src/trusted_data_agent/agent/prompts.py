@@ -245,7 +245,7 @@ This is the goal you need to break down into a step-by-step plan.
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """
 
-# --- MODIFIED: Removed the restrictive two-phase mandate and kept the self-exclusion rule. ---
+# --- MODIFICATION START: Added a new critical rule for efficiency ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
 
@@ -265,9 +265,10 @@ You are an expert strategic planning assistant. Your task is to analyze a comple
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The goal for this last phase **MUST** explicitly state all description requirements AND all formatting guidelines from the master prompt. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
+5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
 6.  **CRITICAL RULE (Execution Focus)**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
 7.  **CRITICAL RULE (Capability Types)**: You are generating a plan of executable **tools**. The `relevant_tools` list **MUST ONLY** contain names of capabilities that are explicitly marked as `(tool)` in the system's "Capabilities" list. You **MUST NOT** include the name of any capability marked as `(prompt)`, especially not the name of the master prompt you are currently processing.
+8.  **CRITICAL RULE (Efficiency)**: If a phase's `"goal"` already contains all the instructions for the final synthesis and formatting of the report (as specified in the Master Prompt's "Final output guidelines"), you **MUST** make this the last phase of the plan. Do not add a separate, redundant formatting-only phase after it.
 
 --- EXAMPLE ---
 If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
@@ -288,8 +289,9 @@ If the master prompt requires getting DDL and then describing/formatting, your o
 
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 """
+# --- MODIFICATION END ---
 
-# --- MODIFIED: The tactical prompt is updated to handle the new `relevant_tools` constraint and self-correction. ---
+# --- MODIFICATION START: Strengthened CoreLLMTask Usage instructions ---
 WORKFLOW_TACTICAL_PROMPT = """
 You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
@@ -314,12 +316,14 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 4.  **CoreLLMTask Usage**:
     -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
-    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument (e.g., `"source_data": ["result_of_phase_1"]` or `"source_data": ["result_of_phase_0", "result_of_phase_2"]`).
+    -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument.
+    -   **CONTEXT PRESERVATION RULE**: If the current phase involves creating a final summary or report for the user, you **MUST** ensure you have all the necessary context. Your `source_data` list **MUST** include the results from **ALL** previous data-gathering phases (e.g., `["result_of_phase_1", "result_of_phase_2"]`) to prevent information loss.
 5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
 6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 """
+# --- MODIFICATION END ---
 
 # --- NEW: This prompt checks if the current phase's goal has been met. ---
 WORKFLOW_PHASE_COMPLETION_PROMPT = """

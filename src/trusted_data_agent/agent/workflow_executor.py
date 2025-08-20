@@ -34,6 +34,7 @@ class WorkflowExecutor:
         self.workflow_state = {} # Stores results keyed by phase, e.g., {"result_of_phase_1": [...]}
         self.action_history = []
         self.last_failed_action_info = "None"
+        self.events_to_yield = []
 
     async def _generate_meta_plan(self):
         """
@@ -110,10 +111,32 @@ class WorkflowExecutor:
 
             action = json.loads(json_str.strip())
             
-            if "tool" in action and "tool_name" not in action:
-                action["tool_name"] = action.pop("tool")
-            if "action" in action and "tool_name" not in action:
-                action["tool_name"] = action.pop("action")
+            # --- MODIFICATION START: Generalized Guardrail and Normalization ---
+            # This logic now handles multiple types of key name hallucinations for the tool name.
+            tool_name_synonyms = ["tool_name", "name", "tool", "action"]
+            found_tool_name = None
+            
+            for key in tool_name_synonyms:
+                if key in action:
+                    found_tool_name = action.pop(key)
+                    break
+            
+            # If a tool name was found under a synonym, normalize it to "tool_name".
+            if found_tool_name:
+                action["tool_name"] = found_tool_name
+            
+            # This is the generalized guardrail for a completely missing tool name key.
+            if "tool_name" not in action and len(relevant_tools) == 1:
+                inferred_tool_name = relevant_tools[0]
+                action["tool_name"] = inferred_tool_name
+                app_logger.warning(f"LLM omitted tool_name when only one was possible. System inferred '{inferred_tool_name}'.")
+                self.events_to_yield.append(self.parent._format_sse({
+                    "step": "System Correction",
+                    "details": f"LLM omitted tool_name when only one was possible. System inferred '{inferred_tool_name}'.",
+                    "type": "workaround"
+                }))
+
+            # This normalizes common argument key hallucinations.
             if "tool_input" in action and "arguments" not in action:
                 action["arguments"] = action.pop("tool_input")
             if "action_input" in action and "arguments" not in action:
@@ -122,28 +145,24 @@ class WorkflowExecutor:
                 action["arguments"] = action.pop("tool_arguments")
             if "parameters" in action and "arguments" not in action:
                 action["arguments"] = action.pop("parameters")
+            # --- MODIFICATION END ---
 
             return action, input_tokens, output_tokens
         except json.JSONDecodeError:
             raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}")
 
-    # --- MODIFIED: Fixed the SyntaxError by removing `return` with value from the async generator. ---
     async def _normalize_tool_arguments(self, next_action: dict):
         """
         Deterministically corrects common LLM argument name hallucinations.
         Modifies the next_action dictionary in place.
         """
         if "arguments" not in next_action or not isinstance(next_action["arguments"], dict):
-            return # Exit early, no value returned
+            return
 
-        # A mapping of common synonyms to the canonical argument name.
         synonym_map = {
-            "database": "database_name",
-            "db": "database_name",
-            "table": "table_name",
-            "tbl": "table_name",
-            "column": "column_name",
-            "col": "column_name"
+            "database": "database_name", "db": "database_name",
+            "table": "table_name", "tbl": "table_name",
+            "column": "column_name", "col": "column_name"
         }
         
         normalized_args = {}
@@ -161,23 +180,19 @@ class WorkflowExecutor:
                 "type": "workaround"
             })
             next_action["arguments"] = normalized_args
-        
-        # No return statement at the end, as this is an async generator.
 
     async def _is_phase_complete(self, current_phase_goal: str, phase_num: int) -> tuple[bool, int, int]:
         """
         Checks if the current phase's goal has been met. It now includes a deterministic
         check for success before falling back to the LLM.
         """
-        # --- NEW: Success-Oriented Deterministic Check ---
         phase_result_key = f"result_of_phase_{phase_num}"
         if phase_result_key in self.workflow_state:
             results_for_phase = self.workflow_state[phase_result_key]
             if any(isinstance(res, dict) and res.get("status") == "success" for res in results_for_phase):
                 app_logger.info(f"Deterministic check found a successful result for phase {phase_num}. Marking as complete.")
-                return True, 0, 0 # No token cost for this check
+                return True, 0, 0
 
-        # Fallback to LLM if no success is found
         completion_system_prompt = WORKFLOW_PHASE_COMPLETION_PROMPT.format(
             current_phase_goal=current_phase_goal,
             workflow_history=json.dumps(self.action_history, indent=2),
@@ -228,6 +243,11 @@ class WorkflowExecutor:
                     
                     next_action, input_tokens, output_tokens = await self._get_next_action(phase_goal, relevant_tools)
                     
+                    if self.events_to_yield:
+                        for event in self.events_to_yield:
+                            yield event
+                        self.events_to_yield = []
+
                     updated_session = session_manager.get_session(self.session_id)
                     if updated_session:
                         yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
@@ -240,7 +260,6 @@ class WorkflowExecutor:
                     if not isinstance(next_action, dict):
                         raise RuntimeError(f"Tactical LLM failed to provide a valid action. Received: {next_action}")
 
-                    # --- MODIFIED: Normalize arguments before validation and execution ---
                     async for event in self._normalize_tool_arguments(next_action):
                         yield event
 
@@ -287,10 +306,9 @@ class WorkflowExecutor:
 
                     yield self.parent._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
 
-                    # --- MODIFIED: Use the new, more robust completion check ---
                     phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal, phase_num)
                     
-                    if input_tokens > 0 or output_tokens > 0: # Only send token update if LLM was called
+                    if input_tokens > 0 or output_tokens > 0:
                         updated_session = session_manager.get_session(self.session_id)
                         if updated_session:
                             yield self.parent._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
