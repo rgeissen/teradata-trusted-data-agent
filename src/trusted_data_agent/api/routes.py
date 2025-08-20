@@ -294,7 +294,7 @@ async def toggle_prompt_status():
     
     _regenerate_contexts()
 
-    return jsonify({"status": "success", "message": f"Prompt '{prompt_name}' status updated."})
+    return jsonify({"status": "success", "message": f"Prompt '{tool_name}' status updated."})
 
 @api_bp.route("/prompt/<prompt_name>", methods=["GET"])
 async def get_prompt_content(prompt_name):
@@ -371,8 +371,14 @@ async def get_session_history(session_id):
 @api_bp.route("/session", methods=["POST"])
 async def new_session():
     """Creates a new chat session."""
+    # --- MODIFICATION START: Add guardrail to prevent session creation before tools are loaded ---
     if not STATE.get('llm') or not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
+    
+    if not STATE.get('mcp_tools'):
+        app_logger.error("Attempted to create a session before MCP tools were loaded.")
+        return jsonify({"error": "Agent capabilities are still loading. Please wait a moment and try again."}), 400
+    # --- MODIFICATION END ---
     
     try:
         log_file_path = os.path.join("logs", "llm_conversations.log")
@@ -460,12 +466,10 @@ async def configure_services():
             )
             app_logger.info("Boto3 client for Bedrock created. Skipping pre-flight model invocation.")
         elif provider == "Ollama":
-            # --- MODIFICATION START: Use a specific 'ollama_host' key ---
             host = data.get("ollama_host")
             if not host:
                 raise ValueError("Ollama host is required.")
             temp_llm_instance = llm_handler.OllamaClient(host=host)
-            # --- MODIFICATION END ---
             await temp_llm_instance.list_models()
         else:
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")

@@ -380,6 +380,14 @@ class PlanExecutor:
         return enriched_args, events_to_yield
 
     async def _handle_deciding(self):
+        # --- MODIFICATION START: Add guardrail for empty LLM responses ---
+        if not self.next_action_str or not self.next_action_str.strip():
+            app_logger.warning("LLM returned an empty response. Triggering error recovery.")
+            async for event in self._recover_with_llm("The language model returned an empty response."):
+                yield event
+            return
+        # --- MODIFICATION END ---
+        
         is_final_answer = "FINAL_ANSWER:" in self.next_action_str.upper() or "SYSTEM_ACTION_COMPLETE" in self.next_action_str
         
         if not is_final_answer:
@@ -404,7 +412,6 @@ class PlanExecutor:
         
         command = json.loads(command_str.strip())
 
-        # --- MODIFIED: Normalize common key name hallucinations ---
         if "tool" in command and "tool_name" not in command:
             command["tool_name"] = command.pop("tool")
         if "toolInput" in command and "arguments" not in command:
