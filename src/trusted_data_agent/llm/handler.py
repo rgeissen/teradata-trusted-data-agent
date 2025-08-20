@@ -27,7 +27,13 @@ app_logger = logging.getLogger("quart.app")
 class OllamaClient:
     """A simple async client for interacting with the Ollama API."""
     def __init__(self, host: str):
-        self.host = host
+        # --- MODIFICATION START: Add guardrail for missing http protocol ---
+        if not host.startswith("http://") and not host.startswith("https://"):
+            self.host = f"http://{host}"
+            app_logger.info(f"Ollama host missing protocol. Automatically prepending 'http://'. New host: {self.host}")
+        else:
+            self.host = host
+        # --- MODIFICATION END ---
         self.client = httpx.AsyncClient(base_url=self.host, timeout=120.0)
 
     async def list_models(self):

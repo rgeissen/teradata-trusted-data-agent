@@ -460,10 +460,12 @@ async def configure_services():
             )
             app_logger.info("Boto3 client for Bedrock created. Skipping pre-flight model invocation.")
         elif provider == "Ollama":
+            # --- MODIFICATION START: Use a specific 'ollama_host' key ---
             host = data.get("ollama_host")
             if not host:
                 raise ValueError("Ollama host is required.")
             temp_llm_instance = llm_handler.OllamaClient(host=host)
+            # --- MODIFICATION END ---
             await temp_llm_instance.list_models()
         else:
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
