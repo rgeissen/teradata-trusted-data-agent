@@ -638,7 +638,14 @@ class PlanExecutor:
             )
             reason="Generating final summary from all collected tool data."
             yield self._format_sse({"step": "Calling LLM to write final report", "details": reason})
-            final_llm_response, _, _ = await self._call_llm_and_update_tokens(prompt=final_prompt, reason=reason)
+            final_llm_response, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=final_prompt, reason=reason)
+            
+            # --- MODIFICATION START: Yield the token count for the final summary call ---
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+            # --- MODIFICATION END ---
+
             final_summary_text = final_llm_response
 
         clean_summary = final_summary_text.replace("FINAL_ANSWER:", "").strip() or "The agent has completed its work."
