@@ -288,33 +288,34 @@ This is the goal you need to break down into a step-by-step plan.
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """
 
-# --- MODIFICATION START: Added a new critical rule for efficiency ---
+# --- MODIFICATION START: Adapted to be a universal planner ---
 WORKFLOW_META_PLANNING_PROMPT = """
-You are an expert strategic planning assistant. Your task is to analyze a complex, multi-step user request and decompose it into a high-level, phased meta-plan. This plan will serve as a roadmap for a state machine executor.
+You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
---- MASTER PROMPT (The User's Goal) ---
+--- GOAL ---
 {workflow_goal}
 
 --- CONTEXT ---
-- User's Original Question: {original_user_input}
+- User's Original Question (for reference): {original_user_input}
 
 --- INSTRUCTIONS ---
-1.  **Analyze the Master Prompt**: Carefully read the entire "MASTER PROMPT" to identify the distinct phases, steps, and communication requirements.
-2.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step in the process.
+1.  **Analyze the Goal**: Carefully read the "GOAL" to understand the user's full intent.
+2.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step.
 3.  **Define Each Phase**: For each phase, create a JSON object with the following keys:
     -   `"phase"`: An integer representing the step number (e.g., 1, 2, 3).
     -   `"goal"`: A clear, concise, and actionable description of what must be accomplished in this phase. This goal will guide a separate, tactical LLM.
     -   `"relevant_tools"`: A list of tool names that are permitted to be used during this phase. You MUST select the most appropriate and specific tools from the full "Capabilities" list provided in the main system prompt to achieve the phase's goal.
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
-4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the "MASTER PROMPT" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-5.  **Final Synthesis and Formatting Phase**: Your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
-6.  **CRITICAL RULE (Execution Focus)**: Every phase you define **MUST** correspond to a concrete, tool-based action described in the Master Prompt (e.g., "Get the table DDL," "Describe the table"). You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information (e.g., "Acknowledge the table name"). Your plan must focus only on the execution steps required to gather new information or process existing data.
-7.  **CRITICAL RULE (Capability Types)**: You are generating a plan of executable **tools**. The `relevant_tools` list **MUST ONLY** contain names of capabilities that are explicitly marked as `(tool)` in the system's "Capabilities" list. You **MUST NOT** include the name of any capability marked as `(prompt)`, especially not the name of the master prompt you are currently processing.
-8.  **CRITICAL RULE (Efficiency)**: If a phase's `"goal"` already contains all the instructions for the final synthesis and formatting of the report (as specified in the Master Prompt's "Final output guidelines"), you **MUST** make this the last phase of the plan. Do not add a separate, redundant formatting-only phase after it.
+4.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the main "GOAL" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
+5.  **Final Synthesis and Formatting Phase**: If the main "GOAL" describes a multi-step process with a final reporting requirement, your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
+6.  **CRITICAL RULE (Simplicity)**: If the "GOAL" is a simple, direct request that can be answered with a single tool call (e.g., "list all databases", "what is the system utilization?"), your plan **MUST** consist of only a single phase that calls the one most appropriate tool. Do not add unnecessary synthesis phases for simple data retrieval.
+7.  **CRITICAL RULE (Execution Focus)**: Every phase you define **MUST** correspond to a concrete, tool-based action. You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information. Your plan must focus only on the execution steps required to gather new information or process existing data.
+8.  **CRITICAL RULE (Capability Types)**: You are generating a plan of executable **tools**. The `relevant_tools` list **MUST ONLY** contain names of capabilities that are explicitly marked as `(tool)` in the system's "Capabilities" list. You **MUST NOT** include the name of any capability marked as `(prompt)`.
+9.  **CRITICAL RULE (Efficiency)**: If a phase's `"goal"` already contains all the instructions for the final synthesis and formatting of the report (as specified in the main "GOAL"), you **MUST** make this the last phase of the plan. Do not add a separate, redundant formatting-only phase after it.
 
---- EXAMPLE ---
-If the master prompt requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
+--- EXAMPLE (Complex Goal) ---
+If the main goal requires getting DDL and then describing/formatting, your output should be a two-phase plan like this:
 ```json
 [
   {{
@@ -330,9 +331,22 @@ If the master prompt requires getting DDL and then describing/formatting, your o
 ]
 ```
 
+--- EXAMPLE (Simple Goal) ---
+If the main goal is "what is the system utilization?", your output should be a single-phase plan like this:
+```json
+[
+  {{
+    "phase": 1,
+    "goal": "Get the system utilization using the `dba_resusageSummary` tool.",
+    "relevant_tools": ["dba_resusageSummary"]
+  }}
+]
+```
+
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 """
 # --- MODIFICATION END ---
+
 
 # --- MODIFICATION START: Strengthened CoreLLMTask Usage instructions ---
 WORKFLOW_TACTICAL_PROMPT = """

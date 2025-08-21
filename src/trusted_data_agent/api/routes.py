@@ -548,29 +548,14 @@ async def ask_stream():
                 yield PlanExecutor._format_sse({"final_answer": greeting_response}, "final_answer")
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
-
-            yield PlanExecutor._format_sse({"step": "Calling LLM", "details": "Analyzing user query to determine the first action."})
-
-            llm_reasoning_and_command, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
-                STATE['llm'], user_input, session_id, dependencies={'STATE': STATE},
-                reason="Analyzing user query to determine the first action."
+            
+            # --- REFACTORED: The initial LLM call is removed. Planning is now handled by the executor. ---
+            executor = PlanExecutor(
+                session_id=session_id, 
+                initial_instruction=None, # No longer needed
+                original_user_input=user_input, 
+                dependencies={'STATE': STATE}
             )
-            
-            updated_session = session_manager.get_session(session_id)
-            if updated_session:
-                token_data = {
-                    "statement_input": statement_input_tokens,
-                    "statement_output": statement_output_tokens,
-                    "total_input": updated_session.get("input_tokens", 0),
-                    "total_output": updated_session.get("output_tokens", 0)
-                }
-                yield PlanExecutor._format_sse(token_data, "token_update")
-            
-            if STATE['llm'] and APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama", "OpenAI"]:
-                session_data['chat_object'].append({'role': 'user', 'content': user_input})
-                session_data['chat_object'].append({'role': 'assistant', 'content': llm_reasoning_and_command})
-
-            executor = PlanExecutor(session_id=session_id, initial_instruction=llm_reasoning_and_command, original_user_input=user_input, dependencies={'STATE': STATE})
             async for event in executor.run():
                 yield event
 
@@ -599,20 +584,19 @@ async def invoke_prompt_stream():
             session_manager.update_session_name(session_id, new_name)
             yield PlanExecutor._format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
-        initial_instruction = f"""
-        Thought: The user has manually selected the prompt `{prompt_name}`. I will execute it directly.
-        ```json
-        {{
-            "prompt_name": "{prompt_name}",
-            "arguments": {json.dumps(arguments)}
-        }}
-        ```
-        """
         try:
-            if APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "Amazon", "Ollama", "OpenAI"]:
-                session_data['chat_object'].append({'role': 'user', 'content': user_input})
-            
-            executor = PlanExecutor(session_id=session_id, initial_instruction=initial_instruction, original_user_input=user_input, dependencies={'STATE': STATE})
+            # --- REFACTORED: Directly instantiate the executor to handle the prompt as a workflow ---
+            executor = PlanExecutor(
+                session_id=session_id, 
+                initial_instruction=None, # No longer needed
+                original_user_input=user_input, 
+                dependencies={'STATE': STATE}
+            )
+            # Manually set the workflow context, which was previously done by the initial LLM call
+            executor.is_workflow = True
+            executor.active_prompt_name = prompt_name
+            executor.prompt_arguments = arguments # Pass arguments for the executor to use
+
             async for event in executor.run():
                 yield event
         except Exception as e:
