@@ -148,7 +148,6 @@ class PlanExecutor:
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
-            # --- MIGRATE: Argument Enrichment from History ---
             enriched_args, enrich_events = self._enrich_arguments_from_history(self.active_prompt_name, self.prompt_arguments)
             for event in enrich_events:
                 yield event
@@ -220,13 +219,10 @@ class PlanExecutor:
             while True:
                 phase_attempts += 1
                 if phase_attempts > max_phase_attempts:
-                    # --- MIGRATE: LLM-based Error Recovery ---
                     app_logger.error(f"Phase '{phase_goal}' failed after {max_phase_attempts} attempts. Attempting LLM recovery.")
                     async for event in self._recover_from_phase_failure(phase_goal):
                         yield event
-                    # After recovery, we break the inner loop and let the outer loop re-evaluate with the new plan.
-                    # We use a special flag to signal the outer loop to continue instead of incrementing the phase index.
-                    self.current_phase_index -= 1 # Counteract the increment at the end of the outer loop
+                    self.current_phase_index -= 1 
                     break
 
                 next_action, input_tokens, output_tokens = await self._get_next_tactical_action(phase_goal, relevant_tools)
@@ -236,7 +232,7 @@ class PlanExecutor:
                     app_logger.warning(f"LOOP DETECTED: Repeating action: {current_action_str}")
                     self.last_failed_action_info = "Your last attempt failed because it was an exact repeat of the previous failed action. You MUST choose a different tool or different arguments."
                     yield self._format_sse({"step": "System Error", "details": "Repetitive action detected.", "type": "error"}, "tool_result")
-                    self.last_action_str = None
+                    self.last_action_str = None 
                     continue
                 self.last_action_str = current_action_str
                 
@@ -312,6 +308,11 @@ class PlanExecutor:
         async for event in self._normalize_tool_arguments(action):
             yield event
         
+        # --- MIGRATE: Notification Handling ---
+        if 'notification' in action:
+            yield self._format_sse({"step": "System Notification", "details": action['notification'], "type": "workaround"})
+            del action['notification']
+
         if tool_name == "CoreLLMTask":
             action.setdefault("arguments", {})["data"] = copy.deepcopy(self.workflow_state)
 
@@ -534,7 +535,6 @@ class PlanExecutor:
         all_columns_metadata = cols_result.get('results', [])
         all_column_results = [cols_result]
         
-        # --- MIGRATE: Tool Constraint Analysis ---
         tool_constraints = await self._get_tool_constraints(tool_name)
         required_type = tool_constraints.get("dataType") if tool_constraints else None
         
@@ -618,12 +618,8 @@ class PlanExecutor:
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
-    # --- NEW AND RESTORED METHODS FOR EDGE CASES ---
-
     def _enrich_arguments_from_history(self, prompt_name: str, arguments: dict) -> tuple[dict, list]:
-        """
-        Scans conversation history to find missing arguments for a prompt call.
-        """
+        """Scans conversation history to find missing arguments for a prompt call."""
         events_to_yield = []
         enriched_args = arguments.copy()
         
@@ -666,9 +662,7 @@ class PlanExecutor:
         return enriched_args, events_to_yield
 
     async def _get_tool_constraints(self, tool_name: str) -> dict:
-        """
-        Uses an LLM to determine if a tool requires numeric or character columns.
-        """
+        """Uses an LLM to determine if a tool requires numeric or character columns."""
         if tool_name in self.tool_constraints_cache:
             return self.tool_constraints_cache[tool_name]
 
@@ -704,23 +698,24 @@ class PlanExecutor:
         return constraints
 
     async def _recover_from_phase_failure(self, failed_phase_goal: str):
-        """
-        Attempts to recover from a persistently failing phase by generating a new plan.
-        """
+        """Attempts to recover from a persistently failing phase by generating a new plan."""
         yield self._format_sse({"step": "Attempting LLM-based Recovery", "details": "The current plan is stuck. Asking LLM to generate a new plan."})
 
-        # Find the last error message
         last_error = "No specific error message found."
+        failed_tool_name = "N/A (Phase Failed)"
         for action in reversed(self.action_history):
             result = action.get("result", {})
             if isinstance(result, dict) and result.get("status") == "error":
                 last_error = result.get("data", result.get("error", "Unknown error"))
+                failed_tool_name = action.get("action", {}).get("tool_name", failed_tool_name)
+                # --- MIGRATE: Skipped Tool Tracking ---
+                self.globally_skipped_tools.add(failed_tool_name)
                 break
 
         recovery_prompt = ERROR_RECOVERY_PROMPT.format(
             user_question=self.original_user_input,
             error_message=last_error,
-            failed_tool_name="N/A (Phase Failed)",
+            failed_tool_name=failed_tool_name,
             all_collected_data=json.dumps(self.workflow_state, indent=2),
             workflow_goal_and_plan=f"The agent was trying to achieve this goal: '{failed_phase_goal}'"
         )
@@ -736,7 +731,6 @@ class PlanExecutor:
         if updated_session:
             yield self._format_sse({"statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
 
-        # The recovery prompt should return a new plan. We will now reset the executor state with it.
         try:
             json_str = response_text
             if response_text.strip().startswith("```json"):
@@ -749,7 +743,6 @@ class PlanExecutor:
 
             yield self._format_sse({"step": "Recovery Plan Generated", "details": new_plan})
             
-            # Reset the plan and execution state
             self.meta_plan = new_plan
             self.current_phase_index = 0
             self.action_history.append({"action": "RECOVERY_REPLAN", "result": "success"})
