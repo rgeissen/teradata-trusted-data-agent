@@ -2,7 +2,7 @@
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from langchain_mcp_adapters.tools import load_mcp_tools
 from trusted_data_agent.llm import handler as llm_handler
@@ -41,6 +41,22 @@ UTIL_TOOL_DEFINITIONS = [
         "name": "util_getCurrentDate",
         "description": "Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.",
         "args": {}
+    },
+    {
+        "name": "util_calculateDateRange",
+        "description": "Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.",
+        "args": {
+            "start_date": {
+                "type": "string",
+                "description": "The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.",
+                "required": True
+            },
+            "date_phrase": {
+                "type": "string",
+                "description": "The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').",
+                "required": True
+            }
+        }
     }
 ]
 
@@ -422,6 +438,73 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     return {"status": "success", "results": [{"response": response_text}]}
 
+# --- MODIFICATION START: Replaced internal LLM call with deterministic logic ---
+async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
+    """
+    Deterministically calculates a list of dates from a start date and a phrase.
+    This is an internal-only tool that does NOT use an LLM.
+    """
+    args = command.get("arguments", {})
+    start_date_str = args.get("start_date")
+    date_phrase = args.get("date_phrase", "").lower()
+    
+    app_logger.info(f"Executing client-side tool: util_calculateDateRange with start: '{start_date_str}', phrase: '{date_phrase}'")
+
+    if not start_date_str or not date_phrase:
+        return {"status": "error", "error_message": "Missing start_date or date_phrase."}
+
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        
+        # Use regex to find the number and unit (days, weeks, months)
+        match = re.search(r'(\d+)\s+(day|week|month|year)s?', date_phrase)
+        if not match:
+            return {"status": "error", "error_message": f"Could not parse numeric value from date phrase: '{date_phrase}'"}
+
+        quantity = int(match.group(1))
+        unit = match.group(2)
+
+        # Calculate the date range based on the parsed components
+        if "past" in date_phrase or "last" in date_phrase or "previous" in date_phrase or "ago" in date_phrase:
+            if unit == "day":
+                end_date = start_date - timedelta(days=1)
+                start_date = end_date - timedelta(days=quantity - 1)
+            elif unit == "week":
+                end_date = start_date - timedelta(days=start_date.weekday() + 1)
+                start_date = end_date - timedelta(weeks=quantity - 1) - timedelta(days=end_date.weekday())
+            elif unit == "month":
+                end_date = start_date.replace(day=1) - timedelta(days=1)
+                start_date = end_date.replace(day=1)
+                for _ in range(quantity - 1):
+                    start_date = (start_date - timedelta(days=1)).replace(day=1)
+            else: # year
+                end_date = start_date.replace(month=1, day=1) - timedelta(days=1)
+                start_date = end_date.replace(year=end_date.year - (quantity - 1), month=1, day=1)
+        else: # "next", "future", etc.
+            if unit == "day":
+                start_date = start_date + timedelta(days=1)
+                end_date = start_date + timedelta(days=quantity - 1)
+            # Add logic for future weeks, months, years if needed
+            else:
+                 return {"status": "error", "error_message": f"Future date calculations for '{unit}' not yet implemented."}
+
+        # Generate the list of dates
+        date_list = []
+        current_date = start_date
+        while current_date <= end_date:
+            date_list.append({"date": current_date.strftime('%Y-%m-%d')})
+            current_date += timedelta(days=1)
+
+        return {
+            "status": "success",
+            "metadata": {"tool_name": "util_calculateDateRange"},
+            "results": date_list
+        }
+    except Exception as e:
+        app_logger.error(f"Error in deterministic date calculation: {e}", exc_info=True)
+        return {"status": "error", "error_message": f"Failed to calculate date range. Error: {e}"}
+# --- MODIFICATION END ---
+
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
@@ -437,6 +520,9 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             "metadata": {"tool_name": "util_getCurrentDate"},
             "results": [{"current_date": current_date}]
         }
+
+    if tool_name == "util_calculateDateRange":
+        return await _invoke_util_calculate_date_range(STATE, command)
 
     if tool_name == "viz_createChart":
         app_logger.info(f"Handling abstract chart generation for: {command}")
@@ -456,13 +542,8 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
             return {"error": "Chart Generation Failed", "data": str(e)}
 
-    # --- MODIFICATION START: Robust argument normalization ---
-    # This logic ensures that no matter how the LLM structures the arguments,
-    # they are correctly parsed before being sent to the MCP server.
     args = {}
     if isinstance(command, dict):
-        # The canonical key for arguments is "arguments".
-        # We also check a list of common synonyms that LLMs might hallucinate.
         potential_arg_keys = [
             "arguments", "args", "tool_args", "parameters", 
             "tool_input", "action_input", "tool_arguments"
@@ -477,8 +558,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
         if found_args is not None:
             args = found_args
         else:
-            # If no standard argument key is found, check for arguments nested
-            # inside other common wrapper keys like "action" or "tool".
             possible_wrapper_keys = ["action", "tool"]
             for wrapper_key in possible_wrapper_keys:
                 if wrapper_key in command and isinstance(command[wrapper_key], dict):
@@ -492,7 +571,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             if found_args is not None:
                 args = found_args
 
-    # Final step of normalization: correct common key name hallucinations inside the arguments dict.
     synonym_map = {
         "database": "database_name", "db": "database_name", 
         "table": "table_name", "tbl": "table_name", 
@@ -502,7 +580,6 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     if normalized_args != args:
         app_logger.info(f"Normalized tool arguments for '{tool_name}'. Original: {args}, Corrected: {normalized_args}")
         args = normalized_args
-    # --- MODIFICATION END ---
 
 
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")

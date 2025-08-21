@@ -19,6 +19,7 @@ from trusted_data_agent.agent.prompts import (
     WORKFLOW_TACTICAL_PROMPT,
     WORKFLOW_PHASE_COMPLETION_PROMPT
 )
+from trusted_data_agent.agent import orchestrators
 
 app_logger = logging.getLogger("quart.app")
 
@@ -209,7 +210,16 @@ class PlanExecutor:
         while self.current_phase_index < len(self.meta_plan):
             current_phase = self.meta_plan[self.current_phase_index]
             
-            if current_phase.get("type") == "loop":
+            is_hallucinated_loop = (
+                current_phase.get("type") == "loop" and
+                isinstance(current_phase.get("loop_over"), list) and
+                all(isinstance(item, str) for item in current_phase.get("loop_over"))
+            )
+            
+            if is_hallucinated_loop:
+                async for event in orchestrators.execute_hallucinated_loop(self, current_phase):
+                    yield event
+            elif current_phase.get("type") == "loop":
                 async for event in self._execute_looping_phase(current_phase):
                     yield event
             else:
@@ -224,7 +234,6 @@ class PlanExecutor:
     def _extract_loop_items(self, source_phase_key: str) -> list:
         """
         Intelligently extracts the list of items to iterate over from a previous phase's results.
-        Handles nested data structures and ensures a list is returned.
         """
         if source_phase_key not in self.workflow_state:
             app_logger.warning(f"Loop source '{source_phase_key}' not found in workflow state.")
@@ -320,7 +329,6 @@ class PlanExecutor:
                 app_logger.error(f"Phase '{phase_goal}' failed after {max_phase_attempts} attempts. Attempting LLM recovery.")
                 async for event in self._recover_from_phase_failure(phase_goal):
                     yield event
-                # After recovery, we break the loop to allow the main run loop to re-evaluate with the new plan
                 return 
 
             next_action, input_tokens, output_tokens = await self._get_next_tactical_action(phase_goal, relevant_tools)
@@ -352,42 +360,47 @@ class PlanExecutor:
             async for event in self._execute_action_with_orchestrators(next_action, phase):
                 yield event
             
-            if is_loop_iteration:
-                break
+            self.last_action_str = None
+            break
 
-            phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal, phase_num)
-            
-            if input_tokens > 0 or output_tokens > 0:
-                updated_session = session_manager.get_session(self.session_id)
-                if updated_session:
-                    yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
-
-            if phase_is_complete:
-                yield self._format_sse({"step": f"Phase {phase_num} Complete", "details": "Goal has been achieved."})
-                self.last_action_str = None
-                break
-
+    # --- MODIFICATION START: The orchestrator logic is now wrapped in a "plan-aware" check ---
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
-        """A wrapper that runs pre-flight checks (orchestrators) before executing a tool."""
+        """
+        A wrapper that runs pre-flight checks (orchestrators) before executing a tool.
+        These orchestrators act as a fallback/safety net for simple, single-phase plans
+        where the planner may have made a mistake. They are bypassed for multi-phase plans
+        to ensure the planner's explicit strategy is followed without interference.
+        """
         tool_name = action.get("tool_name")
         if not tool_name:
             raise ValueError("Action from tactical LLM is missing a 'tool_name'.")
+
+        # Only trigger reactive orchestrators if the meta-plan is simple (single-phase).
+        # If the plan has multiple phases, we trust the planner's explicit strategy.
+        is_simple_plan = len(self.meta_plan) <= 1
+
+        if is_simple_plan:
+            # Date Range Orchestrator (Fallback)
+            is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
+            if is_range_candidate and not tool_supports_range:
+                async for event in self._classify_date_query_type(): yield event
+                if self.temp_data_holder and self.temp_data_holder.get('type') == 'range':
+                    async for event in orchestrators.execute_date_range_orchestrator(self, action, date_param_name, self.temp_data_holder.get('phrase')):
+                        yield event
+                    return  # The orchestrator has handled the full execution.
+
+            # Column Iteration Orchestrator (Fallback)
+            tool_scope = self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name)
+            has_column_arg = "column_name" in action.get("arguments", {})
+            if tool_scope == 'column' and not has_column_arg:
+                async for event in orchestrators.execute_column_iteration(self, action):
+                    yield event
+                return  # The orchestrator has handled the full execution.
         
-        is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
-        if is_range_candidate and not tool_supports_range:
-            async for event in self._classify_date_query_type(): yield event
-            if self.temp_data_holder and self.temp_data_holder.get('type') == 'range':
-                async for event in self._execute_date_range_orchestrator(action, date_param_name, self.temp_data_holder.get('phrase')): yield event
-                return
-
-        tool_scope = self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name)
-        has_column_arg = "column_name" in action.get("arguments", {})
-        if tool_scope == 'column' and not has_column_arg:
-             async for event in self._execute_column_iteration(action): yield event
-             return
-
+        # If no orchestrator was triggered (or if it's a multi-step plan), proceed with direct tool execution.
         async for event in self._execute_tool(action, phase):
             yield event
+    # --- MODIFICATION END ---
 
     async def _execute_tool(self, action: dict, phase: dict):
         """Executes a single tool call."""
@@ -511,27 +524,6 @@ class PlanExecutor:
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}. Error: {e}")
 
-    async def _is_phase_complete(self, current_phase_goal: str, phase_num: int) -> tuple[bool, int, int]:
-        """Checks if the current phase's goal has been met."""
-        phase_result_key = f"result_of_phase_{phase_num}"
-        if phase_result_key in self.workflow_state:
-            if any(isinstance(r, dict) and r.get("status") == "success" for r in self.workflow_state[phase_result_key]):
-                return True, 0, 0
-
-        completion_system_prompt = WORKFLOW_PHASE_COMPLETION_PROMPT.format(
-            current_phase_goal=current_phase_goal,
-            workflow_history=json.dumps(self.action_history, indent=2),
-            all_collected_data=json.dumps(self.workflow_state, indent=2)
-        )
-
-        response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
-            prompt="Is the phase complete? Respond with only YES or NO.",
-            reason=f"Checking for completion of phase: {current_phase_goal}",
-            system_prompt_override=completion_system_prompt
-        )
-        
-        return "yes" in response_text.lower(), input_tokens, output_tokens
-
     def _is_date_query_candidate(self, command: dict) -> tuple[bool, str, bool]:
         """Checks if a command is a candidate for the date-range orchestrator."""
         tool_name = command.get("tool_name")
@@ -568,106 +560,6 @@ class PlanExecutor:
             self.temp_data_holder = json.loads(response_str)
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
-
-    async def _execute_date_range_orchestrator(self, command: dict, date_param_name: str, date_phrase: str):
-        """Executes a tool over a date range."""
-        tool_name = command.get("tool_name")
-        yield self._format_sse({
-            "step": "System Orchestration", "type": "workaround",
-            "details": f"Detected date range query ('{date_phrase}') for single-day tool ('{tool_name}')."
-        })
-
-        date_command = {"tool_name": "util_getCurrentDate"}
-        date_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], date_command)
-        if not (date_result and date_result.get("status") == "success" and date_result.get("results")):
-            raise RuntimeError("Date Range Orchestrator failed to fetch current date.")
-        current_date_str = date_result["results"][0].get("current_date")
-
-        conversion_prompt = (
-            f"Given the current date is {current_date_str}, "
-            f"what are the start and end dates for '{date_phrase}'? "
-            "Respond with ONLY a JSON object with 'start_date' and 'end_date' in YYYY-MM-DD format."
-        )
-        reason = "Calculating date range."
-        yield self._format_sse({"step": "Calling LLM", "details": reason})
-        range_response_str, _, _ = await self._call_llm_and_update_tokens(
-            prompt=conversion_prompt, reason=reason,
-            system_prompt_override="You are a JSON-only responding assistant.", raise_on_error=True
-        )
-        
-        try:
-            range_data = json.loads(range_response_str)
-            start_date = datetime.strptime(range_data['start_date'], '%Y-%m-%d').date()
-            end_date = datetime.strptime(range_data['end_date'], '%Y-%m-%d').date()
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            raise RuntimeError(f"Date Range Orchestrator failed to parse date range. Error: {e}")
-
-        all_results = []
-        yield self._format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-        current_date_in_loop = start_date
-        while current_date_in_loop <= end_date:
-            date_str = current_date_in_loop.strftime('%Y-%m-%d')
-            yield self._format_sse({"step": f"Processing data for: {date_str}"})
-            
-            day_command = {**command, 'arguments': {**command['arguments'], date_param_name: date_str}}
-            day_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], day_command)
-            
-            if isinstance(day_result, dict) and day_result.get("status") == "success" and day_result.get("results"):
-                all_results.extend(day_result["results"])
-            
-            current_date_in_loop += timedelta(days=1)
-        yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-        
-        final_tool_output = {
-            "status": "success",
-            "metadata": {"tool_name": tool_name, "comment": f"Consolidated results for {date_phrase}"},
-            "results": all_results
-        }
-        self._add_to_structured_data(final_tool_output)
-        self.last_tool_output = final_tool_output
-
-    async def _execute_column_iteration(self, command: dict):
-        """Executes a tool over multiple columns, now with constraint checking."""
-        tool_name = command.get("tool_name")
-        base_args = command.get("arguments", {})
-        db_name, table_name = base_args.get("database_name"), base_args.get("table_name")
-
-        cols_command = {"tool_name": "base_columnDescription", "arguments": {"database_name": db_name, "table_name": table_name}}
-        yield self._format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-        cols_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], cols_command)
-        yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-        
-        if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
-            raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
-        
-        all_columns_metadata = cols_result.get('results', [])
-        all_column_results = [cols_result]
-        
-        tool_constraints = await self._get_tool_constraints(tool_name)
-        required_type = tool_constraints.get("dataType") if tool_constraints else None
-        
-        yield self._format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-        for column_info in all_columns_metadata:
-            column_name = column_info.get("ColumnName")
-            col_type = next((v for k, v in column_info.items() if "type" in k.lower()), "").upper()
-
-            if required_type and col_type != "UNKNOWN":
-                is_numeric = any(t in col_type for t in ["INT", "NUMERIC", "DECIMAL", "FLOAT"])
-                is_char = any(t in col_type for t in ["CHAR", "VARCHAR", "TEXT"])
-                if (required_type == "numeric" and not is_numeric) or \
-                   (required_type == "character" and not is_char):
-                    skipped_result = {"status": "skipped", "metadata": {"tool_name": tool_name, "column_name": column_name}, "results": [{"reason": f"Tool requires {required_type}, but '{column_name}' is {col_type}."}]}
-                    all_column_results.append(skipped_result)
-                    yield self._format_sse({"step": "Skipping incompatible column", "details": skipped_result}, "tool_result")
-                    continue
-
-            iter_command = {"tool_name": tool_name, "arguments": {**base_args, 'column_name': column_name}}
-            col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
-            all_column_results.append(col_result)
-        yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
-
-        self._add_to_structured_data(all_column_results)
-        self.last_tool_output = {"metadata": {"tool_name": tool_name}, "results": all_column_results, "status": "success"}
 
     async def _generate_final_summary(self):
         """Generates the final summary for the user."""

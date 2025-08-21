@@ -245,7 +245,7 @@ CHARTING_INSTRUCTIONS = {
     )
 }
 
-# --- NEW: A specialized prompt for error recovery ---
+# --- MODIFICATION START: Updated recovery prompt to expect a new plan (list) ---
 ERROR_RECOVERY_PROMPT = """
 --- ERROR RECOVERY ---
 The last tool call, `{failed_tool_name}`, resulted in an error with the following message:
@@ -259,9 +259,28 @@ The last tool call, `{failed_tool_name}`, resulted in an error with the followin
 {workflow_goal_and_plan}
 
 --- INSTRUCTIONS ---
-Your goal is to recover from this error and continue the user's request if possible.
-Do NOT re-call the failed tool `{failed_tool_name}`. Instead, analyze the original question, the error message, and the overall workflow goal to choose a new, different action that moves the workflow forward. Your response MUST be a single JSON object for a tool call.
+Your goal is to recover from this error by generating a new, complete, multi-phase plan to achieve the original user's question.
+Analyze the original question, the error, and the data collected so far to create a new strategic plan.
+Do NOT re-call the failed tool `{failed_tool_name}` in the first step of your new plan.
+
+Your response MUST be a single JSON list of phase objects, following the exact format of the strategic planner.
+Example of expected format:
+```json
+[
+  {{
+    "phase": 1,
+    "goal": "New goal for the first step of the recovery plan.",
+    "relevant_tools": ["some_other_tool"]
+  }},
+  {{
+    "phase": 2,
+    "goal": "Goal for the second step.",
+    "relevant_tools": ["another_tool"]
+  }}
+]
+```
 """
+# --- MODIFICATION END ---
 
 # --- RENAMED: This is the old, static planning prompt. ---
 WORKFLOW_STATIC_PLANNING_PROMPT = """
@@ -288,7 +307,7 @@ This is the goal you need to break down into a step-by-step plan.
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """
 
-# --- MODIFICATION START: Adapted to be a universal planner ---
+# --- MODIFICATION START: Added a new example for date range queries ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
@@ -343,6 +362,30 @@ If the main goal is "what is the system utilization?", your output should be a s
 ]
 ```
 
+--- EXAMPLE (Date Range Goal) ---
+If the main goal is "what is the system utilization for the past 3 days?", your output must be a three-phase plan like this:
+```json
+[
+  {{
+    "phase": 1,
+    "goal": "Get the current date using the `util_getCurrentDate` tool to establish a reference point.",
+    "relevant_tools": ["util_getCurrentDate"]
+  }},
+  {{
+    "phase": 2,
+    "goal": "Calculate the list of dates for 'the past 3 days' using the `util_calculateDateRange` tool.",
+    "relevant_tools": ["util_calculateDateRange"]
+  }},
+  {{
+    "phase": 3,
+    "goal": "For each date calculated in the previous step, get the system utilization using the `dba_resusageSummary` tool.",
+    "relevant_tools": ["dba_resusageSummary"],
+    "type": "loop",
+    "loop_over": "result_of_phase_2"
+  }}
+]
+```
+
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 """
 # --- MODIFICATION END ---
@@ -382,19 +425,5 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 """
 # --- MODIFICATION END ---
 
-# --- NEW: This prompt checks if the current phase's goal has been met. ---
-WORKFLOW_PHASE_COMPLETION_PROMPT = """
-You are a workflow validation assistant. Your only task is to determine if a specific goal has been met based on the actions taken and data collected.
-
---- CURRENT PHASE GOAL ---
-{current_phase_goal}
-
---- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: {workflow_history}
-- Data Collected So Far: {all_collected_data}
-
---- INSTRUCTIONS ---
-Analyze the goal and the state. Has the "CURRENT PHASE GOAL" been fully and completely achieved?
-
-Respond ONLY with the word 'YES' or 'NO'. Do not provide any other text, explanation, or punctuation.
-"""
+# --- REMOVED: The non-deterministic completion check is no longer used ---
+WORKFLOW_PHASE_COMPLETION_PROMPT = ""
