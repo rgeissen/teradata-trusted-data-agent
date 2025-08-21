@@ -43,8 +43,9 @@ def create_app():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
     template_folder = os.path.join(project_root, 'templates')
+    static_folder = os.path.join(project_root, 'static') # Add this line
     
-    app = Quart(__name__, template_folder=template_folder)
+    app = Quart(__name__, template_folder=template_folder, static_folder=static_folder) # Add static_folder here
     app = cors(app, allow_origin="*")
 
     set_dependencies(APP_STATE)
