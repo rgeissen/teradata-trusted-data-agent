@@ -75,19 +75,23 @@ class PlanExecutor:
         self.current_phase_index = 0
         self.last_tool_output = None
         
-        # Workflow-specific context, potentially set by routes for manual invocation
+        # Workflow-specific context
         self.is_workflow = False
         self.active_prompt_name = None
         self.prompt_arguments = {}
         self.workflow_goal_prompt = ""
 
-        # Non-Workflow Optimizations & State
+        # State management for the Loop Orchestrator
+        self.is_in_loop = False
+        self.current_loop_items = []
+        self.processed_loop_items = []
+        
         self.tool_constraints_cache = {}
         self.globally_skipped_tools = set()
         self.temp_data_holder = None
         self.last_failed_action_info = "None"
         self.events_to_yield = []
-        self.last_action_str = None # For loop detection
+        self.last_action_str = None 
         
         self.llm_debug_history = []
         self.max_steps = 40
@@ -198,78 +202,170 @@ class PlanExecutor:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
 
     async def _run_plan(self):
-        """Executes the generated meta-plan phase by phase."""
+        """Executes the generated meta-plan, delegating to loop or standard executors."""
         if not self.meta_plan:
             raise RuntimeError("Cannot execute plan: meta_plan is not generated.")
 
         while self.current_phase_index < len(self.meta_plan):
             current_phase = self.meta_plan[self.current_phase_index]
-            phase_goal = current_phase.get("goal", "No goal defined.")
-            phase_num = current_phase.get("phase", self.current_phase_index + 1)
-            relevant_tools = current_phase.get("relevant_tools", [])
-
-            yield self._format_sse({
-                "step": "Starting Plan Phase",
-                "details": f"Phase {phase_num}/{len(self.meta_plan)}: {phase_goal}",
-                "phase_details": current_phase
-            })
-
-            phase_attempts = 0
-            max_phase_attempts = 5
-            while True:
-                phase_attempts += 1
-                if phase_attempts > max_phase_attempts:
-                    app_logger.error(f"Phase '{phase_goal}' failed after {max_phase_attempts} attempts. Attempting LLM recovery.")
-                    async for event in self._recover_from_phase_failure(phase_goal):
-                        yield event
-                    self.current_phase_index -= 1 
-                    break
-
-                next_action, input_tokens, output_tokens = await self._get_next_tactical_action(phase_goal, relevant_tools)
-                
-                current_action_str = json.dumps(next_action, sort_keys=True)
-                if current_action_str == self.last_action_str:
-                    app_logger.warning(f"LOOP DETECTED: Repeating action: {current_action_str}")
-                    self.last_failed_action_info = "Your last attempt failed because it was an exact repeat of the previous failed action. You MUST choose a different tool or different arguments."
-                    yield self._format_sse({"step": "System Error", "details": "Repetitive action detected.", "type": "error"}, "tool_result")
-                    self.last_action_str = None 
-                    continue
-                self.last_action_str = current_action_str
-                
-                if self.events_to_yield:
-                    for event in self.events_to_yield: yield event
-                    self.events_to_yield = []
-
-                updated_session = session_manager.get_session(self.session_id)
-                if updated_session:
-                    yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
-
-                if isinstance(next_action, str) and next_action == "SYSTEM_ACTION_COMPLETE":
-                    self.state = self.AgentState.SUMMARIZING
-                    return
-
-                if not isinstance(next_action, dict):
-                    raise RuntimeError(f"Tactical LLM failed to provide a valid action. Received: {next_action}")
-
-                async for event in self._execute_action_with_orchestrators(next_action, current_phase):
+            
+            if current_phase.get("type") == "loop":
+                async for event in self._execute_looping_phase(current_phase):
                     yield event
-
-                phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal, phase_num)
-                
-                if input_tokens > 0 or output_tokens > 0:
-                    updated_session = session_manager.get_session(self.session_id)
-                    if updated_session:
-                        yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
-
-                if phase_is_complete:
-                    yield self._format_sse({"step": f"Phase {phase_num} Complete", "details": "Goal has been achieved."})
-                    self.last_action_str = None
-                    break 
-
+            else:
+                async for event in self._execute_standard_phase(current_phase):
+                    yield event
+            
             self.current_phase_index += 1
 
         app_logger.info("Meta-plan has been fully executed. Transitioning to summarization.")
         self.state = self.AgentState.SUMMARIZING
+    
+    def _extract_loop_items(self, source_phase_key: str) -> list:
+        """
+        Intelligently extracts the list of items to iterate over from a previous phase's results.
+        Handles nested data structures and ensures a list is returned.
+        """
+        if source_phase_key not in self.workflow_state:
+            app_logger.warning(f"Loop source '{source_phase_key}' not found in workflow state.")
+            return []
+
+        source_data = self.workflow_state[source_phase_key]
+        
+        def find_results_list(data):
+            if isinstance(data, list):
+                for item in data:
+                    found = find_results_list(item)
+                    if found is not None: return found
+            elif isinstance(data, dict):
+                if 'results' in data and isinstance(data['results'], list):
+                    return data['results']
+                for value in data.values():
+                    found = find_results_list(value)
+                    if found is not None: return found
+            return None
+
+        items = find_results_list(source_data)
+        
+        if items is None:
+            app_logger.warning(f"Could not find a 'results' list in '{source_phase_key}'. Returning empty list.")
+            return []
+            
+        return items
+
+    async def _execute_looping_phase(self, phase: dict):
+        """
+        Orchestrates the execution of a looping phase, handling state, iteration,
+        and partial failures.
+        """
+        phase_goal = phase.get("goal", "No goal defined.")
+        phase_num = phase.get("phase", self.current_phase_index + 1)
+        loop_over_key = phase.get("loop_over")
+
+        yield self._format_sse({
+            "step": "Starting Looping Phase",
+            "details": f"Phase {phase_num}/{len(self.meta_plan)}: {phase_goal}",
+            "phase_details": phase
+        })
+
+        self.current_loop_items = self._extract_loop_items(loop_over_key)
+        
+        if not self.current_loop_items:
+            yield self._format_sse({"step": "Skipping Empty Loop", "details": f"No items found from '{loop_over_key}' to loop over."})
+            return
+
+        self.is_in_loop = True
+        self.processed_loop_items = []
+        
+        for i, item in enumerate(self.current_loop_items):
+            yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
+            
+            try:
+                # We treat each item in the loop as a single, standard execution step.
+                async for event in self._execute_standard_phase(phase, is_loop_iteration=True):
+                    yield event
+            except Exception as e:
+                # Edge Case: Handle partial failures
+                error_message = f"Error processing item {item}: {e}"
+                app_logger.error(error_message, exc_info=True)
+                error_result = {"status": "error", "item": item, "error_message": str(e)}
+                self._add_to_structured_data(error_result)
+                yield self._format_sse({"step": "Loop Item Failed", "details": error_result, "type": "error"}, "tool_result")
+
+            self.processed_loop_items.append(item)
+
+        self.is_in_loop = False
+        self.current_loop_items = []
+        self.processed_loop_items = []
+        yield self._format_sse({"step": f"Looping Phase {phase_num} Complete", "details": "All items have been processed."})
+
+    async def _execute_standard_phase(self, phase: dict, is_loop_iteration: bool = False):
+        """Executes a single, non-looping phase or a single iteration of a loop."""
+        phase_goal = phase.get("goal", "No goal defined.")
+        phase_num = phase.get("phase", self.current_phase_index + 1)
+        relevant_tools = phase.get("relevant_tools", [])
+
+        if not is_loop_iteration:
+            yield self._format_sse({
+                "step": "Starting Plan Phase",
+                "details": f"Phase {phase_num}/{len(self.meta_plan)}: {phase_goal}",
+                "phase_details": phase
+            })
+
+        phase_attempts = 0
+        max_phase_attempts = 5
+        while True:
+            phase_attempts += 1
+            if phase_attempts > max_phase_attempts:
+                app_logger.error(f"Phase '{phase_goal}' failed after {max_phase_attempts} attempts. Attempting LLM recovery.")
+                async for event in self._recover_from_phase_failure(phase_goal):
+                    yield event
+                # After recovery, we break the loop to allow the main run loop to re-evaluate with the new plan
+                return 
+
+            next_action, input_tokens, output_tokens = await self._get_next_tactical_action(phase_goal, relevant_tools)
+            
+            current_action_str = json.dumps(next_action, sort_keys=True)
+            if current_action_str == self.last_action_str:
+                app_logger.warning(f"LOOP DETECTED: Repeating action: {current_action_str}")
+                self.last_failed_action_info = "Your last attempt failed because it was an exact repeat of the previous failed action. You MUST choose a different tool or different arguments."
+                yield self._format_sse({"step": "System Error", "details": "Repetitive action detected.", "type": "error"}, "tool_result")
+                self.last_action_str = None 
+                continue
+            self.last_action_str = current_action_str
+            
+            if self.events_to_yield:
+                for event in self.events_to_yield: yield event
+                self.events_to_yield = []
+
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+
+            if isinstance(next_action, str) and next_action == "SYSTEM_ACTION_COMPLETE":
+                self.state = self.AgentState.SUMMARIZING
+                return
+
+            if not isinstance(next_action, dict):
+                raise RuntimeError(f"Tactical LLM failed to provide a valid action. Received: {next_action}")
+
+            async for event in self._execute_action_with_orchestrators(next_action, phase):
+                yield event
+            
+            if is_loop_iteration:
+                break
+
+            phase_is_complete, input_tokens, output_tokens = await self._is_phase_complete(phase_goal, phase_num)
+            
+            if input_tokens > 0 or output_tokens > 0:
+                updated_session = session_manager.get_session(self.session_id)
+                if updated_session:
+                    yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+
+            if phase_is_complete:
+                yield self._format_sse({"step": f"Phase {phase_num} Complete", "details": "Goal has been achieved."})
+                self.last_action_str = None
+                break
 
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
         """A wrapper that runs pre-flight checks (orchestrators) before executing a tool."""
@@ -294,7 +390,7 @@ class PlanExecutor:
             yield event
 
     async def _execute_tool(self, action: dict, phase: dict):
-        """Executes a single tool call as part of a plan phase."""
+        """Executes a single tool call."""
         tool_name = action.get("tool_name")
         phase_num = phase.get("phase", self.current_phase_index + 1)
         relevant_tools = phase.get("relevant_tools", [])
@@ -305,18 +401,13 @@ class PlanExecutor:
             yield self._format_sse({"step": "System Correction", "type": "workaround", "details": f"LLM chose invalid tool ('{tool_name}'). Retrying."})
             return
 
-        # --- MODIFICATION START: Argument normalization is now handled in the Tool Invocation Layer ---
-        # async for event in self._normalize_tool_arguments(action):
-        #     yield event
-        # --- MODIFICATION END ---
-        
         if 'notification' in action:
             yield self._format_sse({"step": "System Notification", "details": action['notification'], "type": "workaround"})
             del action['notification']
 
         if tool_name == "CoreLLMTask":
             action.setdefault("arguments", {})["data"] = copy.deepcopy(self.workflow_state)
-
+        
         yield self._format_sse({"step": "Tool Execution Intent", "details": action}, "tool_result")
         
         status_target = "chart" if tool_name == "viz_createChart" else "db"
@@ -334,18 +425,34 @@ class PlanExecutor:
 
         if isinstance(tool_result, dict) and tool_result.get("status") == "error":
             yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
+            if self.is_in_loop:
+                raise RuntimeError(f"Tool '{tool_name}' failed during loop: {tool_result.get('error_message', 'Unknown error')}")
         else:
             yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
 
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
+        
+        loop_context_section = ""
+        if self.is_in_loop:
+            next_item = next((item for item in self.current_loop_items if item not in self.processed_loop_items), None)
+            if next_item:
+                loop_context_section = (
+                    f"\n--- LOOP CONTEXT ---\n"
+                    f"- You are currently in a loop to process multiple items.\n"
+                    f"- All Items in Loop: {json.dumps(self.current_loop_items)}\n"
+                    f"- Items Already Processed: {json.dumps(self.processed_loop_items)}\n"
+                    f"- Your task is to process this single item next: {json.dumps(next_item)}\n"
+                )
+
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
             relevant_tools_for_phase=json.dumps(relevant_tools),
             last_attempt_info=self.last_failed_action_info,
             workflow_history=json.dumps(self.action_history, indent=2),
-            all_collected_data=json.dumps(self.workflow_state, indent=2)
+            all_collected_data=json.dumps(self.workflow_state, indent=2),
+            loop_context_section=loop_context_section
         )
 
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
@@ -360,7 +467,6 @@ class PlanExecutor:
             return "SYSTEM_ACTION_COMPLETE", input_tokens, output_tokens
 
         try:
-            # --- MODIFICATION START: Robust JSON parsing and normalization ---
             json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_text, re.DOTALL)
             if not json_match: raise json.JSONDecodeError("No JSON object found", response_text, 0)
             
@@ -369,8 +475,6 @@ class PlanExecutor:
 
             raw_action = json.loads(json_str.strip())
             
-            # --- Abstract Normalization Layer ---
-            # This layer intelligently finds the tool call details, regardless of nesting.
             action_details = raw_action
             possible_wrapper_keys = ["action", "tool_call", "tool"]
             for key in possible_wrapper_keys:
@@ -378,26 +482,21 @@ class PlanExecutor:
                     action_details = action_details[key]
                     break 
 
-            # Find tool name using a list of synonyms
             tool_name_synonyms = ["tool_name", "name", "tool", "action_name"]
             found_tool_name = next((action_details.pop(key) for key in tool_name_synonyms if key in action_details), None)
             
-            # Find arguments using a list of synonyms
             arg_synonyms = ["arguments", "args", "tool_input", "action_input", "parameters"]
             found_args = next((action_details.pop(key) for key in arg_synonyms if key in action_details), {})
 
-            # Reconstruct the action into the canonical format
             normalized_action = {
                 "tool_name": found_tool_name,
                 "arguments": found_args if isinstance(found_args, dict) else {}
             }
 
-            # If tool_name is still missing, try a final fallback for simple structures
             if not normalized_action["tool_name"] and len(action_details) == 1 and isinstance(list(action_details.values())[0], dict):
                  normalized_action["tool_name"] = list(action_details.keys())[0]
                  normalized_action["arguments"] = list(action_details.values())[0]
 
-            # If tool_name is STILL missing, but there's only one permitted tool, infer it.
             if not normalized_action.get("tool_name") and len(relevant_tools) == 1:
                 normalized_action["tool_name"] = relevant_tools[0]
                 self.events_to_yield.append(self._format_sse({
@@ -409,7 +508,6 @@ class PlanExecutor:
                  raise ValueError("Could not determine tool_name from LLM response.")
 
             return normalized_action, input_tokens, output_tokens
-            # --- MODIFICATION END ---
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}. Error: {e}")
 
@@ -718,7 +816,6 @@ class PlanExecutor:
             if isinstance(result, dict) and result.get("status") == "error":
                 last_error = result.get("data", result.get("error", "Unknown error"))
                 failed_tool_name = action.get("action", {}).get("tool_name", failed_tool_name)
-                # --- MIGRATE: Skipped Tool Tracking ---
                 self.globally_skipped_tools.add(failed_tool_name)
                 break
 

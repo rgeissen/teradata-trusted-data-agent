@@ -348,7 +348,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 # --- MODIFICATION END ---
 
 
-# --- MODIFICATION START: Strengthened CoreLLMTask Usage instructions ---
+# --- MODIFICATION START: Added looping context and instructions ---
 WORKFLOW_TACTICAL_PROMPT = """
 You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
@@ -365,7 +365,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 --- WORKFLOW STATE & HISTORY ---
 - Actions Taken So Far: {workflow_history}
 - Data Collected So Far: {all_collected_data}
-
+{loop_context_section}
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
 2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
@@ -375,7 +375,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument.
     -   **CONTEXT PRESERVATION RULE**: If the current phase involves creating a final summary or report for the user, you **MUST** ensure you have all the necessary context. Your `source_data` list **MUST** include the results from **ALL** previous data-gathering phases (e.g., `["result_of_phase_1", "result_of_phase_2"]`) to prevent information loss.
-5.  **Handle Loops**: If the current phase involves a loop (e.g., "for each table"), identify the next item in the sequence that has not yet been processed and select the appropriate action for that single item.
+5.  **Handle Loops**: If you are in a looping phase (indicated by the presence of a "LOOP CONTEXT" section), you **MUST** focus your action on the single item provided in `current_loop_item`. You **MUST** use the information within that item to formulate the arguments for your tool call.
 6.  **Format Response**: Your response MUST be a single JSON object for a tool call.
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
