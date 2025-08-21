@@ -133,12 +133,10 @@ details.resource-selected > summary {
     border-left-color: #f87171; /* red-400 */
     background-color: rgba(248, 113, 113, 0.1);
 }
-/* --- MODIFICATION START: Added new style for plan optimization events --- */
 .status-step.plan-optimization {
     border-left-color: #3b82f6; /* blue-500 */
     background-color: rgba(59, 130, 246, 0.1);
 }
-/* --- MODIFICATION END --- */
 
 .response-card {
     background-color: rgba(255, 255, 255, 0.03);

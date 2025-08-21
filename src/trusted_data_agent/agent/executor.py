@@ -170,8 +170,14 @@ class PlanExecutor:
         else:
             self.workflow_goal_prompt = self.original_user_input
 
-        reason = f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}...'"
-        yield self._format_sse({"step": "Calling LLM for Planning", "details": reason})
+        # --- MODIFICATION START: Create a structured payload for details ---
+        summary = f"Generating a strategic meta-plan for the goal..."
+        details_payload = {
+            "summary": summary,
+            "full_text": self.workflow_goal_prompt
+        }
+        yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
+        # --- MODIFICATION END ---
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
@@ -180,7 +186,7 @@ class PlanExecutor:
         
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=planning_prompt, 
-            reason=reason
+            reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}...'"
         )
 
         updated_session = session_manager.get_session(self.session_id)
@@ -292,12 +298,10 @@ class PlanExecutor:
 
         if is_fast_path_candidate:
             tool_name = relevant_tools[0]
-            # --- MODIFICATION START: Changed event type to 'plan_optimization' ---
             yield self._format_sse({
                 "step": "Plan Optimization", "type": "plan_optimization",
                 "details": f"Engaging fast path for tool loop: '{tool_name}'..."
             })
-            # --- MODIFICATION END ---
             
             all_loop_results = []
             yield self._format_sse({"target": "db", "state": "busy"}, "status_indicator_update")

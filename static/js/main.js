@@ -350,20 +350,43 @@ function updateStatusWindow(eventData, isFinal = false) {
     stepEl.appendChild(metricsEl);
 
     if (details) {
-        const pre = document.createElement('pre');
-        pre.className = 'p-2 bg-gray-900/70 rounded-md text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap';
-        try {
-            const parsed = typeof details === 'string' ? JSON.parse(details) : details;
-            pre.textContent = JSON.stringify(parsed, null, 2);
-        } catch (e) {
-            pre.textContent = details;
+        if (typeof details === 'object' && details.summary && details.full_text) {
+            if (details.full_text.length > 150) {
+                const detailsEl = document.createElement('details');
+                detailsEl.className = 'text-xs';
+
+                const summaryEl = document.createElement('summary');
+                summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
+                summaryEl.textContent = details.summary;
+                detailsEl.appendChild(summaryEl);
+
+                const pre = document.createElement('pre');
+                pre.className = 'mt-2 p-2 bg-gray-900/70 rounded-md text-gray-300 overflow-x-auto whitespace-pre-wrap';
+                pre.textContent = details.full_text;
+                detailsEl.appendChild(pre);
+
+                stepEl.appendChild(detailsEl);
+            } else {
+                const p = document.createElement('p');
+                p.className = 'text-xs text-gray-400';
+                p.textContent = details.full_text;
+                stepEl.appendChild(p);
+            }
+        } else {
+            const pre = document.createElement('pre');
+            pre.className = 'p-2 bg-gray-900/70 rounded-md text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap';
+            try {
+                const parsed = typeof details === 'string' ? JSON.parse(details) : details;
+                pre.textContent = JSON.stringify(parsed, null, 2);
+            } catch (e) {
+                pre.textContent = details;
+            }
+            stepEl.appendChild(pre);
         }
-        stepEl.appendChild(pre);
     }
 
     statusWindowContent.appendChild(stepEl);
 
-    // --- MODIFICATION START: Added 'plan_optimization' type check ---
     if (type === 'workaround') {
         stepEl.classList.add('workaround');
     } else if (type === 'error') {
@@ -371,7 +394,6 @@ function updateStatusWindow(eventData, isFinal = false) {
     } else if (type === 'plan_optimization') {
         stepEl.classList.add('plan-optimization');
     }
-    // --- MODIFICATION END ---
 
     if (!isFinal) {
         stepEl.classList.add('active');
