@@ -363,11 +363,15 @@ function updateStatusWindow(eventData, isFinal = false) {
 
     statusWindowContent.appendChild(stepEl);
 
+    // --- MODIFICATION START: Added 'plan_optimization' type check ---
     if (type === 'workaround') {
         stepEl.classList.add('workaround');
     } else if (type === 'error') {
         stepEl.classList.add('error');
+    } else if (type === 'plan_optimization') {
+        stepEl.classList.add('plan-optimization');
     }
+    // --- MODIFICATION END ---
 
     if (!isFinal) {
         stepEl.classList.add('active');
