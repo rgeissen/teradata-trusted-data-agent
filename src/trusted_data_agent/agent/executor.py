@@ -262,7 +262,6 @@ class PlanExecutor:
             
         return items
 
-    # --- MODIFICATION START: Implemented "Loop Hopping" with a fast path for deterministic loops ---
     async def _execute_looping_phase(self, phase: dict):
         """
         Orchestrates the execution of a looping phase. It uses a "fast path" for simple,
@@ -286,7 +285,6 @@ class PlanExecutor:
             yield self._format_sse({"step": "Skipping Empty Loop", "details": f"No items found from '{loop_over_key}' to loop over."})
             return
 
-        # "Loop Hopping" Condition: Check if the loop is a simple, repetitive MCP tool call.
         is_fast_path_candidate = (
             len(relevant_tools) == 1 and 
             relevant_tools[0] != "CoreLLMTask"
@@ -304,8 +302,6 @@ class PlanExecutor:
             for i, item in enumerate(self.current_loop_items):
                 yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
                 
-                # Programmatically construct the tool call without an LLM.
-                # This assumes the loop item is a dict with a key that matches a tool argument.
                 arguments = item if isinstance(item, dict) else {}
                 command = {"tool_name": tool_name, "arguments": arguments}
                 
@@ -321,13 +317,12 @@ class PlanExecutor:
 
             yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
             
-            # Store all collected results in the workflow state.
             phase_result_key = f"result_of_phase_{phase_num}"
             self.workflow_state[phase_result_key] = all_loop_results
             self._add_to_structured_data(all_loop_results)
             self.last_tool_output = all_loop_results
 
-        else: # Standard LLM-driven path for complex loops
+        else: 
             self.is_in_loop = True
             self.processed_loop_items = []
             
@@ -351,7 +346,6 @@ class PlanExecutor:
             self.processed_loop_items = []
 
         yield self._format_sse({"step": f"Looping Phase {phase_num} Complete", "details": "All items have been processed."})
-    # --- MODIFICATION END ---
 
     async def _execute_standard_phase(self, phase: dict, is_loop_iteration: bool = False):
         """Executes a single, non-looping phase or a single iteration of a complex loop."""
@@ -481,9 +475,30 @@ class PlanExecutor:
         else:
             yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
 
+    # --- MODIFICATION START: This function now formats and injects full tool definitions into the tactical prompt ---
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
         
+        # Format the detailed tool definitions for the prompt
+        permitted_tools_with_details = ""
+        all_tools = self.dependencies['STATE'].get('mcp_tools', {})
+        for tool_name in relevant_tools:
+            tool = all_tools.get(tool_name)
+            if not tool: continue
+
+            tool_str = f"\n- Tool: `{tool.name}`\n  - Description: {tool.description}"
+            args_dict = tool.args if isinstance(tool.args, dict) else {}
+            
+            if args_dict:
+                tool_str += "\n  - Arguments:"
+                for arg_name, arg_details in args_dict.items():
+                    arg_type = arg_details.get('type', 'any')
+                    is_required = arg_details.get('required', False)
+                    req_str = "required" if is_required else "optional"
+                    arg_desc = arg_details.get('description', 'No description.')
+                    tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
+            permitted_tools_with_details += tool_str + "\n"
+
         loop_context_section = ""
         if self.is_in_loop:
             next_item = next((item for item in self.current_loop_items if item not in self.processed_loop_items), None)
@@ -499,12 +514,13 @@ class PlanExecutor:
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
-            relevant_tools_for_phase=json.dumps(relevant_tools),
+            permitted_tools_with_details=permitted_tools_with_details,
             last_attempt_info=self.last_failed_action_info,
             workflow_history=json.dumps(self.action_history, indent=2),
             all_collected_data=json.dumps(self.workflow_state, indent=2),
             loop_context_section=loop_context_section
         )
+        # --- MODIFICATION END ---
 
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt="Determine the next action based on the instructions and state provided in the system prompt.",

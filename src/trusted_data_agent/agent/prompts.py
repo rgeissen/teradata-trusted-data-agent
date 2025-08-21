@@ -245,7 +245,6 @@ CHARTING_INSTRUCTIONS = {
     )
 }
 
-# --- MODIFICATION START: Updated recovery prompt to expect a new plan (list) ---
 ERROR_RECOVERY_PROMPT = """
 --- ERROR RECOVERY ---
 The last tool call, `{failed_tool_name}`, resulted in an error with the following message:
@@ -280,9 +279,7 @@ Example of expected format:
 ]
 ```
 """
-# --- MODIFICATION END ---
 
-# --- RENAMED: This is the old, static planning prompt. ---
 WORKFLOW_STATIC_PLANNING_PROMPT = """
 You are an expert planning assistant. Your task is to convert a high-level workflow goal into a detailed, step-by-step plan of action. The final plan MUST be a single JSON list of executable tasks.
 
@@ -307,7 +304,6 @@ This is the goal you need to break down into a step-by-step plan.
 Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
 """
 
-# --- MODIFICATION START: Added a new example for date range queries ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
@@ -388,10 +384,8 @@ If the main goal is "what is the system utilization for the past 3 days?", your 
 
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 """
-# --- MODIFICATION END ---
 
-
-# --- MODIFICATION START: Added looping context and instructions ---
+# --- MODIFICATION START: Added detailed tool definitions and a new critical rule to prevent argument hallucination ---
 WORKFLOW_TACTICAL_PROMPT = """
 You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
@@ -402,7 +396,8 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 {current_phase_goal}
 
 --- CONSTRAINTS ---
-- Permitted Tools for this Phase: {relevant_tools_for_phase}
+- Permitted Tools for this Phase (You MUST use the exact argument names provided):
+{permitted_tools_with_details}
 - Previous Attempt (if any): {last_attempt_info}
 
 --- WORKFLOW STATE & HISTORY ---
@@ -411,7 +406,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 {loop_context_section}
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
-2.  **CRITICAL RULE (Tool Selection)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool.
+2.  **CRITICAL RULE (Tool Selection & Arguments)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool. Furthermore, you **MUST** use the exact argument names as they are defined in the tool details above. You **MUST NOT** invent, hallucinate, or use any arguments that are not explicitly listed in the definitions.
 3.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid tool from the permitted list. Do not repeat the invalid choice.
 4.  **CoreLLMTask Usage**:
     -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
@@ -425,5 +420,4 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 """
 # --- MODIFICATION END ---
 
-# --- REMOVED: The non-deterministic completion check is no longer used ---
 WORKFLOW_PHASE_COMPLETION_PROMPT = ""
