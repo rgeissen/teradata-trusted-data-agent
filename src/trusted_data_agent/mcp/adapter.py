@@ -407,23 +407,18 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         raise_on_error=True
     )
 
-    # --- MODIFICATION START: Deterministic check for LLM refusal ---
-    # This is a zero-cost guardrail to catch cases where the LLM politely refuses the task.
     refusal_phrases = [
         "i'm unable to", "i cannot", "unable to generate", "no specific task", 
         "as an ai model", "i can't provide"
     ]
     
-    # Check if any of the refusal phrases are in the LLM's response (case-insensitive).
     if any(phrase in response_text.lower() for phrase in refusal_phrases):
         app_logger.error(f"CoreLLMTask failed due to detected LLM refusal. Response: '{response_text}'")
-        # Override the status to 'error' to force the workflow to retry the phase.
         return {
             "status": "error", 
             "error_message": "LLM refused to perform the synthesis task.",
             "data": response_text
         }
-    # --- MODIFICATION END ---
 
     return {"status": "success", "results": [{"response": response_text}]}
 
@@ -461,34 +456,53 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
             return {"error": "Chart Generation Failed", "data": str(e)}
 
+    # --- MODIFICATION START: Robust argument normalization ---
+    # This logic ensures that no matter how the LLM structures the arguments,
+    # they are correctly parsed before being sent to the MCP server.
     args = {}
     if isinstance(command, dict):
+        # The canonical key for arguments is "arguments".
+        # We also check a list of common synonyms that LLMs might hallucinate.
         potential_arg_keys = [
             "arguments", "args", "tool_args", "parameters", 
             "tool_input", "action_input", "tool_arguments"
         ]
         
         found_args = None
-        
         for key in potential_arg_keys:
             if key in command and isinstance(command[key], dict):
                 found_args = command[key]
                 break
         
-        if found_args is None:
-            if "action" in command and isinstance(command["action"], dict):
-                for key in potential_arg_keys:
-                    if key in command["action"] and isinstance(command["action"][key], dict):
-                        found_args = command["action"][key]
-                        break
-            elif "tool" in command and isinstance(command["tool"], dict):
-                 for key in potential_arg_keys:
-                    if key in command["tool"] and isinstance(command["tool"][key], dict):
-                        found_args = command["tool"][key]
-                        break
-        
         if found_args is not None:
             args = found_args
+        else:
+            # If no standard argument key is found, check for arguments nested
+            # inside other common wrapper keys like "action" or "tool".
+            possible_wrapper_keys = ["action", "tool"]
+            for wrapper_key in possible_wrapper_keys:
+                if wrapper_key in command and isinstance(command[wrapper_key], dict):
+                    for arg_key in potential_arg_keys:
+                        if arg_key in command[wrapper_key] and isinstance(command[wrapper_key][arg_key], dict):
+                            found_args = command[wrapper_key][arg_key]
+                            break
+                    if found_args is not None:
+                        break
+            
+            if found_args is not None:
+                args = found_args
+
+    # Final step of normalization: correct common key name hallucinations inside the arguments dict.
+    synonym_map = {
+        "database": "database_name", "db": "database_name", 
+        "table": "table_name", "tbl": "table_name", 
+        "column": "column_name", "col": "column_name"
+    }
+    normalized_args = {synonym_map.get(k.lower(), k): v for k, v in args.items()}
+    if normalized_args != args:
+        app_logger.info(f"Normalized tool arguments for '{tool_name}'. Original: {args}, Corrected: {normalized_args}")
+        args = normalized_args
+    # --- MODIFICATION END ---
 
 
     app_logger.debug(f"Invoking tool '{tool_name}' with args: {args}")

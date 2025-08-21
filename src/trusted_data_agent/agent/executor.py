@@ -305,10 +305,11 @@ class PlanExecutor:
             yield self._format_sse({"step": "System Correction", "type": "workaround", "details": f"LLM chose invalid tool ('{tool_name}'). Retrying."})
             return
 
-        async for event in self._normalize_tool_arguments(action):
-            yield event
+        # --- MODIFICATION START: Argument normalization is now handled in the Tool Invocation Layer ---
+        # async for event in self._normalize_tool_arguments(action):
+        #     yield event
+        # --- MODIFICATION END ---
         
-        # --- MIGRATE: Notification Handling ---
         if 'notification' in action:
             yield self._format_sse({"step": "System Notification", "details": action['notification'], "type": "workaround"})
             del action['notification']
@@ -359,33 +360,58 @@ class PlanExecutor:
             return "SYSTEM_ACTION_COMPLETE", input_tokens, output_tokens
 
         try:
+            # --- MODIFICATION START: Robust JSON parsing and normalization ---
             json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_text, re.DOTALL)
             if not json_match: raise json.JSONDecodeError("No JSON object found", response_text, 0)
             
             json_str = json_match.group(1) or json_match.group(2)
             if not json_str: raise json.JSONDecodeError("Extracted JSON is empty", response_text, 0)
 
-            action = json.loads(json_str.strip())
+            raw_action = json.loads(json_str.strip())
             
-            tool_name_synonyms = ["tool_name", "name", "tool", "action"]
-            found_tool_name = next((action.pop(key) for key in tool_name_synonyms if key in action), None)
-            if found_tool_name: action["tool_name"] = found_tool_name
+            # --- Abstract Normalization Layer ---
+            # This layer intelligently finds the tool call details, regardless of nesting.
+            action_details = raw_action
+            possible_wrapper_keys = ["action", "tool_call", "tool"]
+            for key in possible_wrapper_keys:
+                if key in action_details and isinstance(action_details[key], dict):
+                    action_details = action_details[key]
+                    break 
+
+            # Find tool name using a list of synonyms
+            tool_name_synonyms = ["tool_name", "name", "tool", "action_name"]
+            found_tool_name = next((action_details.pop(key) for key in tool_name_synonyms if key in action_details), None)
             
-            if "tool_name" not in action and len(relevant_tools) == 1:
-                action["tool_name"] = relevant_tools[0]
+            # Find arguments using a list of synonyms
+            arg_synonyms = ["arguments", "args", "tool_input", "action_input", "parameters"]
+            found_args = next((action_details.pop(key) for key in arg_synonyms if key in action_details), {})
+
+            # Reconstruct the action into the canonical format
+            normalized_action = {
+                "tool_name": found_tool_name,
+                "arguments": found_args if isinstance(found_args, dict) else {}
+            }
+
+            # If tool_name is still missing, try a final fallback for simple structures
+            if not normalized_action["tool_name"] and len(action_details) == 1 and isinstance(list(action_details.values())[0], dict):
+                 normalized_action["tool_name"] = list(action_details.keys())[0]
+                 normalized_action["arguments"] = list(action_details.values())[0]
+
+            # If tool_name is STILL missing, but there's only one permitted tool, infer it.
+            if not normalized_action.get("tool_name") and len(relevant_tools) == 1:
+                normalized_action["tool_name"] = relevant_tools[0]
                 self.events_to_yield.append(self._format_sse({
                     "step": "System Correction", "type": "workaround",
                     "details": f"LLM omitted tool_name. System inferred '{relevant_tools[0]}'."
                 }))
+            
+            if not normalized_action.get("tool_name"):
+                 raise ValueError("Could not determine tool_name from LLM response.")
 
-            arg_synonyms = ["tool_input", "action_input", "tool_arguments", "parameters"]
-            found_args = next((action.pop(key) for key in arg_synonyms if key in action), None)
-            if found_args and "arguments" not in action:
-                action["arguments"] = found_args
-
-            return action, input_tokens, output_tokens
-        except json.JSONDecodeError:
-            raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}")
+            return normalized_action, input_tokens, output_tokens
+            # --- MODIFICATION END ---
+        except (json.JSONDecodeError, ValueError) as e:
+            raise RuntimeError(f"Failed to get a valid JSON action from the tactical LLM. Response: {response_text}. Error: {e}")
 
     async def _is_phase_complete(self, current_phase_goal: str, phase_num: int) -> tuple[bool, int, int]:
         """Checks if the current phase's goal has been met."""
@@ -407,22 +433,6 @@ class PlanExecutor:
         )
         
         return "yes" in response_text.lower(), input_tokens, output_tokens
-
-    async def _normalize_tool_arguments(self, next_action: dict):
-        """Deterministically corrects common LLM argument name hallucinations."""
-        if "arguments" not in next_action or not isinstance(next_action["arguments"], dict):
-            return
-
-        synonym_map = {"database": "database_name", "db": "database_name", "table": "table_name", "tbl": "table_name", "column": "column_name", "col": "column_name"}
-        
-        normalized_args = {synonym_map.get(k.lower(), k): v for k, v in next_action["arguments"].items()}
-        
-        if normalized_args != next_action["arguments"]:
-            yield self._format_sse({
-                "step": "System Correction", "type": "workaround",
-                "details": "LLM used non-standard argument names. System corrected them."
-            })
-            next_action["arguments"] = normalized_args
 
     def _is_date_query_candidate(self, command: dict) -> tuple[bool, str, bool]:
         """Checks if a command is a candidate for the date-range orchestrator."""
