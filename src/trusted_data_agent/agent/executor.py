@@ -148,6 +148,12 @@ class PlanExecutor:
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
+            # --- MIGRATE: Argument Enrichment from History ---
+            enriched_args, enrich_events = self._enrich_arguments_from_history(self.active_prompt_name, self.prompt_arguments)
+            for event in enrich_events:
+                yield event
+            self.prompt_arguments = enriched_args
+
             async with mcp_client.session("teradata_mcp_server") as temp_session:
                 prompt_obj = await load_mcp_prompt(
                     temp_session, name=self.active_prompt_name, arguments=self.prompt_arguments
@@ -214,18 +220,24 @@ class PlanExecutor:
             while True:
                 phase_attempts += 1
                 if phase_attempts > max_phase_attempts:
-                    raise RuntimeError(f"Phase '{phase_goal}' failed after {max_phase_attempts} attempts.")
+                    # --- MIGRATE: LLM-based Error Recovery ---
+                    app_logger.error(f"Phase '{phase_goal}' failed after {max_phase_attempts} attempts. Attempting LLM recovery.")
+                    async for event in self._recover_from_phase_failure(phase_goal):
+                        yield event
+                    # After recovery, we break the inner loop and let the outer loop re-evaluate with the new plan.
+                    # We use a special flag to signal the outer loop to continue instead of incrementing the phase index.
+                    self.current_phase_index -= 1 # Counteract the increment at the end of the outer loop
+                    break
 
                 next_action, input_tokens, output_tokens = await self._get_next_tactical_action(phase_goal, relevant_tools)
                 
-                # --- MIGRATE: Loop Detection Guardrail ---
                 current_action_str = json.dumps(next_action, sort_keys=True)
                 if current_action_str == self.last_action_str:
-                    app_logger.warning(f"LOOP DETECTED: The LLM is trying to repeat the exact same action. Action: {current_action_str}")
+                    app_logger.warning(f"LOOP DETECTED: Repeating action: {current_action_str}")
                     self.last_failed_action_info = "Your last attempt failed because it was an exact repeat of the previous failed action. You MUST choose a different tool or different arguments."
                     yield self._format_sse({"step": "System Error", "details": "Repetitive action detected.", "type": "error"}, "tool_result")
-                    self.last_action_str = None # Reset to allow a valid retry
-                    continue # Re-run the tactical loop to get a new action
+                    self.last_action_str = None
+                    continue
                 self.last_action_str = current_action_str
                 
                 if self.events_to_yield:
@@ -255,7 +267,7 @@ class PlanExecutor:
 
                 if phase_is_complete:
                     yield self._format_sse({"step": f"Phase {phase_num} Complete", "details": "Goal has been achieved."})
-                    self.last_action_str = None # Reset loop detection for the new phase
+                    self.last_action_str = None
                     break 
 
             self.current_phase_index += 1
@@ -506,7 +518,7 @@ class PlanExecutor:
         self.last_tool_output = final_tool_output
 
     async def _execute_column_iteration(self, command: dict):
-        """Executes a tool over multiple columns."""
+        """Executes a tool over multiple columns, now with constraint checking."""
         tool_name = command.get("tool_name")
         base_args = command.get("arguments", {})
         db_name, table_name = base_args.get("database_name"), base_args.get("table_name")
@@ -520,13 +532,27 @@ class PlanExecutor:
             raise ValueError(f"Failed to retrieve column list for iteration. Response: {cols_result}")
         
         all_columns_metadata = cols_result.get('results', [])
-        all_column_results = []
+        all_column_results = [cols_result]
         
-        all_column_results.append(cols_result)
+        # --- MIGRATE: Tool Constraint Analysis ---
+        tool_constraints = await self._get_tool_constraints(tool_name)
+        required_type = tool_constraints.get("dataType") if tool_constraints else None
         
         yield self._format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
         for column_info in all_columns_metadata:
             column_name = column_info.get("ColumnName")
+            col_type = next((v for k, v in column_info.items() if "type" in k.lower()), "").upper()
+
+            if required_type and col_type != "UNKNOWN":
+                is_numeric = any(t in col_type for t in ["INT", "NUMERIC", "DECIMAL", "FLOAT"])
+                is_char = any(t in col_type for t in ["CHAR", "VARCHAR", "TEXT"])
+                if (required_type == "numeric" and not is_numeric) or \
+                   (required_type == "character" and not is_char):
+                    skipped_result = {"status": "skipped", "metadata": {"tool_name": tool_name, "column_name": column_name}, "results": [{"reason": f"Tool requires {required_type}, but '{column_name}' is {col_type}."}]}
+                    all_column_results.append(skipped_result)
+                    yield self._format_sse({"step": "Skipping incompatible column", "details": skipped_result}, "tool_result")
+                    continue
+
             iter_command = {"tool_name": tool_name, "arguments": {**base_args, 'column_name': column_name}}
             col_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], iter_command)
             all_column_results.append(col_result)
@@ -591,3 +617,142 @@ class PlanExecutor:
             return "No data was collected from successful tool executions."
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
+
+    # --- NEW AND RESTORED METHODS FOR EDGE CASES ---
+
+    def _enrich_arguments_from_history(self, prompt_name: str, arguments: dict) -> tuple[dict, list]:
+        """
+        Scans conversation history to find missing arguments for a prompt call.
+        """
+        events_to_yield = []
+        enriched_args = arguments.copy()
+        
+        prompt_definition = self.dependencies['STATE'].get('mcp_prompts', {}).get(prompt_name)
+        if not prompt_definition or not hasattr(prompt_definition, 'arguments'):
+            return enriched_args, events_to_yield
+
+        required_arg_names = {arg.name for arg in prompt_definition.arguments} if prompt_definition.arguments else set()
+        
+        for arg_name in required_arg_names:
+            if arg_name in enriched_args: continue
+
+            session_data = session_manager.get_session(self.session_id)
+            if not session_data: continue
+
+            for entry in reversed(session_data.get("generic_history", [])):
+                content = entry.get("content")
+                if not isinstance(content, str): continue
+                
+                try:
+                    if entry.get("role") == "assistant":
+                        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", content, re.DOTALL)
+                        if json_match:
+                            command = json.loads(json_match.group(1).strip())
+                            args_to_check = command.get("arguments", {})
+                            if arg_name in args_to_check:
+                                enriched_args[arg_name] = args_to_check[arg_name]
+                                break
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            
+            if arg_name in enriched_args:
+                app_logger.info(f"Inferred '{arg_name}' from history: '{enriched_args[arg_name]}'")
+                events_to_yield.append(self._format_sse({
+                    "step": "System Correction",
+                    "details": f"LLM omitted '{arg_name}'. System inferred it from history.",
+                    "type": "workaround"
+                }))
+
+        return enriched_args, events_to_yield
+
+    async def _get_tool_constraints(self, tool_name: str) -> dict:
+        """
+        Uses an LLM to determine if a tool requires numeric or character columns.
+        """
+        if tool_name in self.tool_constraints_cache:
+            return self.tool_constraints_cache[tool_name]
+
+        tool_definition = self.dependencies['STATE'].get('mcp_tools', {}).get(tool_name)
+        constraints = {}
+        
+        if tool_definition:
+            prompt_modifier = ""
+            if any(k in tool_name.lower() for k in ["univariate", "standarddeviation", "negativevalues"]):
+                prompt_modifier = "This tool is for quantitative analysis and requires a 'numeric' data type for `column_name`."
+            elif any(k in tool_name.lower() for k in ["distinctcategories"]):
+                prompt_modifier = "This tool is for categorical analysis and requires a 'character' data type for `column_name`."
+
+            prompt = (
+                f"Analyze the tool to determine if its `column_name` argument is for 'numeric', 'character', or 'any' type.\n"
+                f"Tool: `{tool_definition.name}`\nDescription: \"{tool_definition.description}\"\nHint: {prompt_modifier}\n"
+                "Respond with a single JSON object: {\"dataType\": \"numeric\" | \"character\" | \"any\"}"
+            )
+            
+            reason="Determining tool constraints for column iteration."
+            response_text, _, _ = await self._call_llm_and_update_tokens(
+                prompt=prompt, reason=reason,
+                system_prompt_override="You are a JSON-only responding assistant.",
+                raise_on_error=True
+            )
+
+            try:
+                constraints = json.loads(re.search(r'\{.*\}', response_text, re.DOTALL).group(0))
+            except (json.JSONDecodeError, AttributeError):
+                constraints = {}
+        
+        self.tool_constraints_cache[tool_name] = constraints
+        return constraints
+
+    async def _recover_from_phase_failure(self, failed_phase_goal: str):
+        """
+        Attempts to recover from a persistently failing phase by generating a new plan.
+        """
+        yield self._format_sse({"step": "Attempting LLM-based Recovery", "details": "The current plan is stuck. Asking LLM to generate a new plan."})
+
+        # Find the last error message
+        last_error = "No specific error message found."
+        for action in reversed(self.action_history):
+            result = action.get("result", {})
+            if isinstance(result, dict) and result.get("status") == "error":
+                last_error = result.get("data", result.get("error", "Unknown error"))
+                break
+
+        recovery_prompt = ERROR_RECOVERY_PROMPT.format(
+            user_question=self.original_user_input,
+            error_message=last_error,
+            failed_tool_name="N/A (Phase Failed)",
+            all_collected_data=json.dumps(self.workflow_state, indent=2),
+            workflow_goal_and_plan=f"The agent was trying to achieve this goal: '{failed_phase_goal}'"
+        )
+        
+        reason = "Recovering from persistent phase failure."
+        response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
+            prompt=recovery_prompt, 
+            reason=reason,
+            raise_on_error=True
+        )
+        
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            yield self._format_sse({"statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
+
+        # The recovery prompt should return a new plan. We will now reset the executor state with it.
+        try:
+            json_str = response_text
+            if response_text.strip().startswith("```json"):
+                match = re.search(r"```json\s*\n(.*?)\n\s*```", response_text, re.DOTALL)
+                if match:
+                    json_str = match.group(1).strip()
+            
+            new_plan = json.loads(json_str)
+            if not isinstance(new_plan, list): raise ValueError("Recovery plan is not a list.")
+
+            yield self._format_sse({"step": "Recovery Plan Generated", "details": new_plan})
+            
+            # Reset the plan and execution state
+            self.meta_plan = new_plan
+            self.current_phase_index = 0
+            self.action_history.append({"action": "RECOVERY_REPLAN", "result": "success"})
+
+        except (json.JSONDecodeError, ValueError) as e:
+            raise RuntimeError(f"LLM-based recovery failed. The LLM did not return a valid new plan. Response: {response_text}. Error: {e}")
