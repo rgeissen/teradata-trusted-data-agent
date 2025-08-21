@@ -62,7 +62,6 @@ def _regenerate_contexts():
         all_tools = STATE['mcp_tools']
         disabled_tools_list = STATE.get("disabled_tools", [])
         
-        # First, update the 'disabled' flag in the structured data
         for category, tool_list in STATE['structured_tools'].items():
             for tool_info in tool_list:
                 tool_info['disabled'] = tool_info['name'] in disabled_tools_list
@@ -106,7 +105,6 @@ def _regenerate_contexts():
     if STATE.get('mcp_prompts') and STATE.get('structured_prompts'):
         disabled_prompts_list = STATE.get("disabled_prompts", [])
 
-        # First, update the 'disabled' flag in the structured data
         for category, prompt_list in STATE['structured_prompts'].items():
             for prompt_info in prompt_list:
                 prompt_info['disabled'] = prompt_info['name'] in disabled_prompts_list
@@ -460,12 +458,10 @@ async def configure_services():
             )
             app_logger.info("Boto3 client for Bedrock created. Skipping pre-flight model invocation.")
         elif provider == "Ollama":
-            # --- MODIFICATION START: Use a specific 'ollama_host' key ---
             host = data.get("ollama_host")
             if not host:
                 raise ValueError("Ollama host is required.")
             temp_llm_instance = llm_handler.OllamaClient(host=host)
-            # --- MODIFICATION END ---
             await temp_llm_instance.list_models()
         else:
             raise NotImplementedError(f"Provider '{provider}' is not yet supported.")
@@ -549,10 +545,8 @@ async def ask_stream():
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
             
-            # --- REFACTORED: The initial LLM call is removed. Planning is now handled by the executor. ---
             executor = PlanExecutor(
                 session_id=session_id, 
-                initial_instruction=None, # No longer needed
                 original_user_input=user_input, 
                 dependencies={'STATE': STATE}
             )
@@ -585,17 +579,16 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
         try:
-            # --- REFACTORED: Directly instantiate the executor to handle the prompt as a workflow ---
+            # --- FIX: Align with the new PlanExecutor constructor ---
             executor = PlanExecutor(
                 session_id=session_id, 
-                initial_instruction=None, # No longer needed
                 original_user_input=user_input, 
                 dependencies={'STATE': STATE}
             )
-            # Manually set the workflow context, which was previously done by the initial LLM call
+            # Manually set the workflow context for the executor
             executor.is_workflow = True
             executor.active_prompt_name = prompt_name
-            executor.prompt_arguments = arguments # Pass arguments for the executor to use
+            executor.prompt_arguments = arguments
 
             async for event in executor.run():
                 yield event
