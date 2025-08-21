@@ -438,71 +438,117 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     return {"status": "success", "results": [{"response": response_text}]}
 
-# --- MODIFICATION START: Replaced internal LLM call with deterministic logic ---
+# --- MODIFICATION START: Added "past weekend" to the deterministic logic ---
 async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
     """
-    Deterministically calculates a list of dates from a start date and a phrase.
-    This is an internal-only tool that does NOT use an LLM.
+    Calculates a list of dates from a start date and a phrase using a multi-layered approach.
+    It first tries a robust deterministic method and falls back to an LLM for complex phrases.
     """
     args = command.get("arguments", {})
     start_date_str = args.get("start_date")
-    date_phrase = args.get("date_phrase", "").lower()
+    date_phrase = args.get("date_phrase", "").lower().strip()
     
     app_logger.info(f"Executing client-side tool: util_calculateDateRange with start: '{start_date_str}', phrase: '{date_phrase}'")
 
     if not start_date_str or not date_phrase:
         return {"status": "error", "error_message": "Missing start_date or date_phrase."}
 
+    start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    end_date = None
+    
+    # Layer 1: Enhanced deterministic logic for common phrases
     try:
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        
-        # Use regex to find the number and unit (days, weeks, months)
-        match = re.search(r'(\d+)\s+(day|week|month|year)s?', date_phrase)
-        if not match:
-            return {"status": "error", "error_message": f"Could not parse numeric value from date phrase: '{date_phrase}'"}
+        # Handle simple, numberless phrases first
+        if "yesterday" in date_phrase:
+            start_date = start_date - timedelta(days=1)
+            end_date = start_date
+        elif "today" in date_phrase:
+            end_date = start_date
+        elif "past weekend" in date_phrase or "last weekend" in date_phrase:
+            # Monday is 0 and Sunday is 6.
+            # Find the most recent Sunday.
+            days_since_sunday = (start_date.weekday() - 6) % 7
+            end_date = start_date - timedelta(days=days_since_sunday)
+            start_date = end_date - timedelta(days=1) # Saturday
+        elif "last week" in date_phrase or "past week" in date_phrase:
+            start_of_last_week = start_date - timedelta(days=start_date.weekday() + 7)
+            end_of_last_week = start_of_last_week + timedelta(days=6)
+            start_date, end_date = start_of_last_week, end_of_last_week
+        elif "last month" in date_phrase or "past month" in date_phrase:
+            first_day_of_current_month = start_date.replace(day=1)
+            last_day_of_last_month = first_day_of_current_month - timedelta(days=1)
+            first_day_of_last_month = last_day_of_last_month.replace(day=1)
+            start_date, end_date = first_day_of_last_month, last_day_of_last_month
+        elif "last year" in date_phrase or "past year" in date_phrase:
+            first_day_of_last_year = start_date.replace(year=start_date.year - 1, month=1, day=1)
+            last_day_of_last_year = start_date.replace(year=start_date.year - 1, month=12, day=31)
+            start_date, end_date = first_day_of_last_year, last_day_of_last_year
+        else:
+            # Handle numbered phrases (e.g., "past 3 days")
+            match = re.search(r'(\d+)\s+(day|week|month|year)s?', date_phrase)
+            if match:
+                quantity = int(match.group(1))
+                unit = match.group(2)
+                
+                if "past" in date_phrase or "last" in date_phrase:
+                    if unit == "day":
+                        end_date = start_date - timedelta(days=1)
+                        start_date = end_date - timedelta(days=quantity - 1)
+                    elif unit == "week":
+                        end_date = start_date - timedelta(days=start_date.weekday() + 1)
+                        start_date = end_date - timedelta(weeks=quantity - 1) - timedelta(days=end_date.weekday())
+                    elif unit == "month":
+                        end_date = start_date.replace(day=1) - timedelta(days=1)
+                        start_date = end_date.replace(day=1)
+                        for _ in range(quantity - 1):
+                            start_date = (start_date - timedelta(days=1)).replace(day=1)
+                    elif unit == "year":
+                        end_date = start_date.replace(month=1, day=1) - timedelta(days=1)
+                        start_date = end_date.replace(year=end_date.year - (quantity - 1), month=1, day=1)
 
-        quantity = int(match.group(1))
-        unit = match.group(2)
-
-        # Calculate the date range based on the parsed components
-        if "past" in date_phrase or "last" in date_phrase or "previous" in date_phrase or "ago" in date_phrase:
-            if unit == "day":
-                end_date = start_date - timedelta(days=1)
-                start_date = end_date - timedelta(days=quantity - 1)
-            elif unit == "week":
-                end_date = start_date - timedelta(days=start_date.weekday() + 1)
-                start_date = end_date - timedelta(weeks=quantity - 1) - timedelta(days=end_date.weekday())
-            elif unit == "month":
-                end_date = start_date.replace(day=1) - timedelta(days=1)
-                start_date = end_date.replace(day=1)
-                for _ in range(quantity - 1):
-                    start_date = (start_date - timedelta(days=1)).replace(day=1)
-            else: # year
-                end_date = start_date.replace(month=1, day=1) - timedelta(days=1)
-                start_date = end_date.replace(year=end_date.year - (quantity - 1), month=1, day=1)
-        else: # "next", "future", etc.
-            if unit == "day":
-                start_date = start_date + timedelta(days=1)
-                end_date = start_date + timedelta(days=quantity - 1)
-            # Add logic for future weeks, months, years if needed
-            else:
-                 return {"status": "error", "error_message": f"Future date calculations for '{unit}' not yet implemented."}
-
-        # Generate the list of dates
-        date_list = []
-        current_date = start_date
-        while current_date <= end_date:
-            date_list.append({"date": current_date.strftime('%Y-%m-%d')})
-            current_date += timedelta(days=1)
-
-        return {
-            "status": "success",
-            "metadata": {"tool_name": "util_calculateDateRange"},
-            "results": date_list
-        }
     except Exception as e:
-        app_logger.error(f"Error in deterministic date calculation: {e}", exc_info=True)
-        return {"status": "error", "error_message": f"Failed to calculate date range. Error: {e}"}
+        app_logger.warning(f"Deterministic date parsing failed with error: {e}. This may be expected for complex phrases.")
+        end_date = None # Ensure end_date is None to trigger fallback
+
+    # Layer 2: LLM-powered fallback for complex or unhandled phrases
+    if end_date is None:
+        app_logger.info(f"Deterministic logic failed for '{date_phrase}'. Falling back to LLM-based date extraction.")
+        
+        llm_prompt = (
+            f"Given the current date is {start_date_str}, analyze the phrase '{date_phrase}'. "
+            "Determine the exact start and end dates for this phrase. "
+            "Your response MUST be ONLY a single, valid JSON object with two keys: 'start_date' and 'end_date', both in 'YYYY-MM-DD' format."
+        )
+        
+        response_text, _, _ = await llm_handler.call_llm_api(
+            llm_instance=STATE.get('llm'),
+            prompt=llm_prompt,
+            reason=f"LLM fallback for complex date phrase: {date_phrase}",
+            system_prompt_override="You are a helpful assistant that only responds with valid JSON.",
+            raise_on_error=True
+        )
+        
+        try:
+            date_data = json.loads(response_text)
+            start_date = datetime.strptime(date_data['start_date'], '%Y-%m-%d').date()
+            end_date = datetime.strptime(date_data['end_date'], '%Y-%m-%d').date()
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            error_msg = f"LLM fallback for date range failed to produce a valid result. Response: '{response_text}'. Error: {e}"
+            app_logger.error(error_msg)
+            return {"status": "error", "error_message": error_msg}
+
+    # Layer 3: Generate the final list of dates
+    date_list = []
+    current_date = start_date
+    while current_date <= end_date:
+        date_list.append({"date": current_date.strftime('%Y-%m-%d')})
+        current_date += timedelta(days=1)
+
+    return {
+        "status": "success",
+        "metadata": {"tool_name": "util_calculateDateRange"},
+        "results": date_list
+    }
 # --- MODIFICATION END ---
 
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:

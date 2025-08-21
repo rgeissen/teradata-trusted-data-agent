@@ -262,14 +262,17 @@ class PlanExecutor:
             
         return items
 
+    # --- MODIFICATION START: Implemented "Loop Hopping" with a fast path for deterministic loops ---
     async def _execute_looping_phase(self, phase: dict):
         """
-        Orchestrates the execution of a looping phase, handling state, iteration,
-        and partial failures.
+        Orchestrates the execution of a looping phase. It uses a "fast path" for simple,
+        repetitive tool calls to improve performance, and a standard, LLM-driven path
+        for complex or synthesis-based loops.
         """
         phase_goal = phase.get("goal", "No goal defined.")
         phase_num = phase.get("phase", self.current_phase_index + 1)
         loop_over_key = phase.get("loop_over")
+        relevant_tools = phase.get("relevant_tools", [])
 
         yield self._format_sse({
             "step": "Starting Looping Phase",
@@ -283,33 +286,75 @@ class PlanExecutor:
             yield self._format_sse({"step": "Skipping Empty Loop", "details": f"No items found from '{loop_over_key}' to loop over."})
             return
 
-        self.is_in_loop = True
-        self.processed_loop_items = []
-        
-        for i, item in enumerate(self.current_loop_items):
-            yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
+        # "Loop Hopping" Condition: Check if the loop is a simple, repetitive MCP tool call.
+        is_fast_path_candidate = (
+            len(relevant_tools) == 1 and 
+            relevant_tools[0] != "CoreLLMTask"
+        )
+
+        if is_fast_path_candidate:
+            tool_name = relevant_tools[0]
+            yield self._format_sse({
+                "step": "System Optimization", "type": "workaround",
+                "details": f"Engaging fast path for tool loop: '{tool_name}'..."
+            })
             
-            try:
-                # We treat each item in the loop as a single, standard execution step.
-                async for event in self._execute_standard_phase(phase, is_loop_iteration=True):
-                    yield event
-            except Exception as e:
-                # Edge Case: Handle partial failures
-                error_message = f"Error processing item {item}: {e}"
-                app_logger.error(error_message, exc_info=True)
-                error_result = {"status": "error", "item": item, "error_message": str(e)}
-                self._add_to_structured_data(error_result)
-                yield self._format_sse({"step": "Loop Item Failed", "details": error_result, "type": "error"}, "tool_result")
+            all_loop_results = []
+            yield self._format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
+            for i, item in enumerate(self.current_loop_items):
+                yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
+                
+                # Programmatically construct the tool call without an LLM.
+                # This assumes the loop item is a dict with a key that matches a tool argument.
+                arguments = item if isinstance(item, dict) else {}
+                command = {"tool_name": tool_name, "arguments": arguments}
+                
+                tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], command)
+                self.action_history.append({"action": command, "result": tool_result})
+                
+                if isinstance(tool_result, dict) and tool_result.get("status") == "error":
+                    yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
+                else:
+                    yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
+                
+                all_loop_results.append(tool_result)
 
-            self.processed_loop_items.append(item)
+            yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
+            
+            # Store all collected results in the workflow state.
+            phase_result_key = f"result_of_phase_{phase_num}"
+            self.workflow_state[phase_result_key] = all_loop_results
+            self._add_to_structured_data(all_loop_results)
+            self.last_tool_output = all_loop_results
 
-        self.is_in_loop = False
-        self.current_loop_items = []
-        self.processed_loop_items = []
+        else: # Standard LLM-driven path for complex loops
+            self.is_in_loop = True
+            self.processed_loop_items = []
+            
+            for i, item in enumerate(self.current_loop_items):
+                yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
+                
+                try:
+                    async for event in self._execute_standard_phase(phase, is_loop_iteration=True):
+                        yield event
+                except Exception as e:
+                    error_message = f"Error processing item {item}: {e}"
+                    app_logger.error(error_message, exc_info=True)
+                    error_result = {"status": "error", "item": item, "error_message": str(e)}
+                    self._add_to_structured_data(error_result)
+                    yield self._format_sse({"step": "Loop Item Failed", "details": error_result, "type": "error"}, "tool_result")
+
+                self.processed_loop_items.append(item)
+
+            self.is_in_loop = False
+            self.current_loop_items = []
+            self.processed_loop_items = []
+
         yield self._format_sse({"step": f"Looping Phase {phase_num} Complete", "details": "All items have been processed."})
+    # --- MODIFICATION END ---
 
     async def _execute_standard_phase(self, phase: dict, is_loop_iteration: bool = False):
-        """Executes a single, non-looping phase or a single iteration of a loop."""
+        """Executes a single, non-looping phase or a single iteration of a complex loop."""
         phase_goal = phase.get("goal", "No goal defined.")
         phase_num = phase.get("phase", self.current_phase_index + 1)
         relevant_tools = phase.get("relevant_tools", [])
@@ -363,7 +408,6 @@ class PlanExecutor:
             self.last_action_str = None
             break
 
-    # --- MODIFICATION START: The orchestrator logic is now wrapped in a "plan-aware" check ---
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
         """
         A wrapper that runs pre-flight checks (orchestrators) before executing a tool.
@@ -375,32 +419,26 @@ class PlanExecutor:
         if not tool_name:
             raise ValueError("Action from tactical LLM is missing a 'tool_name'.")
 
-        # Only trigger reactive orchestrators if the meta-plan is simple (single-phase).
-        # If the plan has multiple phases, we trust the planner's explicit strategy.
         is_simple_plan = len(self.meta_plan) <= 1
 
         if is_simple_plan:
-            # Date Range Orchestrator (Fallback)
             is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
             if is_range_candidate and not tool_supports_range:
                 async for event in self._classify_date_query_type(): yield event
                 if self.temp_data_holder and self.temp_data_holder.get('type') == 'range':
                     async for event in orchestrators.execute_date_range_orchestrator(self, action, date_param_name, self.temp_data_holder.get('phrase')):
                         yield event
-                    return  # The orchestrator has handled the full execution.
+                    return
 
-            # Column Iteration Orchestrator (Fallback)
             tool_scope = self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name)
             has_column_arg = "column_name" in action.get("arguments", {})
             if tool_scope == 'column' and not has_column_arg:
-                async for event in orchestrators.execute_column_iteration(self, action):
-                    yield event
-                return  # The orchestrator has handled the full execution.
+                 async for event in orchestrators.execute_column_iteration(self, action):
+                     yield event
+                 return
         
-        # If no orchestrator was triggered (or if it's a multi-step plan), proceed with direct tool execution.
         async for event in self._execute_tool(action, phase):
             yield event
-    # --- MODIFICATION END ---
 
     async def _execute_tool(self, action: dict, phase: dict):
         """Executes a single tool call."""
