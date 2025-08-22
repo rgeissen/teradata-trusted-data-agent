@@ -255,6 +255,7 @@ class PlanExecutor:
         if updated_session:
             yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
         
+        # --- MODIFICATION START: Implement guardrail for LLM planning shortcuts ---
         try:
             json_str = response_text
             if response_text.strip().startswith("```json"):
@@ -262,13 +263,31 @@ class PlanExecutor:
                 if match:
                     json_str = match.group(1).strip()
 
-            self.meta_plan = json.loads(json_str)
-            if not isinstance(self.meta_plan, list) or not self.meta_plan:
+            plan_object = json.loads(json_str)
+
+            # Guardrail: Check if the LLM took a shortcut and returned a single action instead of a plan.
+            if isinstance(plan_object, dict) and ("tool_name" in plan_object or "prompt_name" in plan_object):
+                yield self._format_sse({
+                    "step": "System Correction",
+                    "type": "workaround",
+                    "details": "Planner returned a direct action instead of a plan. System is correcting the format."
+                })
+                tool_name = plan_object.get("tool_name") or plan_object.get("prompt_name")
+                # Deterministically create the proper one-phase plan.
+                self.meta_plan = [{
+                    "phase": 1,
+                    "goal": f"Execute the action for the user's request: '{self.original_user_input}'",
+                    "relevant_tools": [tool_name]
+                }]
+            elif not isinstance(plan_object, list) or not plan_object:
                 raise ValueError("LLM response for meta-plan was not a non-empty list.")
+            else:
+                self.meta_plan = plan_object
 
             yield self._format_sse({"step": "Strategic Meta-Plan Generated", "details": self.meta_plan})
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
+        # --- MODIFICATION END ---
 
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
@@ -769,14 +788,12 @@ class PlanExecutor:
             "Use bold text (e.g., '**Important Term**') for emphasis."
         )
 
-        # --- MODIFICATION START: Add a special rule for ad-hoc queries to guide formatting ---
         if not self.active_prompt_name:
             ad_hoc_rule = (
                 "\n\n**CRITICAL FORMATTING RULE:** Your entire response MUST be a prose-based, narrative summary using standard markdown. "
                 "Do NOT use special key-value formats like `***Key:*** Value`. Start with a direct, one-paragraph answer, followed by a `## Key Observations` section with bullet points if applicable."
             )
             standard_formatting_instructions += ad_hoc_rule
-        # --- MODIFICATION END ---
 
         core_llm_command = {
             "tool_name": "CoreLLMTask",
