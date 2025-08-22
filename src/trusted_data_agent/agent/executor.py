@@ -675,7 +675,7 @@ class PlanExecutor:
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
-    # --- MODIFICATION START: Refactored to align with new OutputFormatter constructor ---
+    # --- MODIFICATION START: Refactored to handle and yield token counts from CoreLLMTask ---
     async def _generate_final_summary(self):
         """
         Generates the final summary using a universal, parameterized CoreLLMTask.
@@ -712,7 +712,11 @@ class PlanExecutor:
         
         yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
         
-        summary_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
+        summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
+
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
 
         if (summary_result and summary_result.get("status") == "success" and
             "response" in (summary_result.get("results", [{}])[0] or {})):

@@ -353,11 +353,10 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
+# --- MODIFICATION START: Refactored to return token counts ---
+async def _invoke_core_llm_task(STATE: dict, command: dict) -> tuple[dict, int, int]:
     """
-    Executes a task handled by the LLM itself. This task can now be
-    parameterized with the original user question to ensure simple queries
-    receive a direct answer.
+    Executes a task handled by the LLM itself and returns the result along with token counts.
     """
     args = command.get("arguments", {})
     task_description = args.get("task_description")
@@ -395,7 +394,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     final_prompt = "You are a highly capable text processing and synthesis assistant.\n\n"
 
-    # --- MODIFICATION START: Added a negative constraint to suppress conversational repetition ---
     if user_question:
         final_prompt += (
             "--- PRIMARY GOAL ---\n"
@@ -403,7 +401,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
             "You MUST begin your response with the direct answer. Do not repeat the user's question or use conversational intros like 'Here is...'. "
             "After providing the direct answer, you may then proceed with a more general summary or analysis of the data.\n\n"
         )
-    # --- MODIFICATION END ---
 
     final_prompt += (
         "--- TASK ---\n"
@@ -432,7 +429,7 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     final_prompt += "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
 
-    response_text, _, _ = await llm_handler.call_llm_api(
+    response_text, input_tokens, output_tokens = await llm_handler.call_llm_api(
         llm_instance=STATE.get('llm'),
         prompt=final_prompt,
         reason=f"Executing CoreLLMTask: {task_description}",
@@ -447,13 +444,16 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     
     if any(phrase in response_text.lower() for phrase in refusal_phrases):
         app_logger.error(f"CoreLLMTask failed due to detected LLM refusal. Response: '{response_text}'")
-        return {
+        result = {
             "status": "error", 
             "error_message": "LLM refused to perform the synthesis task.",
             "data": response_text
         }
+    else:
+        result = {"status": "success", "results": [{"response": response_text}]}
 
-    return {"status": "success", "results": [{"response": response_text}]}
+    return result, input_tokens, output_tokens
+# --- MODIFICATION END ---
 
 async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
     """
@@ -559,12 +559,15 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
         "results": date_list
     }
 
+# --- MODIFICATION START: Refactored to handle the new return signature from CoreLLMTask ---
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
     
+    # CoreLLMTask is a special client-side tool that needs to return token counts.
     if tool_name == "CoreLLMTask":
         return await _invoke_core_llm_task(STATE, command)
+    # --- MODIFICATION END ---
 
     if tool_name == "util_getCurrentDate":
         app_logger.info("Executing client-side tool: util_getCurrentDate")
