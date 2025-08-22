@@ -213,6 +213,8 @@ class PlanExecutor:
             prompt_def = self.dependencies['STATE'].get('mcp_prompts', {}).get(self.active_prompt_name)
             required_args = {arg.name for arg in prompt_def.arguments} if prompt_def and hasattr(prompt_def, 'arguments') else set()
             
+            yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
+            yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
             enriched_args, enrich_events = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
             for event in enrich_events:
                 yield event
@@ -246,16 +248,17 @@ class PlanExecutor:
             known_entities=known_entities_str
         )
         
+        yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=planning_prompt, 
             reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}'"
         )
+        yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
 
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
             yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
         
-        # --- MODIFICATION START: Implement guardrail for LLM planning shortcuts ---
         try:
             json_str = response_text
             if response_text.strip().startswith("```json"):
@@ -265,7 +268,6 @@ class PlanExecutor:
 
             plan_object = json.loads(json_str)
 
-            # Guardrail: Check if the LLM took a shortcut and returned a single action instead of a plan.
             if isinstance(plan_object, dict) and ("tool_name" in plan_object or "prompt_name" in plan_object):
                 yield self._format_sse({
                     "step": "System Correction",
@@ -273,7 +275,6 @@ class PlanExecutor:
                     "details": "Planner returned a direct action instead of a plan. System is correcting the format."
                 })
                 tool_name = plan_object.get("tool_name") or plan_object.get("prompt_name")
-                # Deterministically create the proper one-phase plan.
                 self.meta_plan = [{
                     "phase": 1,
                     "goal": f"Execute the action for the user's request: '{self.original_user_input}'",
@@ -287,7 +288,6 @@ class PlanExecutor:
             yield self._format_sse({"step": "Strategic Meta-Plan Generated", "details": self.meta_plan})
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
-        # --- MODIFICATION END ---
 
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
@@ -472,7 +472,12 @@ class PlanExecutor:
                     yield event
                 return 
 
+            yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
+            yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
+            
+            yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
             next_action, input_tokens, output_tokens = await self._get_next_tactical_action(phase_goal, relevant_tools)
+            yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
             
             current_action_str = json.dumps(next_action, sort_keys=True)
             if current_action_str == self.last_action_str:
@@ -518,7 +523,9 @@ class PlanExecutor:
 
         is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
         if is_range_candidate and not tool_supports_range:
+            yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
             async for event in self._classify_date_query_type(): yield event
+            yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
             if self.temp_data_holder and self.temp_data_holder.get('type') == 'range':
                 async for event in orchestrators.execute_date_range_orchestrator(self, action, date_param_name, self.temp_data_holder.get('phrase')):
                     yield event
@@ -550,12 +557,22 @@ class PlanExecutor:
             if not is_fast_path:
                 yield self._format_sse({"step": "Tool Execution Intent", "details": action}, "tool_result")
             
-            status_target = "chart" if tool_name == "viz_createChart" else "db"
-            yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
+            CLIENT_SIDE_UTILITY_TOOLS = ["util_getCurrentDate", "util_calculateDateRange"]
+            status_target = None
+            if tool_name == "CoreLLMTask":
+                status_target = "llm"
+            elif tool_name in CLIENT_SIDE_UTILITY_TOOLS:
+                status_target = "context"
+            else:
+                status_target = "db"
+            
+            if status_target:
+                yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
             
             tool_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], action)
 
-            yield self._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
+            if status_target:
+                yield self._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
 
             if input_tokens > 0 or output_tokens > 0:
                 updated_session = session_manager.get_session(self.session_id)
@@ -761,7 +778,7 @@ class PlanExecutor:
         if updated_session:
             yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
         try:
-            self.temp_data_holder = json.loads(response_str)
+            self.temp_data_holder = json.loads(response_text)
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
@@ -966,11 +983,13 @@ class PlanExecutor:
         )
         
         reason = "Recovering from persistent phase failure."
+        yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=recovery_prompt, 
             reason=reason,
             raise_on_error=True
         )
+        yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
         
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
@@ -1009,6 +1028,8 @@ class PlanExecutor:
         
         current_args = failed_action.get("arguments", {})
         
+        events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
+        events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
         enriched_args, enrich_events = self._enrich_arguments_from_history(required_args, current_args)
         events.extend(enrich_events)
         
@@ -1017,6 +1038,8 @@ class PlanExecutor:
             events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Deterministically corrected missing arguments. Retrying tool."}))
             return corrected_action, events
 
+        events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
+        events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
         history_context, _ = self._enrich_arguments_from_history(set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', [])))
         
         session_data = session_manager.get_session(self.session_id)
@@ -1030,12 +1053,14 @@ class PlanExecutor:
             full_history=json.dumps(full_history)
         )
         
+        events.append(self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update"))
         corrected_args_str, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=correction_prompt,
             reason=f"Self-correcting failed tool call for {tool_name}",
             system_prompt_override="You are a JSON-only responding assistant.",
             raise_on_error=False
         )
+        events.append(self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update"))
         
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:

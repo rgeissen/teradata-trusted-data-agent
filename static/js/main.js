@@ -129,8 +129,11 @@ let pristineConfig = {};
 let isMouseOverStatus = false;
 let isInFastPath = false;
 
+// --- MODIFICATION START: Add timeouts for all indicators ---
 let mcpIndicatorTimeout = null;
+let llmIndicatorTimeout = null;
 let contextIndicatorTimeout = null;
+// --- MODIFICATION END ---
 
 let defaultPromptsCache = {};
 
@@ -334,7 +337,6 @@ function updateStatusWindow(eventData, isFinal = false) {
         return;
     }
 
-    // --- COMPLETE PREVIOUS STEP (using the state as it was) ---
     const lastStep = document.getElementById(`status-step-${currentStatusId}`);
     if (lastStep) {
         lastStep.classList.remove('active');
@@ -344,14 +346,12 @@ function updateStatusWindow(eventData, isFinal = false) {
         }
     }
 
-    // --- UPDATE STATE based on CURRENT event ---
     if (type === 'plan_optimization') {
         isInFastPath = true;
     } else if (step.includes("Looping Phase") && step.includes("Complete")) {
         isInFastPath = false;
     }
 
-    // --- CREATE AND STYLE CURRENT STEP ---
     currentStatusId++;
     const stepEl = document.createElement('div');
     stepEl.id = `status-step-${currentStatusId}`;
@@ -406,15 +406,6 @@ function updateStatusWindow(eventData, isFinal = false) {
 
     if (type === 'workaround') {
         stepEl.classList.add('workaround');
-        if (eventData.correction_type === 'inferred_argument') {
-            if (contextIndicatorTimeout) clearTimeout(contextIndicatorTimeout);
-            contextStatusDot.classList.add('context-active');
-            contextStatusDot.classList.remove('idle');
-            contextIndicatorTimeout = setTimeout(() => {
-                contextStatusDot.classList.remove('context-active');
-                contextStatusDot.classList.add('idle');
-            }, 150);
-        }
     } else if (type === 'error') {
         stepEl.classList.add('error');
     } else if (isInFastPath) {
@@ -451,21 +442,19 @@ function updateTokenDisplay(data) {
     document.getElementById('total-output-tokens').textContent = (data.total_output || 0).toLocaleString();
 }
 
+// --- MODIFICATION START: Simplify function to only control text indicator ---
 function setThinkingIndicator(isThinking) {
     if (isThinking) {
         promptNameDisplay.classList.add('hidden');
         thinkingIndicator.classList.remove('hidden');
         thinkingIndicator.classList.add('flex');
-        llmStatusDot.classList.add('busy');
-        llmStatusDot.classList.remove('idle', 'connected');
     } else {
         thinkingIndicator.classList.add('hidden');
         thinkingIndicator.classList.remove('flex');
         promptNameDisplay.classList.remove('hidden');
-        llmStatusDot.classList.remove('busy');
-        llmStatusDot.classList.add('connected');
     }
 }
+// --- MODIFICATION END ---
 
 function updateStatusPromptName() {
     const promptNameDiv = document.getElementById('prompt-name-display');
@@ -532,40 +521,48 @@ async function startStream(endpoint, body) {
                 if (dataLine) {
                     const eventData = JSON.parse(dataLine);
 
-                    if (eventName === 'message' && eventData.step === "Calling LLM") {
-                        setThinkingIndicator(true);
-                    }
-
-                    if (['llm_thought', 'tool_result', 'prompt_selected', 'final_answer', 'error'].includes(eventName)) {
-                        setThinkingIndicator(false);
-                    }
-
+                    // --- MODIFICATION START: Comprehensive status indicator handler ---
                     if (eventName === 'status_indicator_update') {
                         const { target, state } = eventData;
-                        const dot = target === 'db' ? teradataStatusDot : llmStatusDot;
+                        
+                        let dot;
+                        let timeout;
+
+                        if (target === 'db') {
+                            dot = teradataStatusDot;
+                            timeout = mcpIndicatorTimeout;
+                        } else if (target === 'llm') {
+                            dot = llmStatusDot;
+                            timeout = llmIndicatorTimeout;
+                        } else if (target === 'context') {
+                            dot = contextStatusDot;
+                            timeout = contextIndicatorTimeout;
+                        }
+
+                        if (target === 'llm') {
+                            setThinkingIndicator(state === 'busy');
+                        }
+
                         if (dot) {
+                            if (timeout) clearTimeout(timeout);
+                            
                             if (state === 'busy') {
-                                if (target === 'db') {
-                                    if (mcpIndicatorTimeout) clearTimeout(mcpIndicatorTimeout);
-                                    dot.classList.add('busy');
-                                    dot.classList.remove('idle', 'connected');
-                                } else {
-                                    dot.classList.add('busy');
-                                    dot.classList.remove('idle', 'connected');
-                                }
-                            } else { // idle
-                                if (target === 'db') {
-                                    if (mcpIndicatorTimeout) clearTimeout(mcpIndicatorTimeout);
-                                    mcpIndicatorTimeout = setTimeout(() => {
-                                        dot.classList.remove('busy');
-                                        dot.classList.add('connected');
-                                    }, 150);
-                                } else {
-                                    dot.classList.remove('busy');
-                                    dot.classList.add('idle');
-                                }
+                                const activeClass = target === 'context' ? 'context-active' : 'busy';
+                                dot.classList.remove('idle', 'connected', 'busy', 'context-active');
+                                dot.classList.add(activeClass);
+                            } else { // idle state
+                                const idleClass = target === 'db' ? 'connected' : 'idle';
+                                timeout = setTimeout(() => {
+                                    dot.classList.remove('busy', 'context-active');
+                                    dot.classList.add(idleClass);
+                                }, 150);
+
+                                if (target === 'db') mcpIndicatorTimeout = timeout;
+                                else if (target === 'llm') llmIndicatorTimeout = timeout;
+                                else if (target === 'context') contextIndicatorTimeout = timeout;
                             }
                         }
+                    // --- MODIFICATION END ---
                     } else if (eventName === 'token_update') {
                         updateTokenDisplay(eventData);
                         const lastStep = document.getElementById(`status-step-${currentStatusId}`);
@@ -1786,7 +1783,7 @@ chartingIntensitySelect.addEventListener('change', handleIntensityChange);
 promptEditorButton.addEventListener('click', openPromptEditor);
 promptEditorClose.addEventListener('click', closePromptEditor);
 promptEditorSave.addEventListener('click', saveSystemPromptChanges);
-promptEditorReset.addEventListener('click', () => resetSystemPrompt(false));
+promptEditorReset.addEventListener('click', resetSystemPrompt.bind(null, false));
 promptEditorTextarea.addEventListener('input', updatePromptEditorState);
 
 function openChatModal() {
