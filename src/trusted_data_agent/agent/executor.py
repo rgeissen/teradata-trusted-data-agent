@@ -617,7 +617,6 @@ class PlanExecutor:
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
-    # --- MODIFICATION START: Implemented the final parameterized summarization strategy ---
     async def _generate_final_summary(self):
         """
         Generates the final summary using a hybrid, parameterized approach.
@@ -625,7 +624,6 @@ class PlanExecutor:
         final_summary_text = ""
         final_collected_data = self.structured_collected_data
 
-        # --- BRANCH 1: WORKFLOW LOGIC (UNCHANGED) ---
         if self.is_workflow:
             app_logger.info("Generating final summary using the dedicated workflow path.")
             if (self.last_tool_output and isinstance(self.last_tool_output, dict) and
@@ -634,11 +632,9 @@ class PlanExecutor:
             else:
                 final_summary_text = "The workflow has completed. Please review the generated data below."
 
-        # --- BRANCH 2: STANDARD QUERY LOGIC (ENHANCED WITH PARAMETERIZATION) ---
         else:
             app_logger.info("Generating final summary using the enhanced standard query path (Parameterized CoreLLMTask).")
             
-            # --- MODIFIED: This is the new, more concise instruction set ---
             standard_task_description = (
                 "You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. "
                 "Do not describe the raw data or explain how you performed the analysis. "
@@ -657,7 +653,7 @@ class PlanExecutor:
                 "arguments": {
                     "task_description": standard_task_description,
                     "formatting_instructions": standard_formatting_instructions,
-                    "user_question": self.original_user_input, # Pass the user's original question
+                    "user_question": self.original_user_input,
                     "source_data": list(self.workflow_state.keys()),
                     "data": copy.deepcopy(self.workflow_state)
                 }
@@ -674,21 +670,21 @@ class PlanExecutor:
                 app_logger.error(f"CoreLLMTask failed to generate a standard summary. Fallback response will be used. Result: {summary_result}")
                 final_summary_text = "The agent has completed its work, but an issue occurred while generating the final summary."
 
-        # --- UNIFIED FINAL RENDERING ---
         clean_summary = final_summary_text.replace("FINAL_ANSWER:", "").strip() or "The agent has completed its work."
         yield self._format_sse({"step": "LLM has generated the final answer", "details": clean_summary}, "llm_thought")
 
+        # --- MODIFICATION: Pass the original user input to the formatter ---
         formatter = OutputFormatter(
             llm_response_text=clean_summary,
             collected_data=final_collected_data,
-            is_workflow=self.is_workflow
+            is_workflow=self.is_workflow,
+            original_user_input=self.original_user_input
         )
         final_html = formatter.render()
         
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
-    # --- MODIFICATION END ---
 
     def _prepare_data_for_final_summary(self) -> str:
         """Prepares all collected data for the final summarization prompt."""

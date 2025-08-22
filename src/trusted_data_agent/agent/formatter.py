@@ -8,10 +8,11 @@ class OutputFormatter:
     Parses raw LLM output and structured tool data to generate professional,
     failure-safe HTML for the UI.
     """
-    def __init__(self, llm_response_text: str, collected_data: list | dict, is_workflow: bool = False):
+    def __init__(self, llm_response_text: str, collected_data: list | dict, is_workflow: bool = False, original_user_input: str = None):
         self.raw_summary = llm_response_text
         self.collected_data = collected_data
         self.is_workflow = is_workflow
+        self.original_user_input = original_user_input
         self.processed_data_indices = set()
 
     def _has_renderable_tables(self) -> bool:
@@ -179,7 +180,19 @@ class OutputFormatter:
         if self.is_workflow:
             return self._render_standard_markdown(clean_summary)
         else:
-            lines = [line for line in clean_summary.strip().split('\n') if line.strip()]
+            summary_to_process = clean_summary
+            if self.original_user_input:
+                question_for_regex = re.escape(self.original_user_input.strip())
+                pattern = re.compile(f"^{question_for_regex}\\s*", re.IGNORECASE)
+                
+                match = pattern.match(summary_to_process)
+                if match:
+                    summary_to_process = summary_to_process[match.end():]
+            
+            # --- MODIFICATION: Add robust cleanup for leading punctuation ---
+            summary_to_process = summary_to_process.lstrip(': ').strip()
+
+            lines = [line for line in summary_to_process.strip().split('\n') if line.strip()]
             if not lines:
                 return ""
 
@@ -193,7 +206,7 @@ class OutputFormatter:
                 direct_answer_text = lines[1].strip()
                 remaining_content = '\n'.join(lines[2:])
             else:
-                paragraphs = re.split(r'\n\s*\n', clean_summary.strip())
+                paragraphs = re.split(r'\n\s*\n', summary_to_process.strip())
                 direct_answer_text = paragraphs[0].strip()
                 remaining_content = '\n\n'.join(paragraphs[1:])
             
@@ -205,7 +218,6 @@ class OutputFormatter:
             styled_answer = f'<p class="text-xl font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
             remaining_html = self._render_standard_markdown(remaining_content)
             
-            # --- MODIFICATION: Add a horizontal rule if there is remaining content ---
             final_html = styled_answer
             if remaining_html and remaining_html.strip():
                 final_html += '<hr class="border-gray-600 my-4">'

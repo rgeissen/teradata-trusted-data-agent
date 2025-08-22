@@ -353,7 +353,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFICATION START: Parameterized the CoreLLMTask to accept the user's question ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
     Executes a task handled by the LLM itself. This task can now be
@@ -364,7 +363,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     task_description = args.get("task_description")
     source_data_keys = args.get("source_data", [])
     formatting_instructions = args.get("formatting_instructions")
-    # New optional parameter for the user's original question
     user_question = args.get("user_question")
     
     full_workflow_state = args.get("data", {}) 
@@ -395,16 +393,17 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     known_context_str = "\n".join([f"- {key}: {value}" for key, value in known_context.items()]) if known_context else "None"
 
-    # Dynamically build the final prompt.
     final_prompt = "You are a highly capable text processing and synthesis assistant.\n\n"
 
-    # This is the new, parameterized part. It's only active for simple queries.
+    # --- MODIFICATION START: Added a negative constraint to suppress conversational repetition ---
     if user_question:
         final_prompt += (
             "--- PRIMARY GOAL ---\n"
             f"Your most important task is to directly answer the user's original question: '{user_question}'.\n"
-            "You MUST begin your response with a direct answer. After providing the direct answer, you may then proceed with a more general summary or analysis of the data.\n\n"
+            "You MUST begin your response with the direct answer. Do not repeat the user's question or use conversational intros like 'Here is...'. "
+            "After providing the direct answer, you may then proceed with a more general summary or analysis of the data.\n\n"
         )
+    # --- MODIFICATION END ---
 
     final_prompt += (
         "--- TASK ---\n"
@@ -440,7 +439,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         system_prompt_override="You are a text processing and synthesis assistant.",
         raise_on_error=True
     )
-    # --- MODIFICATION END ---
 
     refusal_phrases = [
         "i'm unable to", "i cannot", "unable to generate", "no specific task", 
