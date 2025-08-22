@@ -36,7 +36,6 @@ class OutputFormatter:
         making it robust to formatting errors like missing newlines, commas, and key name variations.
         """
         data = {'columns': []}
-        # This regex is designed to be very forgiving about whitespace and optional backticks.
         pattern = re.compile(r'\*{3}(.*?):\*{3}\s*`?(.*?)`?(?=\s*(?:- )?\*{3}|$)', re.DOTALL)
         
         matches = pattern.findall(text)
@@ -44,14 +43,13 @@ class OutputFormatter:
         if not matches:
             return None
 
-        # A mapping of possible LLM-generated keys to our canonical, internal keys.
         header_key_synonyms = {
             'table name': 'table_name',
             'database name': 'database_name',
             'database': 'database_name',
             'description': 'description',
             'table description': 'description',
-            'business purpose': 'description' # Added for 'callcenter' example
+            'business purpose': 'description'
         }
         
         for key, value in matches:
@@ -62,20 +60,13 @@ class OutputFormatter:
 
             if canonical_key:
                 data[canonical_key] = value_clean
-            # Check for column description section header or individual column entries
             elif 'column descriptions' in key_clean or 'columns' in key_clean:
-                # If the value itself looks like a column entry, process it
                 col_match = re.match(r'^\*+(.*?):\*+\s*(.*)$', value_clean, re.DOTALL)
                 if col_match:
                     data['columns'].append({'name': col_match.group(1).strip(), 'description': col_match.group(2).strip()})
-                # Otherwise, treat the key as a column header, and subsequent lines will be columns
-                # This part relies on line-by-line processing in _sanitize_summary after this initial parse.
             else:
-                # If it's not a known header key, treat it as a column description.
-                # This handles cases where columns are listed directly without an explicit 'Columns:' header
                 data['columns'].append({'name': key.strip(), 'description': value_clean})
 
-        # Only return data if we successfully parsed at least one of the core header fields or columns.
         if 'table_name' in data or 'description' in data or data.get('columns'):
             return data
         return None
@@ -98,55 +89,40 @@ class OutputFormatter:
 
     def _sanitize_summary(self) -> str:
         """
-        Cleans the LLM's summary text and converts it to inner HTML content.
-        It handles both a special structured format and generic markdown.
+        Cleans the LLM's summary text using a hybrid, multi-pass strategy.
+        It first checks for workflow-specific formats and falls back to a
+        robust, line-by-line markdown parser for simple queries.
         """
         clean_summary = self.raw_summary
 
-        # --- NEW: Attempt to parse if the raw summary is a pure JSON object ---
+        # --- PASS 1: Preserve Wisdom for Workflows ---
         try:
             json_data = json.loads(clean_summary)
-            # Check if it looks like the CoreLLMTask output
             if isinstance(json_data, dict) and ("database_name" in json_data or "table_name" in json_data or "columns" in json_data):
-                # Convert the JSON to the internal dictionary format expected by _render_structured_report
-                # This might need more sophisticated mapping if the JSON keys differ significantly
                 parsed_data = {
                     "database_name": json_data.get("database_name"),
                     "table_name": json_data.get("table_name"),
-                    "description": json_data.get("description"), # Assuming LLM might put a top-level description
+                    "description": json_data.get("description"),
                     "columns": []
                 }
-                
-                # Extract columns from the JSON structure
                 if "columns" in json_data and isinstance(json_data["columns"], list):
                     for col_entry in json_data["columns"]:
                         if isinstance(col_entry, dict):
                             for col_name, col_desc in col_entry.items():
                                 parsed_data["columns"].append({"name": col_name, "description": col_desc})
-                
-                # If there's no top-level description in the JSON, but there was one in the original prompt (workflow goal)
-                # This is a heuristic based on the typical 'base_tableBusinessDesc' output
-                if not parsed_data.get("description") and "business context" in self.raw_summary.lower():
-                     # This part is tricky as the JSON itself doesn't contain the overall description.
-                     # For now, we'll let _render_structured_report handle a missing description,
-                     # but in a future iteration, we might want to prompt LLM for this directly or infer.
-                     pass
-                
                 return self._render_structured_report(parsed_data)
         except json.JSONDecodeError:
-            pass # Not a pure JSON object, proceed with markdown parsing
+            pass
 
-        # First, attempt to parse the special structured markdown format (e.g., ***Key:*** value).
         parsed_data = self._parse_structured_markdown(clean_summary)
         if parsed_data:
             return self._render_structured_report(parsed_data)
 
-        # If parsing fails, fall back to generic markdown processing.
-        
+        # --- PASS 2: Best-in-Class Markdown Parser for Simple Queries ---
         markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
         if markdown_block_match:
             clean_summary = markdown_block_match.group(1).strip()
-
+        
         markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
         if markdown_table_pattern.search(clean_summary):
             replacement_text = "\n(Data table is shown below)\n" if self._has_renderable_tables() else ""
@@ -160,79 +136,44 @@ class OutputFormatter:
         
         def process_inline_markdown(text_content):
             text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
-            # IMPORTANT: Process double asterisks before single ones to avoid conflicts.
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
 
-        current_list_items = []
-        in_column_list = False
-
+        in_list = False
         for line in lines:
             stripped_line = line.strip()
             
             heading_match = re.match(r'^(#{1,6})\s+(.*)$', stripped_line)
             list_item_match = re.match(r'^[*-]\s+(.*)$', stripped_line)
-            key_value_match = re.match(r'^\*+(.*?):\*+\s*(.*)$', stripped_line)
+            hr_match = re.match(r'^-{3,}$', stripped_line)
 
-            # Check if we are entering or exiting a column list section
-            if "column descriptions" in stripped_line.lower() or "columns:" in stripped_line.lower():
-                # If we were in a list, close it first
-                if current_list_items:
+            if list_item_match:
+                if not in_list:
                     html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
-                    for item in current_list_items:
-                        html_output.append(f'<li>{item}</li>')
-                    html_output.append('</ul>')
-                    current_list_items = []
-                in_column_list = True
-                html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{process_inline_markdown(stripped_line)}</h4>')
-                continue
-            elif in_column_list and not (list_item_match or key_value_match) and stripped_line:
-                # If we're in a column list but the line doesn't look like a column item,
-                # then we've exited the column list.
-                in_column_list = False
-                if current_list_items:
-                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
-                    for item in current_list_items:
-                        html_output.append(f'<li>{item}</li>')
-                    html_output.append('</ul>')
-                    current_list_items = []
-
-            if current_list_items and not list_item_match and not in_column_list:
-                html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
-                for item in current_list_items:
-                    html_output.append(f'<li>{item}</li>')
-                html_output.append('</ul>')
-                current_list_items = []
-
-            if heading_match:
-                level = len(heading_match.group(1))
-                content = heading_match.group(2).strip()
-                if level == 1:
-                    html_output.append(f'<h2 class="text-2xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h2>')
-                elif level == 2:
-                    html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
-                elif level == 3:
-                    html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{content}</h4>')
-                else:
-                    html_output.append(f'<h5 class="text-md font-semibold text-white mt-3 mb-1">{content}</h5>')
-
-            elif key_value_match:
-                key = key_value_match.group(1).strip()
-                value = key_value_match.group(2).strip()
-                html_output.append(f'<p class="text-gray-300 mb-2"><strong>{key}:</strong> {process_inline_markdown(value)}</p>')
-
-            elif list_item_match:
+                    in_list = True
                 content = list_item_match.group(1).strip()
                 if content:
-                    current_list_items.append(process_inline_markdown(content))
-            
-            elif stripped_line:
-                html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(stripped_line)}</p>')
+                    html_output.append(f'<li>{process_inline_markdown(content)}</li>')
+            else:
+                if in_list:
+                    html_output.append('</ul>')
+                    in_list = False
 
-        if current_list_items:
-            html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
-            for item in current_list_items:
-                html_output.append(f'<li>{item}</li>')
+                if heading_match:
+                    level = len(heading_match.group(1))
+                    content = process_inline_markdown(heading_match.group(2).strip())
+                    if level == 1:
+                        html_output.append(f'<h2 class="text-2xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h2>')
+                    elif level == 2:
+                        html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
+                    else:
+                        html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{content}</h4>')
+                elif hr_match:
+                    html_output.append('<hr class="border-gray-600 my-4">')
+                elif stripped_line:
+                    html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(stripped_line)}</p>')
+
+        if in_list:
             html_output.append('</ul>')
 
         return "".join(html_output)
@@ -350,9 +291,7 @@ class OutputFormatter:
         </div>
         """
 
-    # --- MODIFICATION START: Renamed from _format_workflow_summary to be more explicit ---
     def _format_workflow_report(self) -> str:
-    # --- MODIFICATION END ---
         """
         A specialized formatter to render the results of a multi-step workflow
         that produces structured, grouped data.
@@ -363,7 +302,6 @@ class OutputFormatter:
         if isinstance(self.collected_data, dict) and self.collected_data:
             data_to_process = self.collected_data
         elif isinstance(self.collected_data, list) and self.collected_data:
-            # --- MODIFICATION: For single-step standard queries, the data is a list. Wrap it for consistent processing. ---
             data_to_process = {"Execution Report": self.collected_data}
         else:
             return html
@@ -404,7 +342,6 @@ class OutputFormatter:
 
         return html
 
-    # --- MODIFICATION START: Added a new dedicated formatter for standard queries ---
     def _format_standard_query_report(self) -> str:
         """
         A dedicated formatter for standard (non-workflow) queries. It creates a
@@ -413,15 +350,12 @@ class OutputFormatter:
         """
         final_html = ""
         
-        # 1. Always render the sanitized LLM summary first.
         clean_summary_html = self._sanitize_summary()
         if clean_summary_html:
             final_html += f'<div class="response-card summary-card">{clean_summary_html}</div>'
 
-        # 2. Check if there's any data to display in the detailed report.
         data_source = []
         if isinstance(self.collected_data, dict):
-             # This handles the structured data format from the executor
             for item_list in self.collected_data.values():
                 data_source.extend(item_list)
         elif isinstance(self.collected_data, list):
@@ -430,22 +364,17 @@ class OutputFormatter:
         if not data_source:
             return final_html
 
-        # 3. Build the inner content of the collapsible details section.
         details_html = ""
         charts = []
-        # Separate charts to render them first within the details block
         for i, tool_result in enumerate(data_source):
             if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
                 charts.append((i, tool_result))
         
         for i, chart_result in charts:
-            # Check if the preceding result is the data for this chart
             table_data_result = data_source[i-1] if i > 0 else None
             if table_data_result and isinstance(table_data_result, dict) and "results" in table_data_result:
-                # Render chart with its data table inside a collapsible section
                 details_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
             else:
-                # Render chart standalone if no associated data table is found
                 chart_id = f"chart-render-target-{uuid.uuid4()}"
                 chart_spec_json = json.dumps(chart_result.get("spec", {}))
                 details_html += f"""
@@ -455,7 +384,6 @@ class OutputFormatter:
                 """
                 self.processed_data_indices.add(i)
 
-        # Render all remaining data tables and DDLs
         for i, tool_result in enumerate(data_source):
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
@@ -468,7 +396,6 @@ class OutputFormatter:
             elif "results" in tool_result:
                  details_html += self._render_table(tool_result, i, tool_name or "Result")
 
-        # 4. Wrap the details content in the main collapsible structure.
         if details_html:
             final_html += (
                 f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'>"
@@ -478,16 +405,13 @@ class OutputFormatter:
             )
             
         return final_html
-    # --- MODIFICATION END ---
 
     def render(self) -> str:
         """
         Main rendering method. It now acts as a router, deciding which
         formatting strategy to use based on the execution type.
         """
-        # --- MODIFICATION START: Routing logic ---
         if self.is_workflow:
             return self._format_workflow_report()
         else:
             return self._format_standard_query_report()
-        # --- MODIFICATION END ---
