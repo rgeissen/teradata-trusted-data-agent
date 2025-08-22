@@ -126,6 +126,7 @@ let countdownValue = 5;
 let mouseMoveHandler = null;
 let pristineConfig = {};
 let isMouseOverStatus = false;
+let isInFastPath = false;
 
 let defaultPromptsCache = {};
 
@@ -329,12 +330,24 @@ function updateStatusWindow(eventData, isFinal = false) {
         return;
     }
 
+    // --- COMPLETE PREVIOUS STEP (using the state as it was) ---
     const lastStep = document.getElementById(`status-step-${currentStatusId}`);
     if (lastStep) {
         lastStep.classList.remove('active');
         lastStep.classList.add('completed');
+        if (isInFastPath) {
+            lastStep.classList.add('plan-optimization');
+        }
     }
 
+    // --- UPDATE STATE based on CURRENT event ---
+    if (type === 'plan_optimization') {
+        isInFastPath = true;
+    } else if (step.includes("Looping Phase") && step.includes("Complete")) {
+        isInFastPath = false;
+    }
+
+    // --- CREATE AND STYLE CURRENT STEP ---
     currentStatusId++;
     const stepEl = document.createElement('div');
     stepEl.id = `status-step-${currentStatusId}`;
@@ -350,7 +363,7 @@ function updateStatusWindow(eventData, isFinal = false) {
     stepEl.appendChild(metricsEl);
 
     if (details) {
-        if (typeof details === 'object' && details.summary && details.full_text) {
+        if (typeof details === 'object' && details !== null && 'summary' in details && 'full_text' in details) {
             if (details.full_text.length > 150) {
                 const detailsEl = document.createElement('details');
                 detailsEl.className = 'text-xs';
@@ -391,7 +404,7 @@ function updateStatusWindow(eventData, isFinal = false) {
         stepEl.classList.add('workaround');
     } else if (type === 'error') {
         stepEl.classList.add('error');
-    } else if (type === 'plan_optimization') {
+    } else if (isInFastPath) {
         stepEl.classList.add('plan-optimization');
     }
 
@@ -466,6 +479,7 @@ async function startStream(endpoint, body) {
     toggleLoading(true);
     statusWindowContent.innerHTML = '';
     currentStatusId = 0;
+    isInFastPath = false;
     setThinkingIndicator(false);
 
     try {

@@ -149,7 +149,7 @@ class PlanExecutor:
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
         if self.is_workflow:
-            yield self._format_sse({"step": "Loading Workflow Prompt", "details": f"Loading '{self.active_prompt_name}'..."})
+            yield self._format_sse({"step": "Loading Workflow Prompt", "details": f"Loading '{self.active_prompt_name}'"})
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
@@ -170,14 +170,12 @@ class PlanExecutor:
         else:
             self.workflow_goal_prompt = self.original_user_input
 
-        # --- MODIFICATION START: Create a structured payload for details ---
-        summary = f"Generating a strategic meta-plan for the goal..."
+        summary = f"Generating a strategic meta-plan for the goal"
         details_payload = {
             "summary": summary,
             "full_text": self.workflow_goal_prompt
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
-        # --- MODIFICATION END ---
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
@@ -186,7 +184,7 @@ class PlanExecutor:
         
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=planning_prompt, 
-            reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}...'"
+            reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}'"
         )
 
         updated_session = session_manager.get_session(self.session_id)
@@ -299,8 +297,9 @@ class PlanExecutor:
         if is_fast_path_candidate:
             tool_name = relevant_tools[0]
             yield self._format_sse({
-                "step": "Plan Optimization", "type": "plan_optimization",
-                "details": f"Engaging fast path for tool loop: '{tool_name}'..."
+                "step": "Plan Optimization", 
+                "type": "plan_optimization",
+                "details": f"Engaging fast path for tool loop: '{tool_name}'"
             })
             
             all_loop_results = []
