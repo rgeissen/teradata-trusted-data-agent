@@ -89,34 +89,44 @@ class OutputFormatter:
         return html
 
     def _render_standard_markdown(self, text: str) -> str:
-        """Renders a block of text by processing standard markdown elements."""
+        """Renders a block of text by processing standard markdown elements, including nested lists."""
         lines = text.strip().split('\n')
         html_output = []
-        
+        list_level_stack = []
+
+        def get_indent_level(line_text):
+            return len(line_text) - len(line_text.lstrip(' '))
+
+        # --- MODIFIED: Added logic to handle escaped underscores ---
         def process_inline_markdown(text_content):
+            # First, handle the escaped underscore
+            text_content = text_content.replace(r'\_', '_')
+            # Then, process other markdown elements
             text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
 
-        in_list = False
         for line in lines:
-            stripped_line = line.strip()
+            stripped_line = line.lstrip(' ')
+            current_indent = get_indent_level(line)
             
-            heading_match = re.match(r'^(#{1,6})\s+(.*)$', stripped_line)
-            list_item_match = re.match(r'^[*-]\s+(.*)$', stripped_line)
-            hr_match = re.match(r'^-{3,}$', stripped_line)
+            list_item_match = re.match(r'^([*-])\s+(.*)$', stripped_line)
+
+            while list_level_stack and (not list_item_match or current_indent < list_level_stack[-1]):
+                html_output.append('</ul>')
+                list_level_stack.pop()
 
             if list_item_match:
-                if not in_list:
+                if not list_level_stack or current_indent > list_level_stack[-1]:
                     html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
-                    in_list = True
-                content = list_item_match.group(1).strip()
+                    list_level_stack.append(current_indent)
+                
+                content = list_item_match.group(2).strip()
                 if content:
                     html_output.append(f'<li>{process_inline_markdown(content)}</li>')
             else:
-                if in_list:
-                    html_output.append('</ul>')
-                    in_list = False
+                heading_match = re.match(r'^(#{1,6})\s+(.*)$', stripped_line)
+                hr_match = re.match(r'^-{3,}$', stripped_line)
 
                 if heading_match:
                     level = len(heading_match.group(1))
@@ -132,8 +142,9 @@ class OutputFormatter:
                 elif stripped_line:
                     html_output.append(f'<p class="text-gray-300 mb-4">{process_inline_markdown(stripped_line)}</p>')
 
-        if in_list:
+        while list_level_stack:
             html_output.append('</ul>')
+            list_level_stack.pop()
 
         return "".join(html_output)
 
@@ -189,7 +200,6 @@ class OutputFormatter:
                 if match:
                     summary_to_process = summary_to_process[match.end():]
             
-            # --- MODIFICATION: Add robust cleanup for leading punctuation ---
             summary_to_process = summary_to_process.lstrip(': ').strip()
 
             lines = [line for line in summary_to_process.strip().split('\n') if line.strip()]
@@ -211,6 +221,7 @@ class OutputFormatter:
                 remaining_content = '\n\n'.join(paragraphs[1:])
             
             def process_inline_markdown(text_content):
+                text_content = text_content.replace(r'\_', '_')
                 text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
                 text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
                 return text_content
