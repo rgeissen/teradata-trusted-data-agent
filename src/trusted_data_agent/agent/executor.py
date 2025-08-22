@@ -62,7 +62,8 @@ def unwrap_exception(e: BaseException) -> BaseException:
 class PlanExecutor:
     AgentState = AgentState
 
-    def __init__(self, session_id: str, original_user_input: str, dependencies: dict):
+    # --- MODIFICATION START: Refactored constructor to unify workflows ---
+    def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None):
         self.session_id = session_id
         self.original_user_input = original_user_input
         self.dependencies = dependencies
@@ -76,10 +77,9 @@ class PlanExecutor:
         self.current_phase_index = 0
         self.last_tool_output = None
         
-        # Workflow-specific context
-        self.is_workflow = False
-        self.active_prompt_name = None
-        self.prompt_arguments = {}
+        # Workflow-specific context (now unified)
+        self.active_prompt_name = active_prompt_name
+        self.prompt_arguments = prompt_arguments or {}
         self.workflow_goal_prompt = ""
 
         # State management for the Loop Orchestrator
@@ -96,6 +96,7 @@ class PlanExecutor:
         
         self.llm_debug_history = []
         self.max_steps = 40
+    # --- MODIFICATION END ---
 
     @staticmethod
     def _format_sse(data: dict, event: str = None) -> str:
@@ -146,13 +147,16 @@ class PlanExecutor:
             self.state = self.AgentState.ERROR
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
 
+    # --- MODIFICATION START: Refactored planner to be universal ---
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
-        if self.is_workflow:
+        # If a prompt was invoked, load its content to use as the goal.
+        if self.active_prompt_name:
             yield self._format_sse({"step": "Loading Workflow Prompt", "details": f"Loading '{self.active_prompt_name}'"})
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
+            # Enrich arguments from history for prompt-driven workflows.
             enriched_args, enrich_events = self._enrich_arguments_from_history(self.active_prompt_name, self.prompt_arguments)
             for event in enrich_events:
                 yield event
@@ -167,6 +171,7 @@ class PlanExecutor:
             self.workflow_goal_prompt = get_prompt_text_content(prompt_obj)
             if not self.workflow_goal_prompt:
                 raise ValueError(f"Could not extract text content from rendered prompt '{self.active_prompt_name}'.")
+        # Otherwise, use the raw user input as the goal.
         else:
             self.workflow_goal_prompt = self.original_user_input
 
@@ -205,6 +210,7 @@ class PlanExecutor:
             yield self._format_sse({"step": "Strategic Meta-Plan Generated", "details": self.meta_plan})
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
+    # --- MODIFICATION END ---
 
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
@@ -327,7 +333,6 @@ class PlanExecutor:
                         for target_key in target_keys:
                             merged_args[target_key] = value
 
-                # --- MODIFICATION START: Implemented self-healing retry loop ---
                 max_retries = 2
                 final_tool_result = None
                 
@@ -375,7 +380,6 @@ class PlanExecutor:
                 
                 self.action_history.append({"action": command, "result": final_tool_result or tool_result})
                 all_loop_results.append(final_tool_result or tool_result)
-                # --- MODIFICATION END ---
 
             yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
             
@@ -530,14 +534,12 @@ class PlanExecutor:
         
         self._add_to_structured_data(tool_result)
 
-        # --- MODIFICATION START: Explicitly check for and handle tool errors ---
         if isinstance(tool_result, dict) and tool_result.get("status") == "error":
             yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
             if self.is_in_loop:
                 raise RuntimeError(f"Tool '{tool_name}' failed during loop: {tool_result.get('error_message', 'Unknown error')}")
         else:
             yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
-        # --- MODIFICATION END ---
 
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
@@ -685,66 +687,62 @@ class PlanExecutor:
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
+    # --- MODIFICATION START: Refactored final summary to be universal ---
     async def _generate_final_summary(self):
         """
-        Generates the final summary using a hybrid, parameterized approach.
+        Generates the final summary using a universal, parameterized CoreLLMTask.
+        This ensures consistent, high-quality summaries for all workflows.
         """
         final_summary_text = ""
         final_collected_data = self.structured_collected_data
 
-        if self.is_workflow:
-            app_logger.info("Generating final summary using the dedicated workflow path.")
-            if (self.last_tool_output and isinstance(self.last_tool_output, dict) and
-                "response" in (self.last_tool_output.get("results", [{}])[0] or {})):
-                final_summary_text = self.last_tool_output["results"][0]["response"]
-            else:
-                final_summary_text = "The workflow has completed. Please review the generated data below."
+        app_logger.info("Generating final summary using the universal CoreLLMTask.")
+        
+        # Define the standard instructions for the summarization LLM.
+        standard_task_description = (
+            "You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. "
+            "Do not describe the raw data or explain how you performed the analysis. "
+            "Focus on providing a concise, specific, and business-friendly summary of the findings."
+        )
+        
+        standard_formatting_instructions = (
+            "You MUST format your entire response using standard markdown. "
+            "Use a level-2 heading (e.g., '## Key Observations') for sections. "
+            "Use bullet points (e.g., '- Item 1') for lists of observations. "
+            "Use bold text (e.g., '**Important Term**') for emphasis."
+        )
 
-        else:
-            app_logger.info("Generating final summary using the enhanced standard query path (Parameterized CoreLLMTask).")
-            
-            standard_task_description = (
-                "You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. "
-                "Do not describe the raw data or explain how you performed the analysis. "
-                "Focus on providing a concise, specific, and business-friendly summary of the findings."
-            )
-            
-            standard_formatting_instructions = (
-                "You MUST format your entire response using standard markdown. "
-                "Use a level-2 heading (e.g., '## Key Observations') for sections. "
-                "Use bullet points (e.g., '- Item 1') for lists of observations. "
-                "Use bold text (e.g., '**Important Term**') for emphasis."
-            )
-
-            core_llm_command = {
-                "tool_name": "CoreLLMTask",
-                "arguments": {
-                    "task_description": standard_task_description,
-                    "formatting_instructions": standard_formatting_instructions,
-                    "user_question": self.original_user_input,
-                    "source_data": list(self.workflow_state.keys()),
-                    "data": copy.deepcopy(self.workflow_state)
-                }
+        # Build the command for the CoreLLMTask.
+        core_llm_command = {
+            "tool_name": "CoreLLMTask",
+            "arguments": {
+                "task_description": standard_task_description,
+                "formatting_instructions": standard_formatting_instructions,
+                "user_question": self.original_user_input,
+                "source_data": list(self.workflow_state.keys()),
+                "data": copy.deepcopy(self.workflow_state)
             }
-            
-            yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
-            
-            summary_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
+        }
+        
+        yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
+        
+        # Execute the task.
+        summary_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
 
-            if (summary_result and summary_result.get("status") == "success" and
-                "response" in (summary_result.get("results", [{}])[0] or {})):
-                final_summary_text = summary_result["results"][0]["response"]
-            else:
-                app_logger.error(f"CoreLLMTask failed to generate a standard summary. Fallback response will be used. Result: {summary_result}")
-                final_summary_text = "The agent has completed its work, but an issue occurred while generating the final summary."
+        if (summary_result and summary_result.get("status") == "success" and
+            "response" in (summary_result.get("results", [{}])[0] or {})):
+            final_summary_text = summary_result["results"][0]["response"]
+        else:
+            app_logger.error(f"CoreLLMTask failed to generate a standard summary. Fallback response will be used. Result: {summary_result}")
+            final_summary_text = "The agent has completed its work, but an issue occurred while generating the final summary."
 
         clean_summary = final_summary_text.replace("FINAL_ANSWER:", "").strip() or "The agent has completed its work."
         yield self._format_sse({"step": "LLM has generated the final answer", "details": clean_summary}, "llm_thought")
 
+        # Format the final output for the UI.
         formatter = OutputFormatter(
             llm_response_text=clean_summary,
             collected_data=final_collected_data,
-            is_workflow=self.is_workflow,
             original_user_input=self.original_user_input
         )
         final_html = formatter.render()
@@ -752,6 +750,7 @@ class PlanExecutor:
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
+    # --- MODIFICATION END ---
 
     def _prepare_data_for_final_summary(self) -> str:
         """Prepares all collected data for the final summarization prompt."""
