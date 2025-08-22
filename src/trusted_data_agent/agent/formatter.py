@@ -8,14 +8,12 @@ class OutputFormatter:
     Parses raw LLM output and structured tool data to generate professional,
     failure-safe HTML for the UI.
     """
-    # --- MODIFICATION START: Refactored constructor for unified workflow ---
     def __init__(self, llm_response_text: str, collected_data: list | dict, original_user_input: str = None, active_prompt_name: str = None):
         self.raw_summary = llm_response_text
         self.collected_data = collected_data
         self.original_user_input = original_user_input
         self.active_prompt_name = active_prompt_name
         self.processed_data_indices = set()
-    # --- MODIFICATION END ---
 
     def _has_renderable_tables(self) -> bool:
         """Checks if there is any data that will be rendered as a table."""
@@ -78,8 +76,10 @@ class OutputFormatter:
         """
         Renders the parsed structured data into its inner HTML format, with enhanced visual hierarchy.
         """
-        html = f'<p><strong class="text-white">Table Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("table_name", "N/A")}</code></p>'
-        html += f'<p><strong class="text-white">Database Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("database_name", "N/A")}</code></p>'
+        # --- MODIFICATION START: Corrected styling to use standard Tailwind class ---
+        html = f'<p><strong class="text-white">Table Name:</strong> <code class="text-orange-500 font-bold font-mono text-sm">{data.get("table_name", "N/A")}</code></p>'
+        html += f'<p><strong class="text-white">Database Name:</strong> <code class="text-orange-500 font-bold font-mono text-sm">{data.get("database_name", "N/A")}</code></p>'
+        # --- MODIFICATION END ---
         
         description = data.get("description", "No description provided.")
         if description:
@@ -467,9 +467,7 @@ class OutputFormatter:
         Main rendering method. It now acts as a router, deciding which
         formatting strategy to use based on the execution type.
         """
-        # --- MODIFICATION START: Refactored to use active_prompt_name for routing ---
         if self.active_prompt_name:
             return self._format_workflow_report()
         else:
             return self._format_standard_query_report()
-        # --- MODIFICATION END ---
