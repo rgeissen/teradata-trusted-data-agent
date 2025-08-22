@@ -264,7 +264,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
             
-        # --- MODIFICATION START: Dynamically build a dictionary of all known argument names, separated by type ---
         tool_args = set()
         for tool in STATE['mcp_tools'].values():
             if hasattr(tool, 'args') and isinstance(tool.args, dict):
@@ -283,7 +282,6 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             "prompt": list(prompt_args)
         }
         app_logger.info(f"Dynamically identified {len(tool_args)} tool and {len(prompt_args)} prompt arguments for context enrichment.")
-        # --- MODIFICATION END ---
 
 
 def _transform_chart_data(data: any) -> list[dict]:
@@ -374,7 +372,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFICATION START: Refactored to return token counts ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> tuple[dict, int, int]:
     """
     Executes a task handled by the LLM itself and returns the result along with token counts.
@@ -474,7 +471,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> tuple[dict, int, 
         result = {"status": "success", "results": [{"response": response_text}]}
 
     return result, input_tokens, output_tokens
-# --- MODIFICATION END ---
 
 async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
     """
@@ -580,27 +576,29 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
         "results": date_list
     }
 
-# --- MODIFICATION START: Refactored to handle the new return signature from CoreLLMTask ---
-async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
+# --- MODIFICATION START: Standardize all return paths to be a (result, input_tokens, output_tokens) tuple ---
+async def invoke_mcp_tool(STATE: dict, command: dict) -> tuple[any, int, int]:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
     
-    # CoreLLMTask is a special client-side tool that needs to return token counts.
+    # CoreLLMTask is a special client-side tool that returns token counts. It already returns the correct tuple format.
     if tool_name == "CoreLLMTask":
         return await _invoke_core_llm_task(STATE, command)
-    # --- MODIFICATION END ---
 
+    # For all other tools, we return the result dictionary with 0 for token counts.
     if tool_name == "util_getCurrentDate":
         app_logger.info("Executing client-side tool: util_getCurrentDate")
         current_date = datetime.now().strftime('%Y-%m-%d')
-        return {
+        result = {
             "status": "success",
             "metadata": {"tool_name": "util_getCurrentDate"},
             "results": [{"current_date": current_date}]
         }
+        return result, 0, 0
 
     if tool_name == "util_calculateDateRange":
-        return await _invoke_util_calculate_date_range(STATE, command)
+        result = await _invoke_util_calculate_date_range(STATE, command)
+        return result, 0, 0
 
     if tool_name == "viz_createChart":
         app_logger.info(f"Handling abstract chart generation for: {command}")
@@ -611,14 +609,17 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             data = _transform_chart_data(data) 
             
             if not isinstance(data, list) or not data:
-                return {"error": "Validation failed", "data": "The 'data' argument must be a non-empty list of dictionaries."}
+                result = {"error": "Validation failed", "data": "The 'data' argument must be a non-empty list of dictionaries."}
+                return result, 0, 0
             
             chart_spec = _build_g2plot_spec(args, data)
             
-            return {"type": "chart", "spec": chart_spec, "metadata": {"tool_name": "viz_createChart"}}
+            result = {"type": "chart", "spec": chart_spec, "metadata": {"tool_name": "viz_createChart"}}
+            return result, 0, 0
         except Exception as e:
             app_logger.error(f"Error building G2Plot spec: {e}", exc_info=True)
-            return {"error": "Chart Generation Failed", "data": str(e)}
+            result = {"error": "Chart Generation Failed", "data": str(e)}
+            return result, 0, 0
 
     args = {}
     if isinstance(command, dict):
@@ -666,15 +667,19 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
             call_tool_result = await temp_session.call_tool(tool_name, args)
     except Exception as e:
         app_logger.error(f"Error during tool invocation for '{tool_name}': {e}", exc_info=True)
-        return {"status": "error", "error": f"An exception occurred while invoking tool '{tool_name}'.", "data": str(e)}
+        result = {"status": "error", "error": f"An exception occurred while invoking tool '{tool_name}'.", "data": str(e)}
+        return result, 0, 0
     
     if hasattr(call_tool_result, 'content') and isinstance(call_tool_result.content, list) and len(call_tool_result.content) > 0:
         text_content = call_tool_result.content[0]
         if hasattr(text_content, 'text') and isinstance(text_content.text, str):
             try:
-                return json.loads(text_content.text)
+                result = json.loads(text_content.text)
+                return result, 0, 0
             except json.JSONDecodeError:
                 app_logger.warning(f"Tool '{tool_name}' returned a non-JSON string: '{text_content.text}'")
-                return {"status": "error", "error": "Tool returned non-JSON string", "data": text_content.text}
+                result = {"status": "error", "error": "Tool returned non-JSON string", "data": text_content.text}
+                return result, 0, 0
     
     raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
+# --- MODIFICATION END ---

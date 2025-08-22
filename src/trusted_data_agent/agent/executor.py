@@ -68,7 +68,6 @@ class PlanExecutor:
         self.dependencies = dependencies
         self.state = self.AgentState.PLANNING
         
-        # Unified State Properties
         self.structured_collected_data = {}
         self.workflow_state = {} 
         self.action_history = []
@@ -76,12 +75,10 @@ class PlanExecutor:
         self.current_phase_index = 0
         self.last_tool_output = None
         
-        # Workflow-specific context (now unified)
         self.active_prompt_name = active_prompt_name
         self.prompt_arguments = prompt_arguments or {}
         self.workflow_goal_prompt = ""
 
-        # State management for the Loop Orchestrator
         self.is_in_loop = False
         self.current_loop_items = []
         self.processed_loop_items = []
@@ -96,7 +93,6 @@ class PlanExecutor:
         self.llm_debug_history = []
         self.max_steps = 40
         
-        # --- MODIFICATION: Load persistent context from the session ---
         self.known_entities = {}
         session_data = session_manager.get_session(self.session_id)
         if session_data:
@@ -135,7 +131,6 @@ class PlanExecutor:
 
     async def run(self):
         """The main, unified execution loop for the agent."""
-        # --- MODIFICATION START: Wrap execution to save context at the end ---
         try:
             if self.state == self.AgentState.PLANNING:
                 async for event in self._generate_meta_plan(): yield event
@@ -153,12 +148,10 @@ class PlanExecutor:
             self.state = self.AgentState.ERROR
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
         finally:
-            # Persist the final state of known entities to the session for the next turn.
             _, final_known_entities_str = self._create_optimized_context()
             final_known_entities = json.loads(final_known_entities_str)
             session_manager.update_session_known_entities(self.session_id, final_known_entities)
             app_logger.info(f"Saved final known entities to session {self.session_id}: {final_known_entities_str}")
-        # --- MODIFICATION END ---
 
 
     def _create_optimized_context(self) -> tuple[str, str]:
@@ -168,7 +161,6 @@ class PlanExecutor:
         the current turn's history and the persistent session context.
         """
         optimized_history = []
-        # --- MODIFICATION: Start with entities from session, then update with current turn's history ---
         known_entities = self.known_entities.copy()
         
         for entry in self.action_history:
@@ -201,7 +193,6 @@ class PlanExecutor:
                 if result_summary.get('columns') == ['TableName'] and 'results' in result:
                     table_names = [row.get('TableName') for row in result.get('results', []) if row.get('TableName')]
                     if table_names:
-                        # --- MODIFICATION: Append to existing list if present, otherwise create new list ---
                         if 'table_names_discovered' in known_entities and isinstance(known_entities['table_names_discovered'], list):
                              existing_tables = set(known_entities['table_names_discovered'])
                              for t in table_names: existing_tables.add(t)
@@ -542,10 +533,22 @@ class PlanExecutor:
             
             status_target = "chart" if tool_name == "viz_createChart" else "db"
             yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
-            tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], action)
+            
+            tool_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], action)
+
             yield self._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
 
-            self.last_tool_output = tool_result
+            if input_tokens > 0 or output_tokens > 0:
+                updated_session = session_manager.get_session(self.session_id)
+                if updated_session:
+                    yield self._format_sse({
+                        "statement_input": input_tokens,
+                        "statement_output": output_tokens,
+                        "total_input": updated_session.get("input_tokens", 0),
+                        "total_output": updated_session.get("output_tokens", 0)
+                    }, "token_update")
+
+            self.last_tool_output = tool_result 
             
             if isinstance(tool_result, dict) and tool_result.get("status") == "error":
                 yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
@@ -766,6 +769,15 @@ class PlanExecutor:
             "Use bold text (e.g., '**Important Term**') for emphasis."
         )
 
+        # --- MODIFICATION START: Add a special rule for ad-hoc queries to guide formatting ---
+        if not self.active_prompt_name:
+            ad_hoc_rule = (
+                "\n\n**CRITICAL FORMATTING RULE:** Your entire response MUST be a prose-based, narrative summary using standard markdown. "
+                "Do NOT use special key-value formats like `***Key:*** Value`. Start with a direct, one-paragraph answer, followed by a `## Key Observations` section with bullet points if applicable."
+            )
+            standard_formatting_instructions += ad_hoc_rule
+        # --- MODIFICATION END ---
+
         core_llm_command = {
             "tool_name": "CoreLLMTask",
             "arguments": {
@@ -851,17 +863,19 @@ class PlanExecutor:
                     enriched_args[arg_name] = action_args[arg_name]
                     args_to_find.remove(arg_name)
 
-            result_metadata = entry.get("result", {}).get("metadata", {})
-            if result_metadata:
-                metadata_to_arg_map = {
-                    "database": "database_name",
-                    "table": "table_name",
-                    "column": "column_name"
-                }
-                for meta_key, arg_name in metadata_to_arg_map.items():
-                    if arg_name in args_to_find and meta_key in result_metadata:
-                        enriched_args[arg_name] = result_metadata[meta_key]
-                        args_to_find.remove(arg_name)
+            result = entry.get("result", {})
+            if isinstance(result, dict):
+                result_metadata = result.get("metadata", {})
+                if result_metadata:
+                    metadata_to_arg_map = {
+                        "database": "database_name",
+                        "table": "table_name",
+                        "column": "column_name"
+                    }
+                    for meta_key, arg_name in metadata_to_arg_map.items():
+                        if arg_name in args_to_find and meta_key in result_metadata:
+                            enriched_args[arg_name] = result_metadata[meta_key]
+                            args_to_find.remove(arg_name)
         
         if enriched_args and (not current_args or enriched_args != current_args):
             for arg_name, value in enriched_args.items():
