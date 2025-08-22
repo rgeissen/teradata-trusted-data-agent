@@ -617,51 +617,77 @@ class PlanExecutor:
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
+    # --- MODIFICATION START: Implemented the final parameterized summarization strategy ---
     async def _generate_final_summary(self):
-        """Generates the final summary for the user."""
-        final_collected_data = self.structured_collected_data
-        
+        """
+        Generates the final summary using a hybrid, parameterized approach.
+        """
         final_summary_text = ""
-        if (self.last_tool_output and isinstance(self.last_tool_output, dict) and
-            "response" in (self.last_tool_output.get("results", [{}])[0] or {})):
-            
-            final_summary_text = self.last_tool_output["results"][0]["response"]
+        final_collected_data = self.structured_collected_data
+
+        # --- BRANCH 1: WORKFLOW LOGIC (UNCHANGED) ---
+        if self.is_workflow:
+            app_logger.info("Generating final summary using the dedicated workflow path.")
+            if (self.last_tool_output and isinstance(self.last_tool_output, dict) and
+                "response" in (self.last_tool_output.get("results", [{}])[0] or {})):
+                final_summary_text = self.last_tool_output["results"][0]["response"]
+            else:
+                final_summary_text = "The workflow has completed. Please review the generated data below."
+
+        # --- BRANCH 2: STANDARD QUERY LOGIC (ENHANCED WITH PARAMETERIZATION) ---
         else:
-            data_for_summary = self._prepare_data_for_final_summary()
+            app_logger.info("Generating final summary using the enhanced standard query path (Parameterized CoreLLMTask).")
             
-            final_prompt = (
-                "You are an expert data analyst. Synthesize all collected data into a clear, concise, and insightful final answer.\n\n"
-                f"--- USER'S QUESTION ---\n'{self.original_user_input}'\n\n"
-                f"--- DATA COLLECTED ---\n```json\n{data_for_summary}\n```\n\n"
-                "--- INSTRUCTIONS ---\n"
-                "1.  Provide a holistic analysis and actionable insights.\n"
-                "2.  Begin with a high-level summary, then use bullet points for key observations.\n"
-                "3.  Your entire response **MUST** begin with `FINAL_ANSWER:`.\n"
+            standard_task_description = (
+                "You are an expert data analyst. Your task is to synthesize the provided data into a final, user-friendly report. "
+                "Based on the user's original question and the data below, provide a comprehensive summary. "
+                "Your summary should be insightful and directly address the user's query."
             )
-            reason="Generating final summary from all collected tool data."
-            yield self._format_sse({"step": "Calling LLM to write final report", "details": reason})
-            final_llm_response, input_tokens, output_tokens = await self._call_llm_and_update_tokens(prompt=final_prompt, reason=reason)
             
-            updated_session = session_manager.get_session(self.session_id)
-            if updated_session:
-                yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+            standard_formatting_instructions = (
+                "You MUST format your entire response using standard markdown. "
+                "Use a level-2 heading (e.g., '## Key Observations') for sections. "
+                "Use bullet points (e.g., '- Item 1') for lists of observations. "
+                "Use bold text (e.g., '**Important Term**') for emphasis."
+            )
 
-            final_summary_text = final_llm_response
+            core_llm_command = {
+                "tool_name": "CoreLLMTask",
+                "arguments": {
+                    "task_description": standard_task_description,
+                    "formatting_instructions": standard_formatting_instructions,
+                    "user_question": self.original_user_input, # Pass the user's original question
+                    "source_data": list(self.workflow_state.keys()),
+                    "data": copy.deepcopy(self.workflow_state)
+                }
+            }
+            
+            yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
+            
+            summary_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
 
+            if (summary_result and summary_result.get("status") == "success" and
+                "response" in (summary_result.get("results", [{}])[0] or {})):
+                final_summary_text = summary_result["results"][0]["response"]
+            else:
+                app_logger.error(f"CoreLLMTask failed to generate a standard summary. Fallback response will be used. Result: {summary_result}")
+                final_summary_text = "The agent has completed its work, but an issue occurred while generating the final summary."
+
+        # --- UNIFIED FINAL RENDERING ---
         clean_summary = final_summary_text.replace("FINAL_ANSWER:", "").strip() or "The agent has completed its work."
-
         yield self._format_sse({"step": "LLM has generated the final answer", "details": clean_summary}, "llm_thought")
 
         formatter = OutputFormatter(
             llm_response_text=clean_summary,
             collected_data=final_collected_data,
-            is_workflow=True
+            is_workflow=self.is_workflow
         )
         final_html = formatter.render()
         
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
+    # --- MODIFICATION END ---
 
     def _prepare_data_for_final_summary(self) -> str:
         """Prepares all collected data for the final summarization prompt."""

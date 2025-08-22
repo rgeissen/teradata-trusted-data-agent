@@ -353,14 +353,19 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
+# --- MODIFICATION START: Parameterized the CoreLLMTask to accept the user's question ---
 async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
     """
-    Executes a task handled by the LLM itself, based on a generic task_description
-    and a focused subset of the workflow's collected data.
+    Executes a task handled by the LLM itself. This task can now be
+    parameterized with the original user question to ensure simple queries
+    receive a direct answer.
     """
     args = command.get("arguments", {})
     task_description = args.get("task_description")
     source_data_keys = args.get("source_data", [])
+    formatting_instructions = args.get("formatting_instructions")
+    # New optional parameter for the user's original question
+    user_question = args.get("user_question")
     
     full_workflow_state = args.get("data", {}) 
     
@@ -376,7 +381,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         app_logger.warning(f"CoreLLMTask was called for '{task_description}' but no source data was found for keys: {source_data_keys}. Passing all data as a fallback.")
         focused_data_for_task = full_workflow_state
 
-    # Deterministically find known key entities from the workflow history
     known_context = {}
     if isinstance(full_workflow_state, dict):
         for phase_results in full_workflow_state.values():
@@ -391,8 +395,18 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     known_context_str = "\n".join([f"- {key}: {value}" for key, value in known_context.items()]) if known_context else "None"
 
-    final_prompt = (
-        "You are a highly capable text processing and synthesis assistant. Your task is to perform the following operation based on the provided data context.\n\n"
+    # Dynamically build the final prompt.
+    final_prompt = "You are a highly capable text processing and synthesis assistant.\n\n"
+
+    # This is the new, parameterized part. It's only active for simple queries.
+    if user_question:
+        final_prompt += (
+            "--- PRIMARY GOAL ---\n"
+            f"Your most important task is to directly answer the user's original question: '{user_question}'.\n"
+            "You MUST begin your response with a direct answer. After providing the direct answer, you may then proceed with a more general summary or analysis of the data.\n\n"
+        )
+
+    final_prompt += (
         "--- TASK ---\n"
         f"{task_description}\n\n"
         "--- RELEVANT DATA (Selected from Previous Phases) ---\n"
@@ -412,8 +426,12 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         "3. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
         "4. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
         "5. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
-        "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
     )
+
+    if formatting_instructions:
+        final_prompt += f"--- ADDITIONAL FORMATTING INSTRUCTIONS ---\n{formatting_instructions}\n\n"
+
+    final_prompt += "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
 
     response_text, _, _ = await llm_handler.call_llm_api(
         llm_instance=STATE.get('llm'),
@@ -422,6 +440,7 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
         system_prompt_override="You are a text processing and synthesis assistant.",
         raise_on_error=True
     )
+    # --- MODIFICATION END ---
 
     refusal_phrases = [
         "i'm unable to", "i cannot", "unable to generate", "no specific task", 
@@ -438,7 +457,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> dict:
 
     return {"status": "success", "results": [{"response": response_text}]}
 
-# --- MODIFICATION START: Added "past weekend" to the deterministic logic ---
 async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
     """
     Calculates a list of dates from a start date and a phrase using a multi-layered approach.
@@ -456,20 +474,16 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
     start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
     end_date = None
     
-    # Layer 1: Enhanced deterministic logic for common phrases
     try:
-        # Handle simple, numberless phrases first
         if "yesterday" in date_phrase:
             start_date = start_date - timedelta(days=1)
             end_date = start_date
         elif "today" in date_phrase:
             end_date = start_date
         elif "past weekend" in date_phrase or "last weekend" in date_phrase:
-            # Monday is 0 and Sunday is 6.
-            # Find the most recent Sunday.
             days_since_sunday = (start_date.weekday() - 6) % 7
             end_date = start_date - timedelta(days=days_since_sunday)
-            start_date = end_date - timedelta(days=1) # Saturday
+            start_date = end_date - timedelta(days=1)
         elif "last week" in date_phrase or "past week" in date_phrase:
             start_of_last_week = start_date - timedelta(days=start_date.weekday() + 7)
             end_of_last_week = start_of_last_week + timedelta(days=6)
@@ -484,7 +498,6 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
             last_day_of_last_year = start_date.replace(year=start_date.year - 1, month=12, day=31)
             start_date, end_date = first_day_of_last_year, last_day_of_last_year
         else:
-            # Handle numbered phrases (e.g., "past 3 days")
             match = re.search(r'(\d+)\s+(day|week|month|year)s?', date_phrase)
             if match:
                 quantity = int(match.group(1))
@@ -508,9 +521,8 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
 
     except Exception as e:
         app_logger.warning(f"Deterministic date parsing failed with error: {e}. This may be expected for complex phrases.")
-        end_date = None # Ensure end_date is None to trigger fallback
+        end_date = None
 
-    # Layer 2: LLM-powered fallback for complex or unhandled phrases
     if end_date is None:
         app_logger.info(f"Deterministic logic failed for '{date_phrase}'. Falling back to LLM-based date extraction.")
         
@@ -537,7 +549,6 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
             app_logger.error(error_msg)
             return {"status": "error", "error_message": error_msg}
 
-    # Layer 3: Generate the final list of dates
     date_list = []
     current_date = start_date
     while current_date <= end_date:
@@ -549,7 +560,6 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
         "metadata": {"tool_name": "util_calculateDateRange"},
         "results": date_list
     }
-# --- MODIFICATION END ---
 
 async def invoke_mcp_tool(STATE: dict, command: dict) -> any:
     mcp_client = STATE.get('mcp_client')

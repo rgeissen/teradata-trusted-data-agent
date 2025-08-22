@@ -350,7 +350,9 @@ class OutputFormatter:
         </div>
         """
 
-    def _format_workflow_summary(self) -> str:
+    # --- MODIFICATION START: Renamed from _format_workflow_summary to be more explicit ---
+    def _format_workflow_report(self) -> str:
+    # --- MODIFICATION END ---
         """
         A specialized formatter to render the results of a multi-step workflow
         that produces structured, grouped data.
@@ -361,7 +363,8 @@ class OutputFormatter:
         if isinstance(self.collected_data, dict) and self.collected_data:
             data_to_process = self.collected_data
         elif isinstance(self.collected_data, list) and self.collected_data:
-            data_to_process = {"Overall Workflow Results": self.collected_data}
+            # --- MODIFICATION: For single-step standard queries, the data is a list. Wrap it for consistent processing. ---
+            data_to_process = {"Execution Report": self.collected_data}
         else:
             return html
 
@@ -401,43 +404,58 @@ class OutputFormatter:
 
         return html
 
-    def render(self) -> str:
+    # --- MODIFICATION START: Added a new dedicated formatter for standard queries ---
+    def _format_standard_query_report(self) -> str:
         """
-        Main rendering method. It decides which formatting strategy to use
-        based on whether the execution was a workflow or a standard query.
+        A dedicated formatter for standard (non-workflow) queries. It creates a
+        two-part report: a high-level summary followed by a collapsible
+        "Execution Report" containing all detailed data tables.
         """
-        if self.is_workflow:
-            return self._format_workflow_summary()
-
         final_html = ""
-        data_source = self.collected_data if isinstance(self.collected_data, list) else []
-
-        # 1. Always render the summary first, wrapped in a card.
+        
+        # 1. Always render the sanitized LLM summary first.
         clean_summary_html = self._sanitize_summary()
         if clean_summary_html:
             final_html += f'<div class="response-card summary-card">{clean_summary_html}</div>'
 
-        # 2. Identify and render all charts next.
+        # 2. Check if there's any data to display in the detailed report.
+        data_source = []
+        if isinstance(self.collected_data, dict):
+             # This handles the structured data format from the executor
+            for item_list in self.collected_data.values():
+                data_source.extend(item_list)
+        elif isinstance(self.collected_data, list):
+            data_source = self.collected_data
+            
+        if not data_source:
+            return final_html
+
+        # 3. Build the inner content of the collapsible details section.
+        details_html = ""
         charts = []
+        # Separate charts to render them first within the details block
         for i, tool_result in enumerate(data_source):
             if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
                 charts.append((i, tool_result))
         
         for i, chart_result in charts:
+            # Check if the preceding result is the data for this chart
             table_data_result = data_source[i-1] if i > 0 else None
             if table_data_result and isinstance(table_data_result, dict) and "results" in table_data_result:
-                final_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
+                # Render chart with its data table inside a collapsible section
+                details_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
             else:
+                # Render chart standalone if no associated data table is found
                 chart_id = f"chart-render-target-{uuid.uuid4()}"
                 chart_spec_json = json.dumps(chart_result.get("spec", {}))
-                final_html += f"""
+                details_html += f"""
                 <div class="response-card">
                     <div id="{chart_id}" class="chart-render-target" data-spec='{chart_spec_json}'></div>
                 </div>
                 """
                 self.processed_data_indices.add(i)
 
-        # 3. Render all remaining data tables and DDLs last.
+        # Render all remaining data tables and DDLs
         for i, tool_result in enumerate(data_source):
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
@@ -446,11 +464,30 @@ class OutputFormatter:
             tool_name = metadata.get("tool_name")
 
             if tool_name == 'base_tableDDL':
-                final_html += self._render_ddl(tool_result, i)
+                details_html += self._render_ddl(tool_result, i)
             elif "results" in tool_result:
-                 final_html += self._render_table(tool_result, i, tool_name or "Result")
+                 details_html += self._render_table(tool_result, i, tool_name or "Result")
 
-        if not final_html.strip():
-            return "<p>The agent completed its work but did not produce a visible output.</p>"
+        # 4. Wrap the details content in the main collapsible structure.
+        if details_html:
+            final_html += (
+                f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'>"
+                f"<summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Execution Report</summary>"
+                f"<div class='px-4'>{details_html}</div>"
+                f"</details>"
+            )
             
         return final_html
+    # --- MODIFICATION END ---
+
+    def render(self) -> str:
+        """
+        Main rendering method. It now acts as a router, deciding which
+        formatting strategy to use based on the execution type.
+        """
+        # --- MODIFICATION START: Routing logic ---
+        if self.is_workflow:
+            return self._format_workflow_report()
+        else:
+            return self._format_standard_query_report()
+        # --- MODIFICATION END ---
