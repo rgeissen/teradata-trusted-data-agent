@@ -8,12 +8,14 @@ class OutputFormatter:
     Parses raw LLM output and structured tool data to generate professional,
     failure-safe HTML for the UI.
     """
-    def __init__(self, llm_response_text: str, collected_data: list | dict, is_workflow: bool = False, original_user_input: str = None):
+    # --- MODIFICATION START: Refactored constructor for unified workflow ---
+    def __init__(self, llm_response_text: str, collected_data: list | dict, original_user_input: str = None, active_prompt_name: str = None):
         self.raw_summary = llm_response_text
         self.collected_data = collected_data
-        self.is_workflow = is_workflow
         self.original_user_input = original_user_input
+        self.active_prompt_name = active_prompt_name
         self.processed_data_indices = set()
+    # --- MODIFICATION END ---
 
     def _has_renderable_tables(self) -> bool:
         """Checks if there is any data that will be rendered as a table."""
@@ -76,7 +78,6 @@ class OutputFormatter:
         """
         Renders the parsed structured data into its inner HTML format, with enhanced visual hierarchy.
         """
-        # --- MODIFICATION START: Implemented enhanced visual hierarchy ---
         html = f'<p><strong class="text-white">Table Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("table_name", "N/A")}</code></p>'
         html += f'<p><strong class="text-white">Database Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("database_name", "N/A")}</code></p>'
         
@@ -93,7 +94,6 @@ class OutputFormatter:
             html += '</ul>'
 
         return f'<div class="response-card bg-white/5 p-4 rounded-lg mb-4">{html}</div>'
-        # --- MODIFICATION END ---
 
     def _render_standard_markdown(self, text: str) -> str:
         """Renders a block of text by processing standard markdown elements, including nested lists."""
@@ -122,7 +122,7 @@ class OutputFormatter:
 
             if list_item_match:
                 if not list_level_stack or current_indent > list_level_stack[-1]:
-                    html_output.append('<ul class="list-disc list-inside space-y-2 text-gray-300 mb-4 pl-4">')
+                    html_output.append('<ul class="list-disc list-outside space-y-2 text-gray-300 mb-4 pl-5">')
                     list_level_stack.append(current_indent)
                 
                 content = list_item_match.group(2).strip()
@@ -160,7 +160,6 @@ class OutputFormatter:
         """
         clean_summary = self.raw_summary
 
-        # --- PASS 1: Handle structured, workflow-specific formats first ---
         try:
             json_data = json.loads(clean_summary)
             if isinstance(json_data, dict) and ("database_name" in json_data or "table_name" in json_data or "columns" in json_data):
@@ -178,7 +177,6 @@ class OutputFormatter:
         if parsed_data:
             return self._render_structured_report(parsed_data)
 
-        # --- PASS 2: Pre-processing for all text-based summaries ---
         markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
         if markdown_block_match:
             clean_summary = markdown_block_match.group(1).strip()
@@ -191,54 +189,50 @@ class OutputFormatter:
         sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
         clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
         
-        # --- PASS 3: Conditional Rendering based on query type ---
-        if self.is_workflow:
-            return self._render_standard_markdown(clean_summary)
+        summary_to_process = clean_summary
+        if self.original_user_input:
+            question_for_regex = re.escape(self.original_user_input.strip())
+            pattern = re.compile(f"^{question_for_regex}\\s*", re.IGNORECASE)
+            
+            match = pattern.match(summary_to_process)
+            if match:
+                summary_to_process = summary_to_process[match.end():]
+        
+        summary_to_process = summary_to_process.lstrip(': ').strip()
+
+        lines = [line for line in summary_to_process.strip().split('\n') if line.strip()]
+        if not lines:
+            return ""
+
+        direct_answer_text = ""
+        remaining_content = ""
+        
+        first_line = lines[0]
+        heading_match = re.match(r'^(#{1,6})\s+(.*)$', first_line)
+
+        if heading_match and len(lines) > 1:
+            direct_answer_text = lines[1].strip()
+            remaining_content = '\n'.join(lines[2:])
         else:
-            summary_to_process = clean_summary
-            if self.original_user_input:
-                question_for_regex = re.escape(self.original_user_input.strip())
-                pattern = re.compile(f"^{question_for_regex}\\s*", re.IGNORECASE)
-                
-                match = pattern.match(summary_to_process)
-                if match:
-                    summary_to_process = summary_to_process[match.end():]
-            
-            summary_to_process = summary_to_process.lstrip(': ').strip()
+            paragraphs = re.split(r'\n\s*\n', summary_to_process.strip())
+            direct_answer_text = paragraphs[0].strip()
+            remaining_content = '\n\n'.join(paragraphs[1:])
+        
+        def process_inline_markdown(text_content):
+            text_content = text_content.replace(r'\_', '_')
+            text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
+            text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
+            return text_content
 
-            lines = [line for line in summary_to_process.strip().split('\n') if line.strip()]
-            if not lines:
-                return ""
-
-            direct_answer_text = ""
-            remaining_content = ""
-            
-            first_line = lines[0]
-            heading_match = re.match(r'^(#{1,6})\s+(.*)$', first_line)
-
-            if heading_match and len(lines) > 1:
-                direct_answer_text = lines[1].strip()
-                remaining_content = '\n'.join(lines[2:])
-            else:
-                paragraphs = re.split(r'\n\s*\n', summary_to_process.strip())
-                direct_answer_text = paragraphs[0].strip()
-                remaining_content = '\n\n'.join(paragraphs[1:])
-            
-            def process_inline_markdown(text_content):
-                text_content = text_content.replace(r'\_', '_')
-                text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
-                text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
-                return text_content
-
-            styled_answer = f'<p class="text-lg font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
-            remaining_html = self._render_standard_markdown(remaining_content)
-            
-            final_html = styled_answer
-            if remaining_html and remaining_html.strip():
-                final_html += '<hr class="border-gray-600 my-4">'
-                final_html += remaining_html
-            
-            return final_html
+        styled_answer = f'<p class="text-lg font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
+        remaining_html = self._render_standard_markdown(remaining_content)
+        
+        final_html = styled_answer
+        if remaining_html and remaining_html.strip():
+            final_html += '<hr class="border-gray-600 my-4">'
+            final_html += remaining_html
+        
+        return final_html
 
     def _render_ddl(self, tool_result: dict, index: int) -> str:
         if not isinstance(tool_result, dict) or "results" not in tool_result: return ""
@@ -473,7 +467,9 @@ class OutputFormatter:
         Main rendering method. It now acts as a router, deciding which
         formatting strategy to use based on the execution type.
         """
-        if self.is_workflow:
+        # --- MODIFICATION START: Refactored to use active_prompt_name for routing ---
+        if self.active_prompt_name:
             return self._format_workflow_report()
         else:
             return self._format_standard_query_report()
+        # --- MODIFICATION END ---

@@ -461,7 +461,6 @@ class PlanExecutor:
             self.last_action_str = None
             break
 
-    # --- MODIFICATION START: Generalized orchestrators to run for all workflows ---
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
         """
         A wrapper that runs pre-flight checks (orchestrators) before executing a tool.
@@ -471,7 +470,6 @@ class PlanExecutor:
         if not tool_name:
             raise ValueError("Action from tactical LLM is missing a 'tool_name'.")
 
-        # Check for date range queries that need orchestration.
         is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
         if is_range_candidate and not tool_supports_range:
             async for event in self._classify_date_query_type(): yield event
@@ -480,7 +478,6 @@ class PlanExecutor:
                     yield event
                 return
 
-        # Check for column-level tools that need iterative execution.
         tool_scope = self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name)
         has_column_arg = "column_name" in action.get("arguments", {})
         if tool_scope == 'column' and not has_column_arg:
@@ -488,10 +485,8 @@ class PlanExecutor:
                  yield event
              return
         
-        # If no orchestrator is triggered, proceed with the standard tool execution.
         async for event in self._execute_tool(action, phase):
             yield event
-    # --- MODIFICATION END ---
 
     async def _execute_tool(self, action: dict, phase: dict):
         """Executes a single tool call."""
@@ -680,6 +675,7 @@ class PlanExecutor:
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
+    # --- MODIFICATION START: Refactored to align with new OutputFormatter constructor ---
     async def _generate_final_summary(self):
         """
         Generates the final summary using a universal, parameterized CoreLLMTask.
@@ -731,13 +727,15 @@ class PlanExecutor:
         formatter = OutputFormatter(
             llm_response_text=clean_summary,
             collected_data=final_collected_data,
-            original_user_input=self.original_user_input
+            original_user_input=self.original_user_input,
+            active_prompt_name=self.active_prompt_name
         )
         final_html = formatter.render()
         
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
+    # --- MODIFICATION END ---
 
     def _prepare_data_for_final_summary(self) -> str:
         """Prepares all collected data for the final summarization prompt."""
