@@ -518,9 +518,10 @@ async def configure_services():
 
         return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
 
+# --- MODIFICATION START: Refactored to use the unified PlanExecutor constructor ---
 @api_bp.route("/ask_stream", methods=["POST"])
 async def ask_stream():
-    """Handles the main chat conversation stream."""
+    """Handles the main chat conversation stream for ad-hoc user queries."""
     data = await request.get_json()
     user_input = data.get("message")
     session_id = data.get("session_id")
@@ -545,6 +546,7 @@ async def ask_stream():
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
             
+            # Use the unified constructor for an ad-hoc workflow.
             executor = PlanExecutor(
                 session_id=session_id, 
                 original_user_input=user_input, 
@@ -557,12 +559,11 @@ async def ask_stream():
             app_logger.error(f"An unhandled error occurred in /ask_stream: {e}", exc_info=True)
             yield PlanExecutor._format_sse({"error": "An unexpected server error occurred.", "details": str(e)}, "error")
         
-
     return Response(stream_generator(), mimetype="text/event-stream")
 
 @api_bp.route("/invoke_prompt_stream", methods=["POST"])
 async def invoke_prompt_stream():
-    """Handles the direct invocation of a prompt from the UI."""
+    """Handles the direct invocation of a prompt from the UI, creating a prompt-driven workflow."""
     data = await request.get_json()
     session_id = data.get("session_id")
     prompt_name = data.get("prompt_name")
@@ -579,17 +580,14 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
         try:
-            # --- FIX: Align with the new PlanExecutor constructor ---
+            # Use the unified constructor, passing prompt info directly.
             executor = PlanExecutor(
                 session_id=session_id, 
                 original_user_input=user_input, 
-                dependencies={'STATE': STATE}
+                dependencies={'STATE': STATE},
+                active_prompt_name=prompt_name,
+                prompt_arguments=arguments
             )
-            # Manually set the workflow context for the executor
-            executor.is_workflow = True
-            executor.active_prompt_name = prompt_name
-            executor.prompt_arguments = arguments
-
             async for event in executor.run():
                 yield event
         except Exception as e:
@@ -597,3 +595,4 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
 
     return Response(stream_generator(), mimetype="text/event-stream")
+# --- MODIFICATION END ---
