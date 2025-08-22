@@ -566,12 +566,15 @@ class PlanExecutor:
                  normalized_action["tool_name"] = list(action_details.keys())[0]
                  normalized_action["arguments"] = list(action_details.values())[0]
 
+            # --- MODIFICATION START ---
             if not normalized_action.get("tool_name") and len(relevant_tools) == 1:
                 normalized_action["tool_name"] = relevant_tools[0]
                 self.events_to_yield.append(self._format_sse({
                     "step": "System Correction", "type": "workaround",
+                    "correction_type": "inferred_tool_name",
                     "details": f"LLM omitted tool_name. System inferred '{relevant_tools[0]}'."
                 }))
+            # --- MODIFICATION END ---
             
             if not normalized_action.get("tool_name"):
                  raise ValueError("Could not determine tool_name from LLM response.")
@@ -673,7 +676,6 @@ class PlanExecutor:
         clean_summary = final_summary_text.replace("FINAL_ANSWER:", "").strip() or "The agent has completed its work."
         yield self._format_sse({"step": "LLM has generated the final answer", "details": clean_summary}, "llm_thought")
 
-        # --- MODIFICATION: Pass the original user input to the formatter ---
         formatter = OutputFormatter(
             llm_response_text=clean_summary,
             collected_data=final_collected_data,
@@ -737,11 +739,14 @@ class PlanExecutor:
             
             if arg_name in enriched_args:
                 app_logger.info(f"Inferred '{arg_name}' from history: '{enriched_args[arg_name]}'")
+                # --- MODIFICATION START ---
                 events_to_yield.append(self._format_sse({
                     "step": "System Correction",
                     "details": f"LLM omitted '{arg_name}'. System inferred it from history.",
-                    "type": "workaround"
+                    "type": "workaround",
+                    "correction_type": "inferred_argument"
                 }))
+                # --- MODIFICATION END ---
 
         return enriched_args, events_to_yield
 
