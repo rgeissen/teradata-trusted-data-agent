@@ -95,6 +95,13 @@ class PlanExecutor:
         
         self.llm_debug_history = []
         self.max_steps = 40
+        
+        # --- MODIFICATION: Load persistent context from the session ---
+        self.known_entities = {}
+        session_data = session_manager.get_session(self.session_id)
+        if session_data:
+            self.known_entities = session_data.get("known_entities", {}).copy()
+
 
     @staticmethod
     def _format_sse(data: dict, event: str = None) -> str:
@@ -128,6 +135,7 @@ class PlanExecutor:
 
     async def run(self):
         """The main, unified execution loop for the agent."""
+        # --- MODIFICATION START: Wrap execution to save context at the end ---
         try:
             if self.state == self.AgentState.PLANNING:
                 async for event in self._generate_meta_plan(): yield event
@@ -144,25 +152,33 @@ class PlanExecutor:
             app_logger.error(f"Error in state {self.state.name}: {root_exception}", exc_info=True)
             self.state = self.AgentState.ERROR
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
+        finally:
+            # Persist the final state of known entities to the session for the next turn.
+            _, final_known_entities_str = self._create_optimized_context()
+            final_known_entities = json.loads(final_known_entities_str)
+            session_manager.update_session_known_entities(self.session_id, final_known_entities)
+            app_logger.info(f"Saved final known entities to session {self.session_id}: {final_known_entities_str}")
+        # --- MODIFICATION END ---
 
-    # --- NEW: Centralized, token-efficient context optimization engine ---
+
     def _create_optimized_context(self) -> tuple[str, str]:
         """
         Creates a token-efficient, high-signal context summary for the planner by
-        summarizing past results and explicitly extracting known entities.
+        summarizing past results and explicitly extracting known entities from both
+        the current turn's history and the persistent session context.
         """
         optimized_history = []
-        known_entities = {}
+        # --- MODIFICATION: Start with entities from session, then update with current turn's history ---
+        known_entities = self.known_entities.copy()
         
         for entry in self.action_history:
             action = entry.get("action", {})
             result = entry.get("result", {})
             
-            # Summarize the result to save tokens
             result_summary = {}
             if isinstance(result, dict):
                 result_summary['status'] = result.get('status')
-                metadata = result.get('metadata', {})
+                metadata = result.get("metadata", {})
                 if 'row_count' in metadata:
                     result_summary['row_count'] = metadata['row_count']
                 if 'columns' in metadata:
@@ -175,7 +191,6 @@ class PlanExecutor:
                 "result_summary": result_summary
             })
 
-            # Extract entities from successful actions
             if result_summary.get('status') == 'success':
                 args = action.get("arguments", {})
                 if 'database_name' in args:
@@ -183,11 +198,17 @@ class PlanExecutor:
                 if 'table_name' in args:
                     known_entities['table_name'] = args['table_name']
                 
-                # Extract discovered table names from results
                 if result_summary.get('columns') == ['TableName'] and 'results' in result:
                     table_names = [row.get('TableName') for row in result.get('results', []) if row.get('TableName')]
                     if table_names:
-                        known_entities['table_names_discovered'] = table_names
+                        # --- MODIFICATION: Append to existing list if present, otherwise create new list ---
+                        if 'table_names_discovered' in known_entities and isinstance(known_entities['table_names_discovered'], list):
+                             existing_tables = set(known_entities['table_names_discovered'])
+                             for t in table_names: existing_tables.add(t)
+                             known_entities['table_names_discovered'] = sorted(list(existing_tables))
+                        else:
+                             known_entities['table_names_discovered'] = sorted(table_names)
+
 
         return json.dumps(optimized_history, indent=2), json.dumps(known_entities, indent=2)
 
@@ -225,7 +246,6 @@ class PlanExecutor:
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
-        # --- MODIFICATION: Use the new context optimization engine ---
         optimized_history_str, known_entities_str = self._create_optimized_context()
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
@@ -471,12 +491,10 @@ class PlanExecutor:
             async for event in self._execute_action_with_orchestrators(next_action, phase):
                 yield event
             
-            # If the last tool call was successful, break the retry loop and proceed
             if self.last_tool_output and isinstance(self.last_tool_output, dict) and self.last_tool_output.get("status") == "success":
                 self.last_action_str = None
                 break
             else:
-                # If it failed, the loop will continue to the next attempt
                 app_logger.warning(f"Action failed. Attempt {phase_attempts}/{max_phase_attempts} for phase.")
 
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
@@ -506,7 +524,6 @@ class PlanExecutor:
         async for event in self._execute_tool(action, phase):
             yield event
 
-    # --- MODIFICATION START: Implement centralized retry and recovery logic ---
     async def _execute_tool(self, action: dict, phase: dict, is_fast_path: bool = False):
         """Executes a single tool call with a built-in retry and recovery mechanism."""
         tool_name = action.get("tool_name")
@@ -551,7 +568,7 @@ class PlanExecutor:
             else:
                 if not is_fast_path:
                     yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
-                break # Break on success
+                break 
         
         if not is_fast_path:
             self.action_history.append({"action": action, "result": self.last_tool_output})
@@ -559,7 +576,6 @@ class PlanExecutor:
             phase_result_key = f"result_of_phase_{phase_num}"
             self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
             self._add_to_structured_data(self.last_tool_output)
-    # --- MODIFICATION END ---
 
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
@@ -614,7 +630,6 @@ class PlanExecutor:
                     f"- Your task is to process this single item next: {json.dumps(next_item)}\n"
                 )
 
-        # --- MODIFICATION START: Added placeholder for context enrichment ---
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
@@ -625,7 +640,6 @@ class PlanExecutor:
             loop_context_section=loop_context_section,
             context_enrichment_section=context_enrichment_section
         )
-        # --- MODIFICATION END ---
 
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt="Determine the next action based on the instructions and state provided in the system prompt.",
@@ -809,7 +823,6 @@ class PlanExecutor:
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
-    # --- NEW: Centralized, argument-driven context enrichment engine ---
     def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list]:
         """
         Scans conversation history to find missing arguments for a tool or prompt call.
@@ -821,7 +834,7 @@ class PlanExecutor:
         arg_type = "prompt" if is_prompt else "tool"
         known_args_for_type = self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get(arg_type, [])
         
-        args_to_find = {arg for arg in required_args if arg not in enriched_args and arg in known_args_for_type}
+        args_to_find = {arg for arg in required_args if (arg not in enriched_args or enriched_args.get(arg) is None) and arg in known_args_for_type}
         if not args_to_find:
             return enriched_args, events_to_yield
 
@@ -829,21 +842,17 @@ class PlanExecutor:
         if not session_data:
             return enriched_args, events_to_yield
 
-        # Scan previous tool calls and their metadata for argument values
         for entry in reversed(self.action_history):
             if not args_to_find: break
             
-            # Check arguments of the action itself
             action_args = entry.get("action", {}).get("arguments", {})
             for arg_name in list(args_to_find):
                 if arg_name in action_args and action_args[arg_name] is not None:
                     enriched_args[arg_name] = action_args[arg_name]
                     args_to_find.remove(arg_name)
 
-            # Check metadata of the result
             result_metadata = entry.get("result", {}).get("metadata", {})
             if result_metadata:
-                 # Create a mapping for metadata keys to argument names
                 metadata_to_arg_map = {
                     "database": "database_name",
                     "table": "table_name",
@@ -854,7 +863,6 @@ class PlanExecutor:
                         enriched_args[arg_name] = result_metadata[meta_key]
                         args_to_find.remove(arg_name)
         
-        # Create user-facing notifications for any inferred arguments
         if enriched_args and (not current_args or enriched_args != current_args):
             for arg_name, value in enriched_args.items():
                 if not current_args or arg_name not in current_args:
@@ -956,7 +964,6 @@ class PlanExecutor:
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"LLM-based recovery failed. The LLM did not return a valid new plan. Response: {response_text}. Error: {e}")
 
-    # --- NEW: Centralized function for deterministic and LLM-based self-correction ---
     async def _attempt_tool_self_correction(self, failed_action: dict, error_result: dict) -> tuple[dict | None, list]:
         """
         Attempts to correct a failed tool call, first deterministically, then with an LLM.
@@ -967,7 +974,6 @@ class PlanExecutor:
         if not tool_def:
             return None, events
 
-        # 1. Deterministic Correction: Check for missing arguments we can fill from history
         required_args = {name for name, details in (tool_def.args.items() if hasattr(tool_def, 'args') and isinstance(tool_def.args, dict) else {}) if details.get('required')}
         
         current_args = failed_action.get("arguments", {})
@@ -980,7 +986,6 @@ class PlanExecutor:
             events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Deterministically corrected missing arguments. Retrying tool."}))
             return corrected_action, events
 
-        # 2. Non-Deterministic (LLM) Correction
         history_context, _ = self._enrich_arguments_from_history(set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', [])))
         
         session_data = session_manager.get_session(self.session_id)
@@ -994,12 +999,21 @@ class PlanExecutor:
             full_history=json.dumps(full_history)
         )
         
-        corrected_args_str, _, _ = await self._call_llm_and_update_tokens(
+        corrected_args_str, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=correction_prompt,
             reason=f"Self-correcting failed tool call for {tool_name}",
             system_prompt_override="You are a JSON-only responding assistant.",
             raise_on_error=False
         )
+        
+        updated_session = session_manager.get_session(self.session_id)
+        if updated_session:
+            events.append(self._format_sse({
+                "statement_input": input_tokens, 
+                "statement_output": output_tokens, 
+                "total_input": updated_session.get("input_tokens", 0), 
+                "total_output": updated_session.get("output_tokens", 0)
+            }, "token_update"))
         
         try:
             json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", corrected_args_str, re.DOTALL)

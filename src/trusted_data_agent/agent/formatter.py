@@ -9,7 +9,9 @@ class OutputFormatter:
     failure-safe HTML for the UI.
     """
     def __init__(self, llm_response_text: str, collected_data: list | dict, original_user_input: str = None, active_prompt_name: str = None):
+        # --- MODIFICATION START: Corrected typo from ll_response_text to llm_response_text ---
         self.raw_summary = llm_response_text
+        # --- MODIFICATION END ---
         self.collected_data = collected_data
         self.original_user_input = original_user_input
         self.active_prompt_name = active_prompt_name
@@ -76,10 +78,8 @@ class OutputFormatter:
         """
         Renders the parsed structured data into its inner HTML format, with enhanced visual hierarchy.
         """
-        # --- MODIFICATION START: Corrected styling to use standard Tailwind class ---
         html = f'<p><strong class="text-white">Table Name:</strong> <code class="text-orange-500 font-bold font-mono text-sm">{data.get("table_name", "N/A")}</code></p>'
         html += f'<p><strong class="text-white">Database Name:</strong> <code class="text-orange-500 font-bold font-mono text-sm">{data.get("database_name", "N/A")}</code></p>'
-        # --- MODIFICATION END ---
         
         description = data.get("description", "No description provided.")
         if description:
@@ -156,26 +156,10 @@ class OutputFormatter:
         """
         Cleans the LLM's summary text, applying special formatting for simple
         queries to emphasize the direct answer, while being robust to different
-        LLM provider outputs.
+        LLM provider outputs. This method is now intended for non-structured,
+        ad-hoc query summaries.
         """
         clean_summary = self.raw_summary
-
-        try:
-            json_data = json.loads(clean_summary)
-            if isinstance(json_data, dict) and ("database_name" in json_data or "table_name" in json_data or "columns" in json_data):
-                parsed_data = { "database_name": json_data.get("database_name"), "table_name": json_data.get("table_name"), "description": json_data.get("description"), "columns": [] }
-                if "columns" in json_data and isinstance(json_data["columns"], list):
-                    for col_entry in json_data["columns"]:
-                        if isinstance(col_entry, dict):
-                            for col_name, col_desc in col_entry.items():
-                                parsed_data["columns"].append({"name": col_name, "description": col_desc})
-                return self._render_structured_report(parsed_data)
-        except json.JSONDecodeError:
-            pass
-
-        parsed_data = self._parse_structured_markdown(clean_summary)
-        if parsed_data:
-            return self._render_structured_report(parsed_data)
 
         markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
         if markdown_block_match:
@@ -350,9 +334,16 @@ class OutputFormatter:
     def _format_workflow_report(self) -> str:
         """
         A specialized formatter to render the results of a multi-step workflow
-        that produces structured, grouped data.
+        that produces structured, grouped data. This is the only path that should
+        attempt to render a special "structured report" from the LLM summary.
         """
-        sanitized_summary = self._sanitize_summary()
+        sanitized_summary = ""
+        parsed_data = self._parse_structured_markdown(self.raw_summary)
+        if parsed_data:
+            sanitized_summary = self._render_structured_report(parsed_data)
+        else:
+            sanitized_summary = self._sanitize_summary()
+
         html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
         
         if isinstance(self.collected_data, dict) and self.collected_data:

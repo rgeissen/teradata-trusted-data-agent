@@ -71,6 +71,7 @@ const chartingIntensitySelect = document.getElementById('charting-intensity');
 
 const teradataStatusDot = document.getElementById('teradata-status-dot');
 const llmStatusDot = document.getElementById('llm-status-dot');
+const contextStatusDot = document.getElementById('context-status-dot');
 
 const windowMenuButton = document.getElementById('window-menu-button');
 const windowDropdownMenu = document.getElementById('window-dropdown-menu');
@@ -127,6 +128,9 @@ let mouseMoveHandler = null;
 let pristineConfig = {};
 let isMouseOverStatus = false;
 let isInFastPath = false;
+
+let mcpIndicatorTimeout = null;
+let contextIndicatorTimeout = null;
 
 let defaultPromptsCache = {};
 
@@ -402,6 +406,15 @@ function updateStatusWindow(eventData, isFinal = false) {
 
     if (type === 'workaround') {
         stepEl.classList.add('workaround');
+        if (eventData.correction_type === 'inferred_argument') {
+            if (contextIndicatorTimeout) clearTimeout(contextIndicatorTimeout);
+            contextStatusDot.classList.add('context-active');
+            contextStatusDot.classList.remove('idle');
+            contextIndicatorTimeout = setTimeout(() => {
+                contextStatusDot.classList.remove('context-active');
+                contextStatusDot.classList.add('idle');
+            }, 150);
+        }
     } else if (type === 'error') {
         stepEl.classList.add('error');
     } else if (isInFastPath) {
@@ -532,13 +545,23 @@ async function startStream(endpoint, body) {
                         const dot = target === 'db' ? teradataStatusDot : llmStatusDot;
                         if (dot) {
                             if (state === 'busy') {
-                                dot.classList.add('busy');
-                                dot.classList.remove('idle', 'connected', 'disconnected');
-                            } else { // idle
-                                dot.classList.remove('busy');
                                 if (target === 'db') {
-                                    dot.classList.add('connected');
+                                    if (mcpIndicatorTimeout) clearTimeout(mcpIndicatorTimeout);
+                                    dot.classList.add('busy');
+                                    dot.classList.remove('idle', 'connected');
                                 } else {
+                                    dot.classList.add('busy');
+                                    dot.classList.remove('idle', 'connected');
+                                }
+                            } else { // idle
+                                if (target === 'db') {
+                                    if (mcpIndicatorTimeout) clearTimeout(mcpIndicatorTimeout);
+                                    mcpIndicatorTimeout = setTimeout(() => {
+                                        dot.classList.remove('busy');
+                                        dot.classList.add('connected');
+                                    }, 150);
+                                } else {
+                                    dot.classList.remove('busy');
                                     dot.classList.add('idle');
                                 }
                             }
@@ -1430,6 +1453,8 @@ configForm.addEventListener('submit', async (e) => {
             teradataStatusDot.classList.add('connected');
             llmStatusDot.classList.remove('disconnected', 'busy');
             llmStatusDot.classList.add('connected');
+            contextStatusDot.classList.remove('disconnected');
+            contextStatusDot.classList.add('idle');
 
             localStorage.setItem('lastSelectedProvider', config.provider);
 
@@ -1471,6 +1496,8 @@ configForm.addEventListener('submit', async (e) => {
         teradataStatusDot.classList.remove('connected');
         llmStatusDot.classList.add('disconnected');
         llmStatusDot.classList.remove('connected', 'idle');
+        contextStatusDot.classList.add('disconnected');
+        contextStatusDot.classList.remove('idle', 'context-active');
     } finally {
         configLoadingSpinner.classList.add('hidden');
         configActionButton.disabled = false;

@@ -297,11 +297,12 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
 @keyframes blink {
     50% { background-color: #facc15; box-shadow: 0 0 8px #facc15; } /* yellow-400 */
 }
+
 .connection-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+    transition: background-color 1s ease-in-out, box-shadow 1s ease-in-out;
 }
 .connection-dot.disconnected {
     background-color: #ef4444; /* red-500 */
@@ -311,9 +312,15 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     box-shadow: 0 0 8px #10b981;
 }
 .connection-dot.idle {
-    background-color: #6b7280; /* gray-500 */
-    box-shadow: none;
+    background-color: #10b981; /* green-500 */
+    box-shadow: 0 0 8px #10b981;
 }
 .connection-dot.busy {
+    background-color: #facc15; /* yellow-400 */
+    box-shadow: 0 0 8px #facc15;
     animation: blink 1s infinite;
+}
+.connection-dot.context-active {
+    background-color: #8B5CF6; /* purple-500 */
+    box-shadow: 0 0 8px #8B5CF6;
 }
