@@ -28,7 +28,7 @@ async def execute_date_range_orchestrator(executor, command: dict, date_param_na
 
     # Get the current date to resolve relative phrases like "yesterday"
     date_command = {"tool_name": "util_getCurrentDate"}
-    date_result = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], date_command)
+    date_result, _, _ = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], date_command)
     if not (date_result and date_result.get("status") == "success" and date_result.get("results")):
         raise RuntimeError("Date Range Orchestrator failed to fetch current date.")
     current_date_str = date_result["results"][0].get("current_date")
@@ -41,10 +41,12 @@ async def execute_date_range_orchestrator(executor, command: dict, date_param_na
     )
     reason = "Calculating date range."
     yield _format_sse({"step": "Calling LLM", "details": reason})
+    yield _format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
     range_response_str, _, _ = await executor._call_llm_and_update_tokens(
         prompt=conversion_prompt, reason=reason,
         system_prompt_override="You are a JSON-only responding assistant.", raise_on_error=True
     )
+    yield _format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
     
     try:
         range_data = json.loads(range_response_str)
@@ -62,7 +64,7 @@ async def execute_date_range_orchestrator(executor, command: dict, date_param_na
         yield _format_sse({"step": f"Processing data for: {date_str}"})
         
         day_command = {**command, 'arguments': {**command['arguments'], date_param_name: date_str}}
-        day_result = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], day_command)
+        day_result, _, _ = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], day_command)
         
         if isinstance(day_result, dict) and day_result.get("status") == "success" and day_result.get("results"):
             all_results.extend(day_result["results"])
@@ -90,7 +92,7 @@ async def execute_column_iteration(executor, command: dict):
     # First, get the list of all columns for the target table
     cols_command = {"tool_name": "base_columnDescription", "arguments": {"database_name": db_name, "table_name": table_name}}
     yield _format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
-    cols_result = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], cols_command)
+    cols_result, _, _ = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], cols_command)
     yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
     
     if not (cols_result and isinstance(cols_result, dict) and cols_result.get('status') == 'success' and cols_result.get('results')):
@@ -99,8 +101,11 @@ async def execute_column_iteration(executor, command: dict):
     all_columns_metadata = cols_result.get('results', [])
     all_column_results = [cols_result]
     
-    # Get constraints for the tool (e.g., does it require numeric columns?)
+    # --- MODIFICATION START: Add LLM indicator events ---
+    yield _format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
     tool_constraints = await executor._get_tool_constraints(tool_name)
+    yield _format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
+    # --- MODIFICATION END ---
     required_type = tool_constraints.get("dataType") if tool_constraints else None
     
     # Loop through each column and execute the tool
@@ -121,7 +126,7 @@ async def execute_column_iteration(executor, command: dict):
                 continue
 
         iter_command = {"tool_name": tool_name, "arguments": {**base_args, 'column_name': column_name}}
-        col_result = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], iter_command)
+        col_result, _, _ = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], iter_command)
         all_column_results.append(col_result)
     yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
 
@@ -162,10 +167,12 @@ async def execute_hallucinated_loop(executor, phase: dict):
     )
     reason = "Semantically analyzing hallucinated loop items."
     yield _format_sse({"step": "Calling LLM", "details": reason})
+    yield _format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
     response_str, _, _ = await executor._call_llm_and_update_tokens(
         prompt=semantic_prompt, reason=reason,
         system_prompt_override="You are a JSON-only responding assistant.", raise_on_error=True
     )
+    yield _format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
     
     try:
         semantic_data = json.loads(response_str)
@@ -181,10 +188,9 @@ async def execute_hallucinated_loop(executor, phase: dict):
     for item in hallucinated_items:
         yield _format_sse({"step": f"Processing item: {item}"})
         command = {"tool_name": tool_name, "arguments": {argument_name: item}}
-        result = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], command)
+        result, _, _ = await mcp_adapter.invoke_mcp_tool(executor.dependencies['STATE'], command)
         all_results.append(result)
     yield _format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
 
     executor._add_to_structured_data(all_results)
     executor.last_tool_output = {"metadata": {"tool_name": tool_name}, "results": all_results, "status": "success"}
-

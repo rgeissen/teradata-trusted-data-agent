@@ -153,7 +153,6 @@ class PlanExecutor:
             session_manager.update_session_known_entities(self.session_id, final_known_entities)
             app_logger.info(f"Saved final known entities to session {self.session_id}: {final_known_entities_str}")
 
-
     def _create_optimized_context(self) -> tuple[str, str]:
         """
         Creates a token-efficient, high-signal context summary for the planner by
@@ -163,6 +162,10 @@ class PlanExecutor:
         optimized_history = []
         known_entities = self.known_entities.copy()
         
+        # Use sets to efficiently collect unique discovered entities
+        all_known_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
+        discovered_entities = {key: set(value) for key, value in known_entities.items() if isinstance(value, list)}
+
         for entry in self.action_history:
             action = entry.get("action", {})
             result = entry.get("result", {})
@@ -184,22 +187,26 @@ class PlanExecutor:
             })
 
             if result_summary.get('status') == 'success':
+                # 1. Extract entities from tool arguments dynamically
                 args = action.get("arguments", {})
-                if 'database_name' in args:
-                    known_entities['database_name'] = args['database_name']
-                if 'table_name' in args:
-                    known_entities['table_name'] = args['table_name']
-                
-                if result_summary.get('columns') == ['TableName'] and 'results' in result:
-                    table_names = [row.get('TableName') for row in result.get('results', []) if row.get('TableName')]
-                    if table_names:
-                        if 'table_names_discovered' in known_entities and isinstance(known_entities['table_names_discovered'], list):
-                             existing_tables = set(known_entities['table_names_discovered'])
-                             for t in table_names: existing_tables.add(t)
-                             known_entities['table_names_discovered'] = sorted(list(existing_tables))
-                        else:
-                             known_entities['table_names_discovered'] = sorted(table_names)
+                for arg_name, arg_value in args.items():
+                    if arg_name in all_known_args and arg_value:
+                        known_entities[arg_name] = arg_value # Set as "active" entity
 
+                # 2. Extract entities from tool results (semi-scalable)
+                result_data = entry.get("result", {})
+                if 'results' in result_data and isinstance(result_data.get('results'), list):
+                    for row in result_data['results']:
+                        if isinstance(row, dict):
+                            # Hardcoded for now, but extensible for other common entity types
+                            if 'DatabaseName' in row and row['DatabaseName']:
+                                discovered_entities.setdefault('databases_discovered', set()).add(row['DatabaseName'])
+                            if 'TableName' in row and row['TableName']:
+                                discovered_entities.setdefault('table_names_discovered', set()).add(row['TableName'])
+
+        # Update the known_entities map with the full lists of discovered items
+        for key, value_set in discovered_entities.items():
+            known_entities[key] = sorted(list(value_set))
 
         return json.dumps(optimized_history, indent=2), json.dumps(known_entities, indent=2)
 
@@ -213,9 +220,11 @@ class PlanExecutor:
             prompt_def = self.dependencies['STATE'].get('mcp_prompts', {}).get(self.active_prompt_name)
             required_args = {arg.name for arg in prompt_def.arguments} if prompt_def and hasattr(prompt_def, 'arguments') else set()
             
-            yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
-            yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
-            enriched_args, enrich_events = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
+            enriched_args, enrich_events, was_enriched = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
+            if was_enriched:
+                yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
+                yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
+
             for event in enrich_events:
                 yield event
             self.prompt_arguments = enriched_args
@@ -472,11 +481,18 @@ class PlanExecutor:
                     yield event
                 return 
 
-            yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
-            yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
+            enriched_args, enrich_events, was_enriched = self._get_required_args_and_enrich(relevant_tools)
+            if was_enriched:
+                yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
+                yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
             
+            for event in enrich_events:
+                self.events_to_yield.append(event)
+
             yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
-            next_action, input_tokens, output_tokens = await self._get_next_tactical_action(phase_goal, relevant_tools)
+            next_action, input_tokens, output_tokens = await self._get_next_tactical_action(
+                phase_goal, relevant_tools, enriched_args
+            )
             yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
             
             current_action_str = json.dumps(next_action, sort_keys=True)
@@ -616,13 +632,25 @@ class PlanExecutor:
             self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
             self._add_to_structured_data(self.last_tool_output)
 
-    async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
+    def _get_required_args_and_enrich(self, relevant_tools: list[str]) -> tuple[dict, list, bool]:
+        """Helper to centralize getting required args and enriching them."""
+        all_tools = self.dependencies['STATE'].get('mcp_tools', {})
+        required_args_for_phase = set()
+        for tool_name in relevant_tools:
+            tool = all_tools.get(tool_name)
+            if not tool: continue
+            args_dict = tool.args if isinstance(tool.args, dict) else {}
+            for arg_name, arg_details in args_dict.items():
+                if arg_details.get('required', False):
+                    required_args_for_phase.add(arg_name)
+        
+        return self._enrich_arguments_from_history(required_args_for_phase)
+
+    async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str], enriched_args: dict) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
         
         permitted_tools_with_details = ""
         all_tools = self.dependencies['STATE'].get('mcp_tools', {})
-        
-        required_args_for_phase = set()
         
         for tool_name in relevant_tools:
             tool = all_tools.get(tool_name)
@@ -635,18 +663,11 @@ class PlanExecutor:
                 tool_str += "\n  - Arguments:"
                 for arg_name, arg_details in args_dict.items():
                     is_required = arg_details.get('required', False)
-                    if is_required:
-                        required_args_for_phase.add(arg_name)
-                    
                     arg_type = arg_details.get('type', 'any')
                     req_str = "required" if is_required else "optional"
                     arg_desc = arg_details.get('description', 'No description.')
                     tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
             permitted_tools_with_details += tool_str + "\n"
-
-        enriched_args, enrich_events = self._enrich_arguments_from_history(required_args_for_phase)
-        for event in enrich_events:
-            self.events_to_yield.append(event)
         
         context_enrichment_section = ""
         if enriched_args:
@@ -778,7 +799,7 @@ class PlanExecutor:
         if updated_session:
             yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
         try:
-            self.temp_data_holder = json.loads(response_text)
+            self.temp_data_holder = json.loads(response_str)
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
@@ -869,24 +890,26 @@ class PlanExecutor:
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
-    def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list]:
+    def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list, bool]:
         """
         Scans conversation history to find missing arguments for a tool or prompt call.
         This is a deterministic way to provide context to the LLM.
+        Returns the enriched args, any UI events, and a boolean indicating if work was done.
         """
         events_to_yield = []
-        enriched_args = current_args.copy() if current_args else {}
+        initial_args = current_args.copy() if current_args else {}
+        enriched_args = initial_args.copy()
         
         arg_type = "prompt" if is_prompt else "tool"
         known_args_for_type = self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get(arg_type, [])
         
         args_to_find = {arg for arg in required_args if (arg not in enriched_args or enriched_args.get(arg) is None) and arg in known_args_for_type}
         if not args_to_find:
-            return enriched_args, events_to_yield
+            return enriched_args, [], False
 
         session_data = session_manager.get_session(self.session_id)
         if not session_data:
-            return enriched_args, events_to_yield
+            return enriched_args, [], False
 
         for entry in reversed(self.action_history):
             if not args_to_find: break
@@ -911,9 +934,10 @@ class PlanExecutor:
                             enriched_args[arg_name] = result_metadata[meta_key]
                             args_to_find.remove(arg_name)
         
-        if enriched_args and (not current_args or enriched_args != current_args):
+        was_enriched = enriched_args != initial_args
+        if was_enriched:
             for arg_name, value in enriched_args.items():
-                if not current_args or arg_name not in current_args:
+                if arg_name not in initial_args:
                     app_logger.info(f"Proactively inferred '{arg_name}' from history: '{value}'")
                     events_to_yield.append(self._format_sse({
                         "step": "System Correction",
@@ -922,7 +946,7 @@ class PlanExecutor:
                         "correction_type": "inferred_argument"
                     }))
 
-        return enriched_args, events_to_yield
+        return enriched_args, events_to_yield, was_enriched
 
     async def _get_tool_constraints(self, tool_name: str) -> dict:
         """Uses an LLM to determine if a tool requires numeric or character columns."""
@@ -1028,9 +1052,10 @@ class PlanExecutor:
         
         current_args = failed_action.get("arguments", {})
         
-        events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
-        events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
-        enriched_args, enrich_events = self._enrich_arguments_from_history(required_args, current_args)
+        enriched_args, enrich_events, was_enriched = self._enrich_arguments_from_history(required_args, current_args)
+        if was_enriched:
+            events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
+            events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
         events.extend(enrich_events)
         
         if enriched_args != current_args and all(arg in enriched_args for arg in required_args):
@@ -1038,10 +1063,11 @@ class PlanExecutor:
             events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Deterministically corrected missing arguments. Retrying tool."}))
             return corrected_action, events
 
-        events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
-        events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
-        history_context, _ = self._enrich_arguments_from_history(set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', [])))
-        
+        history_context, _, was_enriched = self._enrich_arguments_from_history(set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', [])))
+        if was_enriched:
+            events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
+            events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
+
         session_data = session_manager.get_session(self.session_id)
         full_history = session_data.get("generic_history", []) if session_data else []
 
