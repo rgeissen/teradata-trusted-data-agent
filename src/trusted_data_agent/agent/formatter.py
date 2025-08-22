@@ -87,51 +87,9 @@ class OutputFormatter:
 
         return html
 
-    def _sanitize_summary(self) -> str:
-        """
-        Cleans the LLM's summary text using a hybrid, multi-pass strategy.
-        It first checks for workflow-specific formats and falls back to a
-        robust, line-by-line markdown parser for simple queries.
-        """
-        clean_summary = self.raw_summary
-
-        # --- PASS 1: Preserve Wisdom for Workflows ---
-        try:
-            json_data = json.loads(clean_summary)
-            if isinstance(json_data, dict) and ("database_name" in json_data or "table_name" in json_data or "columns" in json_data):
-                parsed_data = {
-                    "database_name": json_data.get("database_name"),
-                    "table_name": json_data.get("table_name"),
-                    "description": json_data.get("description"),
-                    "columns": []
-                }
-                if "columns" in json_data and isinstance(json_data["columns"], list):
-                    for col_entry in json_data["columns"]:
-                        if isinstance(col_entry, dict):
-                            for col_name, col_desc in col_entry.items():
-                                parsed_data["columns"].append({"name": col_name, "description": col_desc})
-                return self._render_structured_report(parsed_data)
-        except json.JSONDecodeError:
-            pass
-
-        parsed_data = self._parse_structured_markdown(clean_summary)
-        if parsed_data:
-            return self._render_structured_report(parsed_data)
-
-        # --- PASS 2: Best-in-Class Markdown Parser for Simple Queries ---
-        markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
-        if markdown_block_match:
-            clean_summary = markdown_block_match.group(1).strip()
-        
-        markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
-        if markdown_table_pattern.search(clean_summary):
-            replacement_text = "\n(Data table is shown below)\n" if self._has_renderable_tables() else ""
-            clean_summary = re.sub(markdown_table_pattern, replacement_text, clean_summary)
-
-        sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
-        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
-        
-        lines = clean_summary.strip().split('\n')
+    def _render_standard_markdown(self, text: str) -> str:
+        """Renders a block of text by processing standard markdown elements."""
+        lines = text.strip().split('\n')
         html_output = []
         
         def process_inline_markdown(text_content):
@@ -177,6 +135,83 @@ class OutputFormatter:
             html_output.append('</ul>')
 
         return "".join(html_output)
+
+    def _sanitize_summary(self) -> str:
+        """
+        Cleans the LLM's summary text, applying special formatting for simple
+        queries to emphasize the direct answer, while being robust to different
+        LLM provider outputs.
+        """
+        clean_summary = self.raw_summary
+
+        # --- PASS 1: Handle structured, workflow-specific formats first ---
+        try:
+            json_data = json.loads(clean_summary)
+            if isinstance(json_data, dict) and ("database_name" in json_data or "table_name" in json_data or "columns" in json_data):
+                parsed_data = { "database_name": json_data.get("database_name"), "table_name": json_data.get("table_name"), "description": json_data.get("description"), "columns": [] }
+                if "columns" in json_data and isinstance(json_data["columns"], list):
+                    for col_entry in json_data["columns"]:
+                        if isinstance(col_entry, dict):
+                            for col_name, col_desc in col_entry.items():
+                                parsed_data["columns"].append({"name": col_name, "description": col_desc})
+                return self._render_structured_report(parsed_data)
+        except json.JSONDecodeError:
+            pass
+
+        parsed_data = self._parse_structured_markdown(clean_summary)
+        if parsed_data:
+            return self._render_structured_report(parsed_data)
+
+        # --- PASS 2: Pre-processing for all text-based summaries ---
+        markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
+        if markdown_block_match:
+            clean_summary = markdown_block_match.group(1).strip()
+        
+        markdown_table_pattern = re.compile(r"\|.*\|[\n\r]*\|[-| :]*\|[\n\r]*(?:\|.*\|[\n\r]*)*", re.MULTILINE)
+        if markdown_table_pattern.search(clean_summary):
+            replacement_text = "\n(Data table is shown below)\n" if self._has_renderable_tables() else ""
+            clean_summary = re.sub(markdown_table_pattern, replacement_text, clean_summary)
+
+        sql_ddl_pattern = re.compile(r"```sql\s*CREATE MULTISET TABLE.*?;?\s*```|CREATE MULTISET TABLE.*?;", re.DOTALL | re.IGNORECASE)
+        clean_summary = re.sub(sql_ddl_pattern, "\n(Formatted DDL shown below)\n", clean_summary)
+        
+        # --- PASS 3: Conditional Rendering based on query type ---
+        if self.is_workflow:
+            return self._render_standard_markdown(clean_summary)
+        else:
+            lines = [line for line in clean_summary.strip().split('\n') if line.strip()]
+            if not lines:
+                return ""
+
+            direct_answer_text = ""
+            remaining_content = ""
+            
+            first_line = lines[0]
+            heading_match = re.match(r'^(#{1,6})\s+(.*)$', first_line)
+
+            if heading_match and len(lines) > 1:
+                direct_answer_text = lines[1].strip()
+                remaining_content = '\n'.join(lines[2:])
+            else:
+                paragraphs = re.split(r'\n\s*\n', clean_summary.strip())
+                direct_answer_text = paragraphs[0].strip()
+                remaining_content = '\n\n'.join(paragraphs[1:])
+            
+            def process_inline_markdown(text_content):
+                text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
+                text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
+                return text_content
+
+            styled_answer = f'<p class="text-xl font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
+            remaining_html = self._render_standard_markdown(remaining_content)
+            
+            # --- MODIFICATION: Add a horizontal rule if there is remaining content ---
+            final_html = styled_answer
+            if remaining_html and remaining_html.strip():
+                final_html += '<hr class="border-gray-600 my-4">'
+                final_html += remaining_html
+            
+            return final_html
 
     def _render_ddl(self, tool_result: dict, index: int) -> str:
         if not isinstance(tool_result, dict) or "results" not in tool_result: return ""

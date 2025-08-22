@@ -638,10 +638,11 @@ class PlanExecutor:
         else:
             app_logger.info("Generating final summary using the enhanced standard query path (Parameterized CoreLLMTask).")
             
+            # --- MODIFIED: This is the new, more concise instruction set ---
             standard_task_description = (
-                "You are an expert data analyst. Your task is to synthesize the provided data into a final, user-friendly report. "
-                "Based on the user's original question and the data below, provide a comprehensive summary. "
-                "Your summary should be insightful and directly address the user's query."
+                "You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. "
+                "Do not describe the raw data or explain how you performed the analysis. "
+                "Focus on providing a concise, specific, and business-friendly summary of the findings."
             )
             
             standard_formatting_instructions = (
