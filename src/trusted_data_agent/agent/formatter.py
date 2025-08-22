@@ -131,12 +131,14 @@ class OutputFormatter:
                 if heading_match:
                     level = len(heading_match.group(1))
                     content = process_inline_markdown(heading_match.group(2).strip())
+                    # --- MODIFICATION START: Adjusted heading font sizes ---
                     if level == 1:
-                        html_output.append(f'<h2 class="text-2xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h2>')
+                        html_output.append(f'<h2 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h2>')
                     elif level == 2:
-                        html_output.append(f'<h3 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
+                        html_output.append(f'<h3 class="text-lg font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
                     else:
-                        html_output.append(f'<h4 class="text-lg font-semibold text-white mt-4 mb-2">{content}</h4>')
+                        html_output.append(f'<h4 class="text-base font-semibold text-white mt-4 mb-2">{content}</h4>')
+                    # --- MODIFICATION END ---
                 elif hr_match:
                     html_output.append('<hr class="border-gray-600 my-4">')
                 elif stripped_line:
@@ -226,7 +228,9 @@ class OutputFormatter:
                 text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
                 return text_content
 
-            styled_answer = f'<p class="text-xl font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
+            # --- MODIFICATION START: Adjusted direct answer font size ---
+            styled_answer = f'<p class="text-lg font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
+            # --- MODIFICATION END ---
             remaining_html = self._render_standard_markdown(remaining_content)
             
             final_html = styled_answer
@@ -366,7 +370,9 @@ class OutputFormatter:
 
         for context_key, data_items in data_to_process.items():
             display_key = context_key.replace("Workflow: ", "").replace(">", "&gt;")
-            html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
+            # --- MODIFICATION START: Adjusted collateral report title font size ---
+            html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-lg text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
+            # --- MODIFICATION END ---
             
             for i, item in enumerate(data_items):
                 if isinstance(item, list) and item and isinstance(item[0], dict):
@@ -455,12 +461,14 @@ class OutputFormatter:
                  details_html += self._render_table(tool_result, i, tool_name or "Result")
 
         if details_html:
+            # --- MODIFICATION START: Adjusted collateral report title font size ---
             final_html += (
                 f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'>"
-                f"<summary class='p-4 font-bold text-xl text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Execution Report</summary>"
+                f"<summary class='p-4 font-bold text-lg text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Execution Report</summary>"
                 f"<div class='px-4'>{details_html}</div>"
                 f"</details>"
             )
+            # --- MODIFICATION END ---
             
         return final_html
 
