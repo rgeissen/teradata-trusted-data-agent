@@ -280,6 +280,36 @@ Example of expected format:
 ```
 """
 
+# --- NEW: A dedicated prompt for centralized, tactical self-correction ---
+TACTICAL_SELF_CORRECTION_PROMPT = """
+You are an expert at fixing failed tool calls for a Teradata system.
+Your task is to analyze the provided information about a failed tool call and generate a corrected version.
+
+--- CONTEXT ---
+- Tool Definition (this describes the required arguments): {tool_definition}
+- Failed Command (this is what was attempted): {failed_command}
+- Error Message (this is why it failed): {error_message}
+- Relevant Context from History (use this to fill in missing values): {history_context}
+- Full Conversation History (for more complex cases): {full_history}
+
+--- INSTRUCTIONS ---
+1.  **Analyze the Error**: Read the "Error Message" to understand why the tool failed. Common reasons include missing arguments (like `database_name`), incorrect values, or formatting issues.
+2.  **Consult the Definition**: Look at the "Tool Definition" to see the correct names and requirements for all arguments.
+3.  **Use History**: Use the "Relevant Context from History" and "Full Conversation History" to find correct values for any missing arguments.
+4.  **Generate Correction**: Create a new, valid set of arguments for the tool.
+
+Your response MUST be ONLY a single JSON object containing the corrected `arguments`.
+Example format:
+```json
+{{
+  "arguments": {{
+    "database_name": "some_database",
+    "table_name": "some_table"
+  }}
+}}
+```
+"""
+
 WORKFLOW_STATIC_PLANNING_PROMPT = """
 You are an expert planning assistant. Your task is to convert a high-level workflow goal into a detailed, step-by-step plan of action. The final plan MUST be a single JSON list of executable tasks.
 
@@ -404,6 +434,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 - Actions Taken So Far: {workflow_history}
 - Data Collected So Far: {all_collected_data}
 {loop_context_section}
+{context_enrichment_section}
 --- INSTRUCTIONS ---
 1.  **Analyze the State**: Review the "CURRENT PHASE GOAL" and the "WORKFLOW STATE & HISTORY" to understand what has been done and what is needed next.
 2.  **CRITICAL RULE (Tool Selection & Arguments)**: You **MUST** select your next action from the list of "Permitted Tools for this Phase". You are not allowed to use any other tool. Furthermore, you **MUST** use the exact argument names as they are defined in the tool details above. You **MUST NOT** invent, hallucinate, or use any arguments that are not explicitly listed in the definitions.

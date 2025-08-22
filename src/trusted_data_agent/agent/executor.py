@@ -17,7 +17,7 @@ from trusted_data_agent.agent.prompts import (
     ERROR_RECOVERY_PROMPT,
     WORKFLOW_META_PLANNING_PROMPT,
     WORKFLOW_TACTICAL_PROMPT,
-    WORKFLOW_PHASE_COMPLETION_PROMPT
+    TACTICAL_SELF_CORRECTION_PROMPT
 )
 from trusted_data_agent.agent import orchestrators
 
@@ -152,7 +152,10 @@ class PlanExecutor:
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
-            enriched_args, enrich_events = self._enrich_arguments_from_history(self.active_prompt_name, self.prompt_arguments, is_prompt=True)
+            prompt_def = self.dependencies['STATE'].get('mcp_prompts', {}).get(self.active_prompt_name)
+            required_args = {arg.name for arg in prompt_def.arguments} if prompt_def and hasattr(prompt_def, 'arguments') else set()
+            
+            enriched_args, enrich_events = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
             for event in enrich_events:
                 yield event
             self.prompt_arguments = enriched_args
@@ -326,53 +329,12 @@ class PlanExecutor:
                         for target_key in target_keys:
                             merged_args[target_key] = value
 
-                max_retries = 2
-                final_tool_result = None
+                command = {"tool_name": tool_name, "arguments": merged_args}
+                async for event in self._execute_tool(command, phase, is_fast_path=True):
+                    yield event
                 
-                for attempt in range(max_retries):
-                    command = {"tool_name": tool_name, "arguments": merged_args}
-                    
-                    tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], command)
-                    
-                    if isinstance(tool_result, dict) and tool_result.get("status") == "error":
-                        yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
-                        
-                        if attempt < max_retries - 1:
-                            yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": "Tool failed. Attempting LLM-based correction."})
-                            
-                            correction_prompt = (
-                                "You are an expert at fixing failed tool calls. Analyze the following failed tool call and provide a corrected version.\n"
-                                f"Tool Definition: {json.dumps(self.dependencies['STATE'].get('mcp_tools', {}).get(tool_name, {}).__dict__)}\n"
-                                f"Failed Command: {json.dumps(command)}\n"
-                                f"Error Message: {json.dumps(tool_result.get('data', ''))}\n"
-                                "Your response MUST be ONLY a single JSON object containing the corrected `arguments` for the tool."
-                            )
-                            
-                            corrected_args_str, _, _ = await self._call_llm_and_update_tokens(
-                                prompt=correction_prompt,
-                                reason=f"Self-correcting failed tool call for {tool_name}",
-                                system_prompt_override="You are a JSON-only responding assistant.",
-                                raise_on_error=False
-                            )
-                            
-                            try:
-                                corrected_args = json.loads(corrected_args_str)
-                                merged_args.update(corrected_args.get("arguments", corrected_args))
-                                yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"LLM proposed a fix. Retrying tool with new arguments: {json.dumps(merged_args)}"})
-                                continue
-                            except (json.JSONDecodeError, TypeError):
-                                yield self._format_sse({"step": "System Self-Correction", "type": "error", "details": "LLM failed to provide a valid JSON correction. Aborting retries for this item."})
-                                break
-                        else:
-                             yield self._format_sse({"step": "System Self-Correction", "type": "error", "details": f"Persistent failure for item after {max_retries} attempts. Moving to next item."})
-
-                    else:
-                        yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
-                        final_tool_result = tool_result
-                        break 
-                
-                self.action_history.append({"action": command, "result": final_tool_result or tool_result})
-                all_loop_results.append(final_tool_result or tool_result)
+                self.action_history.append({"action": command, "result": self.last_tool_output})
+                all_loop_results.append(self.last_tool_output)
 
             yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
             
@@ -458,8 +420,13 @@ class PlanExecutor:
             async for event in self._execute_action_with_orchestrators(next_action, phase):
                 yield event
             
-            self.last_action_str = None
-            break
+            # If the last tool call was successful, break the retry loop and proceed
+            if self.last_tool_output and isinstance(self.last_tool_output, dict) and self.last_tool_output.get("status") == "success":
+                self.last_action_str = None
+                break
+            else:
+                # If it failed, the loop will continue to the next attempt
+                app_logger.warning(f"Action failed. Attempt {phase_attempts}/{max_phase_attempts} for phase.")
 
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
         """
@@ -488,48 +455,61 @@ class PlanExecutor:
         async for event in self._execute_tool(action, phase):
             yield event
 
-    async def _execute_tool(self, action: dict, phase: dict):
-        """Executes a single tool call."""
+    # --- MODIFICATION START: Implement centralized retry and recovery logic ---
+    async def _execute_tool(self, action: dict, phase: dict, is_fast_path: bool = False):
+        """Executes a single tool call with a built-in retry and recovery mechanism."""
         tool_name = action.get("tool_name")
-        phase_num = phase.get("phase", self.current_phase_index + 1)
-        relevant_tools = phase.get("relevant_tools", [])
-
-        if relevant_tools and tool_name not in relevant_tools:
-            app_logger.warning(f"LLM proposed invalid tool '{tool_name}'. Retrying phase.")
-            self.last_failed_action_info = f"Invalid tool '{tool_name}' was chosen. Permitted tools are: {relevant_tools}"
-            yield self._format_sse({"step": "System Correction", "type": "workaround", "details": f"LLM chose invalid tool ('{tool_name}'). Retrying."})
-            return
-
-        if 'notification' in action:
-            yield self._format_sse({"step": "System Notification", "details": action['notification'], "type": "workaround"})
-            del action['notification']
-
-        if tool_name == "CoreLLMTask":
-            action.setdefault("arguments", {})["data"] = copy.deepcopy(self.workflow_state)
+        max_retries = 3
         
-        yield self._format_sse({"step": "Tool Execution Intent", "details": action}, "tool_result")
-        
-        status_target = "chart" if tool_name == "viz_createChart" else "db"
-        yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
-        tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], action)
-        yield self._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
+        for attempt in range(max_retries):
+            if 'notification' in action:
+                yield self._format_sse({"step": "System Notification", "details": action['notification'], "type": "workaround"})
+                del action['notification']
 
-        self.last_tool_output = tool_result
-        self.action_history.append({"action": action, "result": tool_result})
-        
-        phase_result_key = f"result_of_phase_{phase_num}"
-        self.workflow_state.setdefault(phase_result_key, []).append(tool_result)
-        
-        self._add_to_structured_data(tool_result)
+            if tool_name == "CoreLLMTask":
+                action.setdefault("arguments", {})["data"] = copy.deepcopy(self.workflow_state)
+            
+            if not is_fast_path:
+                yield self._format_sse({"step": "Tool Execution Intent", "details": action}, "tool_result")
+            
+            status_target = "chart" if tool_name == "viz_createChart" else "db"
+            yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
+            tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], action)
+            yield self._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
 
-        if isinstance(tool_result, dict) and tool_result.get("status") == "error":
-            yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
-            if self.is_in_loop:
-                raise RuntimeError(f"Tool '{tool_name}' failed during loop: {tool_result.get('error_message', 'Unknown error')}")
-        else:
-            yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
+            self.last_tool_output = tool_result
+            
+            if isinstance(tool_result, dict) and tool_result.get("status") == "error":
+                yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
+                
+                if attempt < max_retries - 1:
+                    yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Tool failed. Attempting self-correction ({attempt + 1}/{max_retries - 1})."})
+                    
+                    corrected_action, correction_events = await self._attempt_tool_self_correction(action, tool_result)
+                    for event in correction_events:
+                        yield event
+                    
+                    if corrected_action:
+                        action = corrected_action
+                        continue
+                    else:
+                        yield self._format_sse({"step": "System Self-Correction Failed", "type": "error", "details": "Unable to find a correction. Aborting retries for this action."})
+                        break
+                else:
+                    yield self._format_sse({"step": "Persistent Failure", "type": "error", "details": f"Tool '{tool_name}' failed after {max_retries} attempts."})
+            else:
+                if not is_fast_path:
+                    yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
+                break # Break on success
+        
+        if not is_fast_path:
+            self.action_history.append({"action": action, "result": self.last_tool_output})
+            phase_num = phase.get("phase", self.current_phase_index + 1)
+            phase_result_key = f"result_of_phase_{phase_num}"
+            self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
+            self._add_to_structured_data(self.last_tool_output)
+    # --- MODIFICATION END ---
 
-    # --- MODIFICATION START: Integrate argument enrichment ---
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
         
@@ -583,6 +563,7 @@ class PlanExecutor:
                     f"- Your task is to process this single item next: {json.dumps(next_item)}\n"
                 )
 
+        # --- MODIFICATION START: Added placeholder for context enrichment ---
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
@@ -593,7 +574,7 @@ class PlanExecutor:
             loop_context_section=loop_context_section,
             context_enrichment_section=context_enrichment_section
         )
-    # --- MODIFICATION END ---
+        # --- MODIFICATION END ---
 
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt="Determine the next action based on the instructions and state provided in the system prompt.",
@@ -697,7 +678,6 @@ class PlanExecutor:
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
-    # --- MODIFICATION START: Refactored to handle and yield token counts from CoreLLMTask ---
     async def _generate_final_summary(self):
         """
         Generates the final summary using a universal, parameterized CoreLLMTask.
@@ -761,7 +741,6 @@ class PlanExecutor:
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
-    # --- MODIFICATION END ---
 
     def _prepare_data_for_final_summary(self) -> str:
         """Prepares all collected data for the final summarization prompt."""
@@ -779,7 +758,6 @@ class PlanExecutor:
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
-    # --- MODIFICATION START: New function for proactive, deterministic argument enrichment ---
     def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list]:
         """
         Scans conversation history to find missing arguments for a tool or prompt call.
@@ -837,7 +815,6 @@ class PlanExecutor:
                     }))
 
         return enriched_args, events_to_yield
-    # --- MODIFICATION END ---
 
     async def _get_tool_constraints(self, tool_name: str) -> dict:
         """Uses an LLM to determine if a tool requires numeric or character columns."""
@@ -926,3 +903,68 @@ class PlanExecutor:
 
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"LLM-based recovery failed. The LLM did not return a valid new plan. Response: {response_text}. Error: {e}")
+
+    # --- NEW: Centralized function for deterministic and LLM-based self-correction ---
+    async def _attempt_tool_self_correction(self, failed_action: dict, error_result: dict) -> tuple[dict | None, list]:
+        """
+        Attempts to correct a failed tool call, first deterministically, then with an LLM.
+        """
+        events = []
+        tool_name = failed_action.get("tool_name")
+        tool_def = self.dependencies['STATE'].get('mcp_tools', {}).get(tool_name)
+        if not tool_def:
+            return None, events
+
+        # 1. Deterministic Correction: Check for missing arguments we can fill from history
+        required_args = {name for name, details in (tool_def.args.items() if hasattr(tool_def, 'args') and isinstance(tool_def.args, dict) else {}) if details.get('required')}
+        
+        current_args = failed_action.get("arguments", {})
+        
+        enriched_args, enrich_events = self._enrich_arguments_from_history(required_args, current_args)
+        events.extend(enrich_events)
+        
+        if enriched_args != current_args and all(arg in enriched_args for arg in required_args):
+            corrected_action = {**failed_action, "arguments": enriched_args}
+            events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Deterministically corrected missing arguments. Retrying tool."}))
+            return corrected_action, events
+
+        # 2. Non-Deterministic (LLM) Correction
+        history_context, _ = self._enrich_arguments_from_history(set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', [])))
+        
+        session_data = session_manager.get_session(self.session_id)
+        full_history = session_data.get("generic_history", []) if session_data else []
+
+        correction_prompt = TACTICAL_SELF_CORRECTION_PROMPT.format(
+            tool_definition=json.dumps(vars(tool_def), default=str),
+            failed_command=json.dumps(failed_action),
+            error_message=json.dumps(error_result.get('data', 'No error data.')),
+            history_context=json.dumps(history_context),
+            full_history=json.dumps(full_history)
+        )
+        
+        corrected_args_str, _, _ = await self._call_llm_and_update_tokens(
+            prompt=correction_prompt,
+            reason=f"Self-correcting failed tool call for {tool_name}",
+            system_prompt_override="You are a JSON-only responding assistant.",
+            raise_on_error=False
+        )
+        
+        try:
+            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", corrected_args_str, re.DOTALL)
+            if not json_match: raise json.JSONDecodeError("No JSON object found", corrected_args_str, 0)
+            
+            json_str = json_match.group(1) or json_match.group(2)
+            if not json_str: raise json.JSONDecodeError("Extracted JSON is empty", corrected_args_str, 0)
+            
+            corrected_data = json.loads(json_str.strip())
+            
+            new_args = corrected_data.get("arguments", corrected_data)
+            if isinstance(new_args, dict):
+                corrected_action = {**failed_action, "arguments": new_args}
+                events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"LLM proposed a fix. Retrying tool with new arguments: {json.dumps(new_args)}"}))
+                return corrected_action, events
+        except (json.JSONDecodeError, TypeError):
+            events.append(self._format_sse({"step": "System Self-Correction", "type": "error", "details": "LLM failed to provide a valid JSON correction."}))
+            return None, events
+            
+        return None, events
