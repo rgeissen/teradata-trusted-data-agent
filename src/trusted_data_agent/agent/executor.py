@@ -299,26 +299,83 @@ class PlanExecutor:
             yield self._format_sse({
                 "step": "Plan Optimization", 
                 "type": "plan_optimization",
-                "details": f"Engaging fast path for tool loop: '{tool_name}'"
+                "details": f"Engaging enhanced fast path for tool loop: '{tool_name}'"
             })
             
+            context_args = {}
+            for history_item in self.action_history:
+                action = history_item.get("action", {})
+                if "arguments" in action:
+                    context_args.update(action.get("arguments", {}))
+            
+            synonym_map = {
+                'tablename': ['table_name', 'obj_name', 'object_name'],
+                'databasename': ['database_name', 'db_name'],
+                'columnname': ['column_name', 'col_name']
+            }
+
             all_loop_results = []
             yield self._format_sse({"target": "db", "state": "busy"}, "status_indicator_update")
             for i, item in enumerate(self.current_loop_items):
                 yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
                 
-                arguments = item if isinstance(item, dict) else {}
-                command = {"tool_name": tool_name, "arguments": arguments}
+                merged_args = context_args.copy()
+                if isinstance(item, dict):
+                    for key, value in item.items():
+                        normalized_key = key.lower().replace('_', '')
+                        target_keys = synonym_map.get(normalized_key, [key])
+                        for target_key in target_keys:
+                            merged_args[target_key] = value
+
+                # --- MODIFICATION START: Implemented self-healing retry loop ---
+                max_retries = 2
+                final_tool_result = None
                 
-                tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], command)
-                self.action_history.append({"action": command, "result": tool_result})
+                for attempt in range(max_retries):
+                    command = {"tool_name": tool_name, "arguments": merged_args}
+                    
+                    tool_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], command)
+                    
+                    if isinstance(tool_result, dict) and tool_result.get("status") == "error":
+                        yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
+                        
+                        if attempt < max_retries - 1:
+                            yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": "Tool failed. Attempting LLM-based correction."})
+                            
+                            correction_prompt = (
+                                "You are an expert at fixing failed tool calls. Analyze the following failed tool call and provide a corrected version.\n"
+                                f"Tool Definition: {json.dumps(self.dependencies['STATE'].get('mcp_tools', {}).get(tool_name, {}).__dict__)}\n"
+                                f"Failed Command: {json.dumps(command)}\n"
+                                f"Error Message: {json.dumps(tool_result.get('data', ''))}\n"
+                                "Your response MUST be ONLY a single JSON object containing the corrected `arguments` for the tool."
+                            )
+                            
+                            corrected_args_str, _, _ = await self._call_llm_and_update_tokens(
+                                prompt=correction_prompt,
+                                reason=f"Self-correcting failed tool call for {tool_name}",
+                                system_prompt_override="You are a JSON-only responding assistant.",
+                                raise_on_error=False
+                            )
+                            
+                            try:
+                                corrected_args = json.loads(corrected_args_str)
+                                merged_args.update(corrected_args.get("arguments", corrected_args))
+                                yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"LLM proposed a fix. Retrying tool with new arguments: {json.dumps(merged_args)}"})
+                                continue
+                            except (json.JSONDecodeError, TypeError):
+                                yield self._format_sse({"step": "System Self-Correction", "type": "error", "details": "LLM failed to provide a valid JSON correction. Aborting retries for this item."})
+                                break
+                        else:
+                             yield self._format_sse({"step": "System Self-Correction", "type": "error", "details": f"Persistent failure for item after {max_retries} attempts. Moving to next item."})
+
+                    else:
+                        yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
+                        final_tool_result = tool_result
+                        break 
                 
-                if isinstance(tool_result, dict) and tool_result.get("status") == "error":
-                    yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
-                else:
-                    yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
-                
-                all_loop_results.append(tool_result)
+                self.action_history.append({"action": command, "result": final_tool_result or tool_result})
+                all_loop_results.append(final_tool_result or tool_result)
+                # --- MODIFICATION END ---
 
             yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
             
@@ -545,28 +602,35 @@ class PlanExecutor:
             raw_action = json.loads(json_str.strip())
             
             action_details = raw_action
+            tool_name_synonyms = ["tool_name", "name", "tool", "action_name"]
+            arg_synonyms = ["arguments", "args", "tool_input", "action_input", "parameters"]
+            
             possible_wrapper_keys = ["action", "tool_call", "tool"]
             for key in possible_wrapper_keys:
                 if key in action_details and isinstance(action_details[key], dict):
                     action_details = action_details[key]
                     break 
 
-            tool_name_synonyms = ["tool_name", "name", "tool", "action_name"]
-            found_tool_name = next((action_details.pop(key) for key in tool_name_synonyms if key in action_details), None)
+            found_tool_name = None
+            for key in tool_name_synonyms:
+                if key in action_details:
+                    found_tool_name = action_details.pop(key)
+                    break
             
-            arg_synonyms = ["arguments", "args", "tool_input", "action_input", "parameters"]
-            found_args = next((action_details.pop(key) for key in arg_synonyms if key in action_details), {})
+            found_args = None
+            for key in arg_synonyms:
+                if key in action_details and isinstance(action_details[key], dict):
+                    found_args = action_details[key]
+                    break
+            
+            if found_args is None:
+                found_args = action_details
 
             normalized_action = {
                 "tool_name": found_tool_name,
                 "arguments": found_args if isinstance(found_args, dict) else {}
             }
 
-            if not normalized_action["tool_name"] and len(action_details) == 1 and isinstance(list(action_details.values())[0], dict):
-                 normalized_action["tool_name"] = list(action_details.keys())[0]
-                 normalized_action["arguments"] = list(action_details.values())[0]
-
-            # --- MODIFICATION START ---
             if not normalized_action.get("tool_name") and len(relevant_tools) == 1:
                 normalized_action["tool_name"] = relevant_tools[0]
                 self.events_to_yield.append(self._format_sse({
@@ -574,7 +638,6 @@ class PlanExecutor:
                     "correction_type": "inferred_tool_name",
                     "details": f"LLM omitted tool_name. System inferred '{relevant_tools[0]}'."
                 }))
-            # --- MODIFICATION END ---
             
             if not normalized_action.get("tool_name"):
                  raise ValueError("Could not determine tool_name from LLM response.")
@@ -739,14 +802,12 @@ class PlanExecutor:
             
             if arg_name in enriched_args:
                 app_logger.info(f"Inferred '{arg_name}' from history: '{enriched_args[arg_name]}'")
-                # --- MODIFICATION START ---
                 events_to_yield.append(self._format_sse({
                     "step": "System Correction",
                     "details": f"LLM omitted '{arg_name}'. System inferred it from history.",
                     "type": "workaround",
                     "correction_type": "inferred_argument"
                 }))
-                # --- MODIFICATION END ---
 
         return enriched_args, events_to_yield
 
