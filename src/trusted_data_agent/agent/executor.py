@@ -530,12 +530,14 @@ class PlanExecutor:
         
         self._add_to_structured_data(tool_result)
 
+        # --- MODIFICATION START: Explicitly check for and handle tool errors ---
         if isinstance(tool_result, dict) and tool_result.get("status") == "error":
             yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
             if self.is_in_loop:
                 raise RuntimeError(f"Tool '{tool_name}' failed during loop: {tool_result.get('error_message', 'Unknown error')}")
         else:
             yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
+        # --- MODIFICATION END ---
 
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""

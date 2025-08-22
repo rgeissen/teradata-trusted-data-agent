@@ -74,19 +74,26 @@ class OutputFormatter:
 
     def _render_structured_report(self, data: dict) -> str:
         """
-        Renders the parsed structured data into its inner HTML format, without the outer card.
+        Renders the parsed structured data into its inner HTML format, with enhanced visual hierarchy.
         """
+        # --- MODIFICATION START: Implemented enhanced visual hierarchy ---
         html = f'<p><strong class="text-white">Table Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("table_name", "N/A")}</code></p>'
         html += f'<p><strong class="text-white">Database Name:</strong> <code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">{data.get("database_name", "N/A")}</code></p>'
-        html += f'<p class="mt-2"><strong class="text-white">Description:</strong> {data.get("description", "No description provided.")}</p>'
+        
+        description = data.get("description", "No description provided.")
+        if description:
+             html += f'<p class="mt-2 text-gray-300">{description}</p>'
         
         if data.get('columns'):
-            html += '<ul class="list-disc list-inside space-y-2 text-gray-300 mt-4 mb-4 pl-4">'
+            html += '<hr class="border-gray-600 my-4">'
+            html += '<h4 class="text-base font-semibold text-white mb-3">Column Details</h4>'
+            html += '<ul class="list-none space-y-3 text-gray-300">'
             for col in data['columns']:
-                html += f'<li><strong class="text-white">{col.get("name")}:</strong> {col.get("description")}</li>'
+                html += f'<li><strong class="text-white font-mono bg-gray-900/70 rounded-md px-1.5 py-0.5 text-sm">{col.get("name")}:</strong> {col.get("description")}</li>'
             html += '</ul>'
 
-        return html
+        return f'<div class="response-card bg-white/5 p-4 rounded-lg mb-4">{html}</div>'
+        # --- MODIFICATION END ---
 
     def _render_standard_markdown(self, text: str) -> str:
         """Renders a block of text by processing standard markdown elements, including nested lists."""
@@ -97,11 +104,8 @@ class OutputFormatter:
         def get_indent_level(line_text):
             return len(line_text) - len(line_text.lstrip(' '))
 
-        # --- MODIFIED: Added logic to handle escaped underscores ---
         def process_inline_markdown(text_content):
-            # First, handle the escaped underscore
             text_content = text_content.replace(r'\_', '_')
-            # Then, process other markdown elements
             text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
@@ -131,14 +135,12 @@ class OutputFormatter:
                 if heading_match:
                     level = len(heading_match.group(1))
                     content = process_inline_markdown(heading_match.group(2).strip())
-                    # --- MODIFICATION START: Adjusted heading font sizes ---
                     if level == 1:
                         html_output.append(f'<h2 class="text-xl font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h2>')
                     elif level == 2:
                         html_output.append(f'<h3 class="text-lg font-bold text-white mb-3 border-b border-gray-700 pb-2">{content}</h3>')
                     else:
                         html_output.append(f'<h4 class="text-base font-semibold text-white mt-4 mb-2">{content}</h4>')
-                    # --- MODIFICATION END ---
                 elif hr_match:
                     html_output.append('<hr class="border-gray-600 my-4">')
                 elif stripped_line:
@@ -228,9 +230,7 @@ class OutputFormatter:
                 text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
                 return text_content
 
-            # --- MODIFICATION START: Adjusted direct answer font size ---
             styled_answer = f'<p class="text-lg font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
-            # --- MODIFICATION END ---
             remaining_html = self._render_standard_markdown(remaining_content)
             
             final_html = styled_answer
@@ -370,9 +370,7 @@ class OutputFormatter:
 
         for context_key, data_items in data_to_process.items():
             display_key = context_key.replace("Workflow: ", "").replace(">", "&gt;")
-            # --- MODIFICATION START: Adjusted collateral report title font size ---
             html += f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'><summary class='p-4 font-bold text-lg text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Report for: <code>{display_key}</code></summary><div class='px-4'>"
-            # --- MODIFICATION END ---
             
             for i, item in enumerate(data_items):
                 if isinstance(item, list) and item and isinstance(item[0], dict):
@@ -461,14 +459,12 @@ class OutputFormatter:
                  details_html += self._render_table(tool_result, i, tool_name or "Result")
 
         if details_html:
-            # --- MODIFICATION START: Adjusted collateral report title font size ---
             final_html += (
                 f"<details class='response-card bg-white/5 open:pb-4 mb-4 rounded-lg border border-white/10'>"
                 f"<summary class='p-4 font-bold text-lg text-white cursor-pointer hover:bg-white/10 rounded-t-lg'>Execution Report</summary>"
                 f"<div class='px-4'>{details_html}</div>"
                 f"</details>"
             )
-            # --- MODIFICATION END ---
             
         return final_html
 
