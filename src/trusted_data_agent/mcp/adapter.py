@@ -263,6 +263,27 @@ async def load_and_categorize_teradata_resources(STATE: dict):
             STATE['prompts_context'] = "\n".join(prompt_context_parts)
         else:
             STATE['prompts_context'] = "--- No Prompts Available ---"
+            
+        # --- MODIFICATION START: Dynamically build a dictionary of all known argument names, separated by type ---
+        tool_args = set()
+        for tool in STATE['mcp_tools'].values():
+            if hasattr(tool, 'args') and isinstance(tool.args, dict):
+                tool_args.update(tool.args.keys())
+        
+        prompt_args = set()
+        for prompt_list in STATE['structured_prompts'].values():
+            for prompt_info in prompt_list:
+                if 'arguments' in prompt_info and isinstance(prompt_info['arguments'], list):
+                    for arg_details in prompt_info['arguments']:
+                        if 'name' in arg_details:
+                            prompt_args.add(arg_details['name'])
+                            
+        STATE['all_known_mcp_arguments'] = {
+            "tool": list(tool_args),
+            "prompt": list(prompt_args)
+        }
+        app_logger.info(f"Dynamically identified {len(tool_args)} tool and {len(prompt_args)} prompt arguments for context enrichment.")
+        # --- MODIFICATION END ---
 
 
 def _transform_chart_data(data: any) -> list[dict]:

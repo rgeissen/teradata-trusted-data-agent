@@ -152,7 +152,7 @@ class PlanExecutor:
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
-            enriched_args, enrich_events = self._enrich_arguments_from_history(self.active_prompt_name, self.prompt_arguments)
+            enriched_args, enrich_events = self._enrich_arguments_from_history(self.active_prompt_name, self.prompt_arguments, is_prompt=True)
             for event in enrich_events:
                 yield event
             self.prompt_arguments = enriched_args
@@ -529,11 +529,15 @@ class PlanExecutor:
         else:
             yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
 
+    # --- MODIFICATION START: Integrate argument enrichment ---
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str]) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
         
         permitted_tools_with_details = ""
         all_tools = self.dependencies['STATE'].get('mcp_tools', {})
+        
+        required_args_for_phase = set()
+        
         for tool_name in relevant_tools:
             tool = all_tools.get(tool_name)
             if not tool: continue
@@ -544,12 +548,28 @@ class PlanExecutor:
             if args_dict:
                 tool_str += "\n  - Arguments:"
                 for arg_name, arg_details in args_dict.items():
-                    arg_type = arg_details.get('type', 'any')
                     is_required = arg_details.get('required', False)
+                    if is_required:
+                        required_args_for_phase.add(arg_name)
+                    
+                    arg_type = arg_details.get('type', 'any')
                     req_str = "required" if is_required else "optional"
                     arg_desc = arg_details.get('description', 'No description.')
                     tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
             permitted_tools_with_details += tool_str + "\n"
+
+        enriched_args, enrich_events = self._enrich_arguments_from_history(required_args_for_phase)
+        for event in enrich_events:
+            self.events_to_yield.append(event)
+        
+        context_enrichment_section = ""
+        if enriched_args:
+            context_items = [f"- `{name}`: `{value}`" for name, value in enriched_args.items()]
+            context_enrichment_section = (
+                "\n--- CONTEXT FROM HISTORY ---\n"
+                "The following critical information has been inferred from the conversation history. You MUST use it to fill in missing arguments.\n"
+                + "\n".join(context_items) + "\n"
+            )
 
         loop_context_section = ""
         if self.is_in_loop:
@@ -570,8 +590,10 @@ class PlanExecutor:
             last_attempt_info=self.last_failed_action_info,
             workflow_history=json.dumps(self.action_history, indent=2),
             all_collected_data=json.dumps(self.workflow_state, indent=2),
-            loop_context_section=loop_context_section
+            loop_context_section=loop_context_section,
+            context_enrichment_section=context_enrichment_section
         )
+    # --- MODIFICATION END ---
 
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt="Determine the next action based on the instructions and state provided in the system prompt.",
@@ -757,49 +779,65 @@ class PlanExecutor:
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
-    def _enrich_arguments_from_history(self, prompt_name: str, arguments: dict) -> tuple[dict, list]:
-        """Scans conversation history to find missing arguments for a prompt call."""
+    # --- MODIFICATION START: New function for proactive, deterministic argument enrichment ---
+    def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list]:
+        """
+        Scans conversation history to find missing arguments for a tool or prompt call.
+        This is a deterministic way to provide context to the LLM.
+        """
         events_to_yield = []
-        enriched_args = arguments.copy()
+        enriched_args = current_args.copy() if current_args else {}
         
-        prompt_definition = self.dependencies['STATE'].get('mcp_prompts', {}).get(prompt_name)
-        if not prompt_definition or not hasattr(prompt_definition, 'arguments'):
+        arg_type = "prompt" if is_prompt else "tool"
+        known_args_for_type = self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get(arg_type, [])
+        
+        args_to_find = {arg for arg in required_args if arg not in enriched_args and arg in known_args_for_type}
+        if not args_to_find:
             return enriched_args, events_to_yield
 
-        required_arg_names = {arg.name for arg in prompt_definition.arguments} if prompt_definition.arguments else set()
-        
-        for arg_name in required_arg_names:
-            if arg_name in enriched_args: continue
+        session_data = session_manager.get_session(self.session_id)
+        if not session_data:
+            return enriched_args, events_to_yield
 
-            session_data = session_manager.get_session(self.session_id)
-            if not session_data: continue
-
-            for entry in reversed(session_data.get("generic_history", [])):
-                content = entry.get("content")
-                if not isinstance(content, str): continue
-                
-                try:
-                    if entry.get("role") == "assistant":
-                        json_match = re.search(r"```json\s*\n(.*?)\n\s*```", content, re.DOTALL)
-                        if json_match:
-                            command = json.loads(json_match.group(1).strip())
-                            args_to_check = command.get("arguments", {})
-                            if arg_name in args_to_check:
-                                enriched_args[arg_name] = args_to_check[arg_name]
-                                break
-                except (json.JSONDecodeError, TypeError):
-                    continue
+        # Scan previous tool calls and their metadata for argument values
+        for entry in reversed(self.action_history):
+            if not args_to_find: break
             
-            if arg_name in enriched_args:
-                app_logger.info(f"Inferred '{arg_name}' from history: '{enriched_args[arg_name]}'")
-                events_to_yield.append(self._format_sse({
-                    "step": "System Correction",
-                    "details": f"LLM omitted '{arg_name}'. System inferred it from history.",
-                    "type": "workaround",
-                    "correction_type": "inferred_argument"
-                }))
+            # Check arguments of the action itself
+            action_args = entry.get("action", {}).get("arguments", {})
+            for arg_name in list(args_to_find):
+                if arg_name in action_args and action_args[arg_name] is not None:
+                    enriched_args[arg_name] = action_args[arg_name]
+                    args_to_find.remove(arg_name)
+
+            # Check metadata of the result
+            result_metadata = entry.get("result", {}).get("metadata", {})
+            if result_metadata:
+                 # Create a mapping for metadata keys to argument names
+                metadata_to_arg_map = {
+                    "database": "database_name",
+                    "table": "table_name",
+                    "column": "column_name"
+                }
+                for meta_key, arg_name in metadata_to_arg_map.items():
+                    if arg_name in args_to_find and meta_key in result_metadata:
+                        enriched_args[arg_name] = result_metadata[meta_key]
+                        args_to_find.remove(arg_name)
+        
+        # Create user-facing notifications for any inferred arguments
+        if enriched_args and (not current_args or enriched_args != current_args):
+            for arg_name, value in enriched_args.items():
+                if not current_args or arg_name not in current_args:
+                    app_logger.info(f"Proactively inferred '{arg_name}' from history: '{value}'")
+                    events_to_yield.append(self._format_sse({
+                        "step": "System Correction",
+                        "details": f"System inferred '{arg_name}: {value}' from conversation history.",
+                        "type": "workaround",
+                        "correction_type": "inferred_argument"
+                    }))
 
         return enriched_args, events_to_yield
+    # --- MODIFICATION END ---
 
     async def _get_tool_constraints(self, tool_name: str) -> dict:
         """Uses an LLM to determine if a tool requires numeric or character columns."""
