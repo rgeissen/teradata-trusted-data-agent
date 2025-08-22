@@ -145,6 +145,52 @@ class PlanExecutor:
             self.state = self.AgentState.ERROR
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
 
+    # --- NEW: Centralized, token-efficient context optimization engine ---
+    def _create_optimized_context(self) -> tuple[str, str]:
+        """
+        Creates a token-efficient, high-signal context summary for the planner by
+        summarizing past results and explicitly extracting known entities.
+        """
+        optimized_history = []
+        known_entities = {}
+        
+        for entry in self.action_history:
+            action = entry.get("action", {})
+            result = entry.get("result", {})
+            
+            # Summarize the result to save tokens
+            result_summary = {}
+            if isinstance(result, dict):
+                result_summary['status'] = result.get('status')
+                metadata = result.get('metadata', {})
+                if 'row_count' in metadata:
+                    result_summary['row_count'] = metadata['row_count']
+                if 'columns' in metadata:
+                    result_summary['columns'] = [col.get('name') for col in metadata.get('columns', [])]
+                if 'error' in result:
+                     result_summary['error'] = result.get('error')
+            
+            optimized_history.append({
+                "action": action,
+                "result_summary": result_summary
+            })
+
+            # Extract entities from successful actions
+            if result_summary.get('status') == 'success':
+                args = action.get("arguments", {})
+                if 'database_name' in args:
+                    known_entities['database_name'] = args['database_name']
+                if 'table_name' in args:
+                    known_entities['table_name'] = args['table_name']
+                
+                # Extract discovered table names from results
+                if result_summary.get('columns') == ['TableName'] and 'results' in result:
+                    table_names = [row.get('TableName') for row in result.get('results', []) if row.get('TableName')]
+                    if table_names:
+                        known_entities['table_names_discovered'] = table_names
+
+        return json.dumps(optimized_history, indent=2), json.dumps(known_entities, indent=2)
+
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
         if self.active_prompt_name:
@@ -179,9 +225,14 @@ class PlanExecutor:
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
+        # --- MODIFICATION: Use the new context optimization engine ---
+        optimized_history_str, known_entities_str = self._create_optimized_context()
+
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
-            original_user_input=self.original_user_input
+            original_user_input=self.original_user_input,
+            workflow_history=optimized_history_str,
+            known_entities=known_entities_str
         )
         
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
@@ -758,6 +809,7 @@ class PlanExecutor:
             
         return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
 
+    # --- NEW: Centralized, argument-driven context enrichment engine ---
     def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list]:
         """
         Scans conversation history to find missing arguments for a tool or prompt call.
