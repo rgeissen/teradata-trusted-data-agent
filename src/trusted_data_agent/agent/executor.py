@@ -62,7 +62,6 @@ def unwrap_exception(e: BaseException) -> BaseException:
 class PlanExecutor:
     AgentState = AgentState
 
-    # --- MODIFICATION START: Refactored constructor to unify workflows ---
     def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None):
         self.session_id = session_id
         self.original_user_input = original_user_input
@@ -96,7 +95,6 @@ class PlanExecutor:
         
         self.llm_debug_history = []
         self.max_steps = 40
-    # --- MODIFICATION END ---
 
     @staticmethod
     def _format_sse(data: dict, event: str = None) -> str:
@@ -147,16 +145,13 @@ class PlanExecutor:
             self.state = self.AgentState.ERROR
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
 
-    # --- MODIFICATION START: Refactored planner to be universal ---
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
-        # If a prompt was invoked, load its content to use as the goal.
         if self.active_prompt_name:
             yield self._format_sse({"step": "Loading Workflow Prompt", "details": f"Loading '{self.active_prompt_name}'"})
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
-            # Enrich arguments from history for prompt-driven workflows.
             enriched_args, enrich_events = self._enrich_arguments_from_history(self.active_prompt_name, self.prompt_arguments)
             for event in enrich_events:
                 yield event
@@ -171,7 +166,6 @@ class PlanExecutor:
             self.workflow_goal_prompt = get_prompt_text_content(prompt_obj)
             if not self.workflow_goal_prompt:
                 raise ValueError(f"Could not extract text content from rendered prompt '{self.active_prompt_name}'.")
-        # Otherwise, use the raw user input as the goal.
         else:
             self.workflow_goal_prompt = self.original_user_input
 
@@ -210,7 +204,6 @@ class PlanExecutor:
             yield self._format_sse({"step": "Strategic Meta-Plan Generated", "details": self.meta_plan})
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
-    # --- MODIFICATION END ---
 
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
@@ -468,37 +461,37 @@ class PlanExecutor:
             self.last_action_str = None
             break
 
+    # --- MODIFICATION START: Generalized orchestrators to run for all workflows ---
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
         """
         A wrapper that runs pre-flight checks (orchestrators) before executing a tool.
-        These orchestrators act as a fallback/safety net for simple, single-phase plans
-        where the planner may have made a mistake. They are bypassed for multi-phase plans
-        to ensure the planner's explicit strategy is followed without interference.
+        These orchestrators act as a safety net for common planning mistakes.
         """
         tool_name = action.get("tool_name")
         if not tool_name:
             raise ValueError("Action from tactical LLM is missing a 'tool_name'.")
 
-        is_simple_plan = len(self.meta_plan) <= 1
+        # Check for date range queries that need orchestration.
+        is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
+        if is_range_candidate and not tool_supports_range:
+            async for event in self._classify_date_query_type(): yield event
+            if self.temp_data_holder and self.temp_data_holder.get('type') == 'range':
+                async for event in orchestrators.execute_date_range_orchestrator(self, action, date_param_name, self.temp_data_holder.get('phrase')):
+                    yield event
+                return
 
-        if is_simple_plan:
-            is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
-            if is_range_candidate and not tool_supports_range:
-                async for event in self._classify_date_query_type(): yield event
-                if self.temp_data_holder and self.temp_data_holder.get('type') == 'range':
-                    async for event in orchestrators.execute_date_range_orchestrator(self, action, date_param_name, self.temp_data_holder.get('phrase')):
-                        yield event
-                    return
-
-            tool_scope = self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name)
-            has_column_arg = "column_name" in action.get("arguments", {})
-            if tool_scope == 'column' and not has_column_arg:
-                 async for event in orchestrators.execute_column_iteration(self, action):
-                     yield event
-                 return
+        # Check for column-level tools that need iterative execution.
+        tool_scope = self.dependencies['STATE'].get('tool_scopes', {}).get(tool_name)
+        has_column_arg = "column_name" in action.get("arguments", {})
+        if tool_scope == 'column' and not has_column_arg:
+             async for event in orchestrators.execute_column_iteration(self, action):
+                 yield event
+             return
         
+        # If no orchestrator is triggered, proceed with the standard tool execution.
         async for event in self._execute_tool(action, phase):
             yield event
+    # --- MODIFICATION END ---
 
     async def _execute_tool(self, action: dict, phase: dict):
         """Executes a single tool call."""
@@ -687,7 +680,6 @@ class PlanExecutor:
         except (json.JSONDecodeError, KeyError):
             self.temp_data_holder = {'type': 'single', 'phrase': self.original_user_input}
 
-    # --- MODIFICATION START: Refactored final summary to be universal ---
     async def _generate_final_summary(self):
         """
         Generates the final summary using a universal, parameterized CoreLLMTask.
@@ -698,7 +690,6 @@ class PlanExecutor:
 
         app_logger.info("Generating final summary using the universal CoreLLMTask.")
         
-        # Define the standard instructions for the summarization LLM.
         standard_task_description = (
             "You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. "
             "Do not describe the raw data or explain how you performed the analysis. "
@@ -712,7 +703,6 @@ class PlanExecutor:
             "Use bold text (e.g., '**Important Term**') for emphasis."
         )
 
-        # Build the command for the CoreLLMTask.
         core_llm_command = {
             "tool_name": "CoreLLMTask",
             "arguments": {
@@ -726,7 +716,6 @@ class PlanExecutor:
         
         yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
         
-        # Execute the task.
         summary_result = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
 
         if (summary_result and summary_result.get("status") == "success" and
@@ -739,7 +728,6 @@ class PlanExecutor:
         clean_summary = final_summary_text.replace("FINAL_ANSWER:", "").strip() or "The agent has completed its work."
         yield self._format_sse({"step": "LLM has generated the final answer", "details": clean_summary}, "llm_thought")
 
-        # Format the final output for the UI.
         formatter = OutputFormatter(
             llm_response_text=clean_summary,
             collected_data=final_collected_data,
@@ -750,7 +738,6 @@ class PlanExecutor:
         session_manager.add_to_history(self.session_id, 'assistant', final_html)
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
-    # --- MODIFICATION END ---
 
     def _prepare_data_for_final_summary(self) -> str:
         """Prepares all collected data for the final summarization prompt."""
