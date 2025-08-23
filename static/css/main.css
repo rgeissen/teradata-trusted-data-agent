@@ -320,7 +320,9 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     box-shadow: 0 0 8px #facc15;
     animation: blink 1s infinite;
 }
-.connection-dot.context-active {
-    background-color: #8B5CF6; /* purple-500 */
-    box-shadow: 0 0 8px #8B5CF6;
+/* --- MODIFICATION START: Add new style for history disabled preview (steady yellow) --- */
+.connection-dot.history-disabled-preview {
+    background-color: #facc15; /* yellow-400 */
+    box-shadow: 0 0 8px #facc15;
 }
+/* --- MODIFICATION END --- */

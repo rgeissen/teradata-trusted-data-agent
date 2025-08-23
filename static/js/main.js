@@ -129,10 +129,12 @@ let pristineConfig = {};
 let isMouseOverStatus = false;
 let isInFastPath = false;
 
-// --- MODIFICATION START: Add timeouts for all indicators ---
 let mcpIndicatorTimeout = null;
 let llmIndicatorTimeout = null;
 let contextIndicatorTimeout = null;
+
+// --- MODIFICATION START: Add variable to track Shift key state ---
+let isShiftPressed = false;
 // --- MODIFICATION END ---
 
 let defaultPromptsCache = {};
@@ -442,7 +444,6 @@ function updateTokenDisplay(data) {
     document.getElementById('total-output-tokens').textContent = (data.total_output || 0).toLocaleString();
 }
 
-// --- MODIFICATION START: Simplify function to only control text indicator ---
 function setThinkingIndicator(isThinking) {
     if (isThinking) {
         promptNameDisplay.classList.add('hidden');
@@ -454,7 +455,6 @@ function setThinkingIndicator(isThinking) {
         promptNameDisplay.classList.remove('hidden');
     }
 }
-// --- MODIFICATION END ---
 
 function updateStatusPromptName() {
     const promptNameDiv = document.getElementById('prompt-name-display');
@@ -483,6 +483,10 @@ async function startStream(endpoint, body) {
     currentStatusId = 0;
     isInFastPath = false;
     setThinkingIndicator(false);
+
+    // --- MODIFICATION START: Remove steady yellow preview when stream starts ---
+    contextStatusDot.classList.remove('history-disabled-preview');
+    // --- MODIFICATION END ---
 
     try {
         const response = await fetch(endpoint, {
@@ -521,7 +525,6 @@ async function startStream(endpoint, body) {
                 if (dataLine) {
                     const eventData = JSON.parse(dataLine);
 
-                    // --- MODIFICATION START: Comprehensive status indicator handler ---
                     if (eventName === 'status_indicator_update') {
                         const { target, state } = eventData;
                         
@@ -535,8 +538,9 @@ async function startStream(endpoint, body) {
                             dot = llmStatusDot;
                             timeout = llmIndicatorTimeout;
                         } else if (target === 'context') {
-                            dot = contextStatusDot;
-                            timeout = contextIndicatorTimeout;
+                            // This target is now managed by the new logic, so we ignore the old events for it.
+                            // dot = contextStatusDot;
+                            // timeout = contextIndicatorTimeout;
                         }
 
                         if (target === 'llm') {
@@ -547,20 +551,24 @@ async function startStream(endpoint, body) {
                             if (timeout) clearTimeout(timeout);
                             
                             if (state === 'busy') {
-                                const activeClass = target === 'context' ? 'context-active' : 'busy';
-                                dot.classList.remove('idle', 'connected', 'busy', 'context-active');
-                                dot.classList.add(activeClass);
+                                dot.classList.remove('idle', 'connected');
+                                dot.classList.add('busy');
                             } else { // idle state
-                                const idleClass = target === 'db' ? 'connected' : 'idle';
                                 timeout = setTimeout(() => {
-                                    dot.classList.remove('busy', 'context-active');
-                                    dot.classList.add(idleClass);
+                                    dot.classList.remove('busy');
+                                    dot.classList.add(target === 'db' ? 'connected' : 'idle');
                                 }, 150);
 
                                 if (target === 'db') mcpIndicatorTimeout = timeout;
                                 else if (target === 'llm') llmIndicatorTimeout = timeout;
-                                else if (target === 'context') contextIndicatorTimeout = timeout;
                             }
+                        }
+                    // --- MODIFICATION START: Handle new context state event ---
+                    } else if (eventName === 'context_state_update') {
+                        const { target, state } = eventData;
+                        if (target === 'context' && state === 'history_disabled_processing') {
+                            contextStatusDot.classList.remove('idle', 'history-disabled-preview');
+                            contextStatusDot.classList.add('busy'); // busy is blinking yellow
                         }
                     // --- MODIFICATION END ---
                     } else if (eventName === 'token_update') {
@@ -617,6 +625,11 @@ async function startStream(endpoint, body) {
     } finally {
         toggleLoading(false);
         setThinkingIndicator(false);
+        // --- MODIFICATION START: Reset context indicator to idle (green) ---
+        contextStatusDot.classList.remove('busy', 'history-disabled-preview');
+        contextStatusDot.classList.add('idle');
+        if (contextIndicatorTimeout) clearTimeout(contextIndicatorTimeout);
+        // --- MODIFICATION END ---
     }
 }
 
@@ -1016,12 +1029,18 @@ async function loadAllSessions() {
     }
 }
 
+// --- MODIFICATION START: Pass shift key state to backend ---
 chatForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const message = userInput.value.trim();
     if (!message || !currentSessionId) return;
-    startStream('/ask_stream', { message, session_id: currentSessionId });
+    startStream('/ask_stream', { 
+        message, 
+        session_id: currentSessionId, 
+        disabled_history: isShiftPressed 
+    });
 });
+// --- MODIFICATION END ---
 
 newChatButton.addEventListener('click', startNewSession);
 
@@ -1070,6 +1089,7 @@ function openPromptModal(prompt) {
         promptModalInputs.innerHTML = '<p class="text-gray-400">This prompt requires no arguments.</p>';
     }
 
+    // --- MODIFICATION START: Pass shift key state from prompt modal ---
     promptModalForm.onsubmit = async (e) => {
         e.preventDefault();
         const promptName = e.target.dataset.promptName;
@@ -1080,9 +1100,11 @@ function openPromptModal(prompt) {
         await startStream('/invoke_prompt_stream', {
             session_id: currentSessionId,
             prompt_name: promptName,
-            arguments: arugments
+            arguments: arugments,
+            disabled_history: isShiftPressed
         });
     };
+    // --- MODIFICATION END ---
 }
 
 function openCorrectionModal(data) {
@@ -1130,7 +1152,7 @@ function openCorrectionModal(data) {
 
         closePromptModal();
 
-        startStream('/ask_stream', { message: correctedPrompt, session_id: currentSessionId });
+        startStream('/ask_stream', { message: correctedPrompt, session_id: currentSessionId, disabled_history: isShiftPressed });
     };
 }
 
@@ -1896,4 +1918,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     configForm.addEventListener('input', updateConfigButtonState);
+
+    // --- MODIFICATION START: Add Shift key listeners for context indicator ---
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Shift' && !isShiftPressed) {
+            isShiftPressed = true;
+            if (!contextStatusDot.classList.contains('busy')) {
+                contextStatusDot.classList.remove('idle');
+                contextStatusDot.classList.add('history-disabled-preview');
+            }
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (e.key === 'Shift') {
+            isShiftPressed = false;
+            if (contextStatusDot.classList.contains('history-disabled-preview')) {
+                contextStatusDot.classList.remove('history-disabled-preview');
+                contextStatusDot.classList.add('idle');
+            }
+        }
+    });
+    // --- MODIFICATION END ---
 });
