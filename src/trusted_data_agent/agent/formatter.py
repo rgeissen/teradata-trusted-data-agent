@@ -9,9 +9,7 @@ class OutputFormatter:
     failure-safe HTML for the UI.
     """
     def __init__(self, llm_response_text: str, collected_data: list | dict, original_user_input: str = None, active_prompt_name: str = None):
-        # --- MODIFICATION START: Corrected typo from ll_response_text to llm_response_text ---
         self.raw_summary = llm_response_text
-        # --- MODIFICATION END ---
         self.collected_data = collected_data
         self.original_user_input = original_user_input
         self.active_prompt_name = active_prompt_name

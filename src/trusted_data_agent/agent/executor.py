@@ -936,22 +936,6 @@ class PlanExecutor:
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
 
-    def _prepare_data_for_final_summary(self) -> str:
-        """Prepares all collected data for the final summarization prompt."""
-        items_to_process = [item for sublist in self.structured_collected_data.values() for item in sublist]
-
-        successful_results = []
-        for item in items_to_process:
-            if isinstance(item, list):
-                successful_results.extend(sub_item for sub_item in item if isinstance(sub_item, dict) and sub_item.get("status") == "success")
-            elif isinstance(item, dict) and item.get("status") == "success":
-                successful_results.append(item)
-        
-        if not successful_results:
-            return "No data was collected from successful tool executions."
-            
-        return json.dumps([res for res in successful_results if res.get("type") != "chart"], indent=2, ensure_ascii=False)
-
     def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list, bool]:
         """
         Scans conversation history to find missing arguments for a tool or prompt call.

@@ -309,30 +309,6 @@ Example format:
 ```
 """
 
-WORKFLOW_STATIC_PLANNING_PROMPT = """
-You are an expert planning assistant. Your task is to convert a high-level workflow goal into a detailed, step-by-step plan of action. The final plan MUST be a single JSON list of executable tasks.
-
---- WORKFLOW GOAL & PLAN ---
-This is the goal you need to break down into a step-by-step plan.
-{workflow_goal}
-
---- CONTEXT ---
-- User's Original Question: {original_user_input}
-
---- INSTRUCTIONS ---
-1.  **Analyze the Goal**: Carefully read the "WORKFLOW GOAL & PLAN" and the "User's Original Question" to understand the full scope of the request.
-2.  **Decompose into Tasks**: Break down the overall goal into a sequence of distinct, executable tasks. Each task should be a JSON object.
-3.  **Formulate Each Task**: For each task in your plan:
-    -   Provide a user-friendly, descriptive `"task_name"` (e.g., "Get DDL for table").
-    -   Determine if the task requires an external Teradata tool or an internal LLM task.
-    -   If an external tool is needed, use the `"tool_name"` key. If an internal task is needed (e.g., for synthesis or formatting), use `"tool_name": "CoreLLMTask"`.
-    -   Provide all necessary `"arguments"` as a dictionary. Infer any missing arguments (like `db_name` or `table_name`) from the original user question.
-4.  **Order the Tasks**: Arrange the tasks in a logical, sequential order. The output of one task should provide the necessary input for the next.
-5.  **Final Task**: The very last step in your plan **MUST ALWAYS** be a call to `CoreLLMTask` with a `task_description` of "Synthesize final report for user.". This signals the end of the data-gathering phase.
-
-Your response MUST be a single, valid JSON list of tasks. Do NOT add any extra text, conversation, or markdown (e.g., no '```json' or 'Thought:').
-"""
-
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
@@ -425,5 +401,3 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 
 Your response MUST be a single, valid JSON object for a tool call. Do NOT add any extra text or conversation.
 """
-
-WORKFLOW_PHASE_COMPLETION_PROMPT = ""

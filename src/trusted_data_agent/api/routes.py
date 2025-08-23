@@ -631,7 +631,6 @@ async def invoke_prompt_stream():
             elif prompt_type == 'context':
                 # For context prompts, we intercept the event stream.
                 app_logger.info(f"Executing 'context' prompt '{prompt_name}'. Summarization will be skipped.")
-                final_event_name = None
                 
                 async for event_str in executor.run():
                     # We need to parse the event to check its type
