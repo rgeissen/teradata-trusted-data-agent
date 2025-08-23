@@ -869,7 +869,6 @@ class PlanExecutor:
 
         app_logger.info("Generating final summary using the universal CoreLLMTask.")
         
-        # --- MODIFICATION START: New, more precise instructions for Key Metric ---
         standard_task_description = (
             "You are an expert data analyst. Your task is to create a final report for the user based on the provided data."
         )
@@ -890,7 +889,6 @@ class PlanExecutor:
                 "Adhere strictly to the structure defined above."
             )
             standard_formatting_instructions += ad_hoc_rule
-        # --- MODIFICATION END ---
 
         core_llm_command = {
             "tool_name": "CoreLLMTask",
@@ -905,7 +903,11 @@ class PlanExecutor:
         
         yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
         
+        # --- MODIFICATION START ---
+        yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
         summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
+        yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
+        # --- MODIFICATION END ---
 
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
