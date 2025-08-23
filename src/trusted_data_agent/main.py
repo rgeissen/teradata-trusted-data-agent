@@ -68,11 +68,15 @@ async def main():
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
-    # --- FIX: Change logging level to DEBUG to see all messages ---
     root_logger.setLevel(logging.INFO)
 
     # The app's logger will propagate to the root, so we just set its level.
     app.logger.setLevel(logging.INFO)
+
+    # --- MODIFICATION START: Silence noisy third-party libraries ---
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
+    # --- MODIFICATION END ---
     
     # Prevent Hypercorn's loggers from propagating to the root logger
     logging.getLogger("hypercorn.access").propagate = False

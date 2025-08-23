@@ -121,7 +121,9 @@ class PlanExecutor:
             disabled_history=self.disabled_history
         )
         self.llm_debug_history.append({"reason": reason, "response": response_text})
-        app_logger.info(f"LLM RESPONSE (DEBUG): Reason='{reason}', Response='{response_text}'")
+        # --- MODIFICATION START: Demote verbose log to DEBUG level ---
+        app_logger.debug(f"LLM RESPONSE (DEBUG): Reason='{reason}', Response='{response_text}'")
+        # --- MODIFICATION END ---
         return response_text, statement_input_tokens, statement_output_tokens
 
     def _add_to_structured_data(self, tool_result: dict, context_key_override: str = None):
@@ -168,7 +170,9 @@ class PlanExecutor:
             _, final_known_entities_str = self._create_optimized_context()
             final_known_entities = json.loads(final_known_entities_str)
             session_manager.update_session_known_entities(self.session_id, final_known_entities)
-            app_logger.info(f"Saved final known entities to session {self.session_id}: {final_known_entities_str}")
+            # --- MODIFICATION START: Demote verbose log to DEBUG level ---
+            app_logger.debug(f"Saved final known entities to session {self.session_id}: {final_known_entities_str}")
+            # --- MODIFICATION END ---
 
     def _create_optimized_context(self) -> tuple[str, str]:
         """
@@ -903,11 +907,9 @@ class PlanExecutor:
         
         yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
         
-        # --- MODIFICATION START ---
         yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
         summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
         yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
-        # --- MODIFICATION END ---
 
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
