@@ -106,7 +106,7 @@ def _extract_prompt_type_from_description(description: str | None) -> tuple[str,
     if not isinstance(description, str):
         return "", "reporting"
 
-    prompt_type = "reporting"  # Default value
+    prompt_type = "reporting"
     match = re.search(r'\s*\((prompt_type:\s*(reporting|context))\)', description, re.IGNORECASE)
     
     if match:
@@ -116,6 +116,57 @@ def _extract_prompt_type_from_description(description: str | None) -> tuple[str,
         cleaned_description = description
         
     return cleaned_description, prompt_type
+
+# --- MODIFICATION START: Add new parser function for tool descriptions ---
+def _parse_arguments_from_mcp_tool_parameter_description(description: str) -> tuple[str, list]:
+    """
+    Parses argument definitions from a tool's main description string.
+    """
+    
+    # Regex to find the start of the arguments section, case-insensitive
+    args_section_match = re.search(r'\n(Arguments|Args):\s*\n', description, re.IGNORECASE)
+    
+    if not args_section_match:
+        return description, []
+
+    cleaned_description = description[:args_section_match.start()].strip()
+    args_section_text = description[args_section_match.end():]
+    
+    processed_args = []
+    
+    # Regex to capture different argument formats, prioritizing more detailed ones
+    # Format 1: `name` (type, required/optional): description
+    # Format 2: name (type): description
+    # Format 3: name - description
+    arg_patterns = [
+        re.compile(r'^\s*-\s*`?(?P<name>\w+)`?\s*\((?P<type>[\w\[\]]+)\s*,\s*(?P<req>required|optional)\):\s*(?P<desc>.+)'),
+        re.compile(r'^\s*(?P<name>\w+)\s*\((?P<type>[\w\[\]]+)\):\s*(?P<desc>.+)'),
+        re.compile(r'^\s*(?P<name>\w+)\s*-\s*(?P<desc>.+)')
+    ]
+
+    for line in args_section_text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+            
+        arg_data = {}
+        for pattern in arg_patterns:
+            match = pattern.match(line)
+            if match:
+                data = match.groupdict()
+                arg_data['name'] = data.get('name')
+                arg_data['description'] = data.get('desc', 'No description.').strip()
+                arg_data['type'] = data.get('type', 'any')
+                
+                req_status = data.get('req', 'optional')
+                arg_data['required'] = req_status.lower() == 'required'
+                break
+        
+        if arg_data:
+            processed_args.append(arg_data)
+            
+    return cleaned_description, processed_args
+# --- MODIFICATION END ---
 
 
 async def load_and_categorize_mcp_resources(STATE: dict):
@@ -203,11 +254,13 @@ async def load_and_categorize_mcp_resources(STATE: dict):
             if category not in STATE['structured_tools']:
                 STATE['structured_tools'][category] = []
             
-            # --- MODIFICATION START: Process tool arguments for the UI ---
-            processed_args = []
-            if hasattr(tool, 'args') and isinstance(tool.args, dict):
+            # --- MODIFICATION START: Use new parser for descriptions, with fallback ---
+            tool_description = tool.description or ""
+            cleaned_description, processed_args = _parse_arguments_from_mcp_tool_parameter_description(tool_description)
+            
+            # If parser found no args, fall back to the structured .args attribute
+            if not processed_args and hasattr(tool, 'args') and isinstance(tool.args, dict):
                 for arg_name, arg_details in tool.args.items():
-                    # Ensure arg_details is a dictionary before processing
                     if isinstance(arg_details, dict):
                         processed_args.append({
                             "name": arg_name,
@@ -219,7 +272,7 @@ async def load_and_categorize_mcp_resources(STATE: dict):
             is_disabled = tool.name in disabled_tools_list
             STATE['structured_tools'][category].append({
                 "name": tool.name,
-                "description": tool.description,
+                "description": cleaned_description,
                 "arguments": processed_args,
                 "disabled": is_disabled
             })
@@ -617,16 +670,13 @@ async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
         "results": date_list
     }
 
-# --- MODIFICATION START: Standardize all return paths to be a (result, input_tokens, output_tokens) tuple ---
 async def invoke_mcp_tool(STATE: dict, command: dict) -> tuple[any, int, int]:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
     
-    # CoreLLMTask is a special client-side tool that returns token counts. It already returns the correct tuple format.
     if tool_name == "CoreLLMTask":
         return await _invoke_core_llm_task(STATE, command)
 
-    # For all other tools, we return the result dictionary with 0 for token counts.
     if tool_name == "util_getCurrentDate":
         app_logger.info("Executing client-side tool: util_getCurrentDate")
         current_date = datetime.now().strftime('%Y-%m-%d')
@@ -723,4 +773,3 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> tuple[any, int, int]:
                 return result, 0, 0
     
     raise RuntimeError(f"Unexpected tool result format for '{tool_name}': {call_tool_result}")
-# --- MODIFICATION END ---

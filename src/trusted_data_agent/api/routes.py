@@ -401,13 +401,26 @@ async def new_session():
     if not STATE.get('llm') or not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     
+    # --- MODIFICATION START: Replace manual file purge with safe logger reset ---
     try:
+        llm_logger = logging.getLogger("llm_conversation")
+        
+        # Find and remove the old file handler to release the file lock
+        for handler in llm_logger.handlers[:]:
+            if isinstance(handler, logging.FileHandler):
+                handler.close()
+                llm_logger.removeHandler(handler)
+        
+        # Add a new file handler that truncates the file (mode='w')
         log_file_path = os.path.join("logs", "llm_conversations.log")
-        with open(log_file_path, 'w') as f:
-            pass 
-        app_logger.info(f"Purged {log_file_path} for new session.")
+        new_handler = logging.FileHandler(log_file_path, mode='w')
+        new_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+        llm_logger.addHandler(new_handler)
+        
+        app_logger.info(f"Safely reset and purged {log_file_path} for new session.")
     except Exception as e:
         app_logger.error(f"Failed to purge llm_conversations.log: {e}", exc_info=True)
+    # --- MODIFICATION END ---
 
     data = await request.get_json()
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
@@ -518,9 +531,7 @@ async def configure_services():
             profile_part = model.split('/')[-1]
             APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = profile_part.split('.')[1]
         
-        # --- MODIFICATION START: Call the renamed function ---
         await mcp_adapter.load_and_categorize_mcp_resources(STATE)
-        # --- MODIFICATION END ---
         APP_CONFIG.TERADATA_MCP_CONNECTED = True
         
         APP_CONFIG.CHART_MCP_CONNECTED = True
