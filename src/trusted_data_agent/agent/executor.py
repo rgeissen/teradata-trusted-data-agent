@@ -145,8 +145,20 @@ class PlanExecutor:
             if self.state == self.AgentState.EXECUTING:
                 async for event in self._run_plan(): yield event
 
+            # --- MODIFICATION START: Skip final summary for delegation-only plans to prevent duplicate reports ---
+            is_delegation_only_plan = (
+                self.meta_plan and
+                len(self.meta_plan) == 1 and
+                'executable_prompt' in self.meta_plan[0]
+            )
+
             if self.state == self.AgentState.SUMMARIZING:
-                async for event in self._generate_final_summary(): yield event
+                if is_delegation_only_plan:
+                    app_logger.info("This was a delegation-only plan. Skipping redundant final summary.")
+                    self.state = self.AgentState.DONE
+                else:
+                    async for event in self._generate_final_summary(): yield event
+            # --- MODIFICATION END ---
 
         except Exception as e:
             root_exception = unwrap_exception(e)

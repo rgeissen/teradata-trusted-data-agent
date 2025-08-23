@@ -375,6 +375,10 @@ class OutputFormatter:
 
                 if isinstance(item, dict):
                     tool_name = item.get("metadata", {}).get("tool_name")
+                    # --- MODIFICATION START: Skip rendering the result of the final summarization task ---
+                    if tool_name == 'CoreLLMTask':
+                        continue
+                    # --- MODIFICATION END ---
                     if item.get("type") == "business_description":
                         html += f"<div class='response-card'><h4 class='text-lg font-semibold text-white mb-2'>Business Description</h4><p class='text-gray-300'>{item.get('description')}</p></div>"
                     elif tool_name == 'base_tableDDL':
