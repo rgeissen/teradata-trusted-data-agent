@@ -1,4 +1,4 @@
-2025-08-23 16:21:41,710 - --- FULL CONTEXT (Session: 5a9d0ca9-3653-46b0-bca3-47b68d91731b) ---
+2025-08-23 16:35:34,098 - --- FULL CONTEXT (Session: f9028476-787c-4252-99c8-5fb6dc461a62) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the goal: 'how many databases are on the system?'
 
@@ -75,39 +75,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -193,17 +160,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -293,9 +285,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -376,6 +365,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -491,6 +490,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -500,13 +505,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -579,12 +577,12 @@ how many databases are on the system?
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 
 
-2025-08-23 16:21:41,711 - --- RESPONSE ---
+2025-08-23 16:35:34,098 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get the number of databases on the system.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -593,9 +591,9 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 ```
 --------------------------------------------------
 
-2025-08-23 16:21:42,414 - --- FULL CONTEXT (Session: 5a9d0ca9-3653-46b0-bca3-47b68d91731b) ---
+2025-08-23 16:35:34,711 - --- FULL CONTEXT (Session: f9028476-787c-4252-99c8-5fb6dc461a62) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get the number of databases on the system.
+Deciding next tactical action for phase: Determine how many databases are on the system.
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -668,39 +666,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -786,17 +751,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -886,9 +876,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -969,6 +956,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -1084,6 +1081,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -1093,13 +1096,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -1175,7 +1171,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the number of databases on the system.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -1192,7 +1188,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get the number of databases on the system.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -1225,13 +1221,13 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-23 16:21:42,415 - --- RESPONSE ---
+2025-08-23 16:35:34,712 - --- RESPONSE ---
 ```json
 {"tool_name": "base_databaseList", "arguments": {}}
 ```
 --------------------------------------------------
 
-2025-08-23 16:21:44,709 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 16:35:36,530 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
 Executing CoreLLMTask: You are an expert data analyst. Your task is to create a final report for the user based on the provided data.
 
@@ -1551,33 +1547,37 @@ Always prioritize generating content that matches the *meaning* and *purpose* of
 5. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.
 
 --- ADDITIONAL FORMATTING INSTRUCTIONS ---
-Your entire response MUST be formatted in standard markdown and MUST be separated into two distinct parts:
+Your entire response MUST be formatted in standard markdown and MUST be structured as follows:
 
-1.  **The Direct Answer:** This MUST be the first part of your response. It must be a single, concise sentence that directly and factually answers the user's original question. It MUST NOT contain any additional context, analysis, or introductory phrases. For example, if the user asked 'How many databases are on the system?', your direct answer MUST be 'There are 21 databases on the system.' and nothing more.
+1.  **(Optional) Key Metric:** If the answer to the user's question can be summarized by a single primary value (either quantitative like a number, or qualitative like a status), you MUST provide it on the very first line in a specific JSON format. The line must start with `Key Metric: ` followed by a JSON object with a `value` (as a string) and a `label` (a short description).
+    - Quantitative Example: `Key Metric: {{"value": "21", "label": "Databases on system"}}`
+    - Qualitative Example: `Key Metric: {{"value": "High", "label": "System Utilization"}}`
+    If there is no single primary value, you MUST omit this line entirely.
 
-2.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all the supporting details, context, and deeper analysis derived from the data.
+2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.
 
-**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. Adhere strictly to the Direct Answer and Key Observations structure.
+3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context.
+
+**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. Adhere strictly to the structure defined above.
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 16:21:44,709 - --- RESPONSE ---
-There are 21 databases on the system.
+2025-08-23 16:35:36,531 - --- RESPONSE ---
+Key Metric: {"value": "23", "label": "Number of databases"}
+There are 23 databases on the system.
 
 ## Key Observations
 
-*   The query against `dbc.DatabasesV` successfully returned 50 rows representing databases and users.
-*   The query filters out databases owned by `PDCRADM`.
-*   The `DBType` column distinguishes between `DataBase` and `User`.
-*   Based on the `DBType` column, there are 21 entries with the type `DataBase`.
-*   There are 29 entries with the type `User`.
-*   Some databases and users have descriptive comments in the `CommentString` column providing additional context. For example, `DEMO_Customer360_db` has the comment `CREATED_BY: DEMO_Customer360_local`, and `TDaaS_TDBCMgmt2` has the comment `As-A-Service : POG/COG router management user`.
-*   Several databases such as `TD_SYSXML`, `gs_tables_db`, and `TD_SYSGPL` have "None" in the `CommentString` field, indicating a lack of description.
-*   Several user accounts like `External_AP`, `SystemFe`, and `SysAdmin` have comments indicating they are reserved for specific system functions.
-*   The `SQL` query used to extract this data joins system views to provide database and user information.
+*   The data was retrieved from the `dbc.DatabasesV` view, filtering out databases owned by `PDCRADM`.
+*   The query distinguishes between `DataBase` and `User` types.
+*   There are 50 rows returned in total, representing a mix of databases and users.
+*   Examples of databases include `TD_SYSXML`, `gs_tables_db`, and `TD_SYSGPL`.
+*   Examples of users include `All`, `mldb`, and `TDaaS_TDBCMgmt2`.
+*   Some databases and users have descriptive comments, while others have "None". For example, `DEMO_Customer360_db` has the comment `CREATED_BY: DEMO_Customer360_local`, while `TD_SYSXML` has a comment of `None`.
+*   The query provides the database name, the type of database object (`DataBase` or `User`), and a comment string.
 --------------------------------------------------
 
-2025-08-23 16:22:22,954 - --- FULL CONTEXT (Session: 5a9d0ca9-3653-46b0-bca3-47b68d91731b) ---
+2025-08-23 16:36:15,265 - --- FULL CONTEXT (Session: f9028476-787c-4252-99c8-5fb6dc461a62) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the goal: 'what's in DEMO_Customer360_db?'
 
@@ -1652,39 +1652,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -1770,17 +1737,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -1870,9 +1862,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -1953,6 +1942,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -2068,6 +2067,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -2077,13 +2082,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -2159,7 +2157,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the number of databases on the system.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -2174,7 +2172,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get the number of databases on the system.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -2279,39 +2277,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -2397,17 +2362,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -2497,9 +2487,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -2580,6 +2567,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -2695,6 +2692,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -2704,13 +2707,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -2836,12 +2832,12 @@ what's in DEMO_Customer360_db?
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 
 
-2025-08-23 16:22:22,955 - --- RESPONSE ---
+2025-08-23 16:36:15,266 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "List all tables in the DEMO_Customer360_db database.",
+    "goal": "Determine what tables are in the database DEMO_Customer360_db.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -2853,9 +2849,9 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 ```
 --------------------------------------------------
 
-2025-08-23 16:22:23,978 - --- FULL CONTEXT (Session: 5a9d0ca9-3653-46b0-bca3-47b68d91731b) ---
+2025-08-23 16:36:16,079 - --- FULL CONTEXT (Session: f9028476-787c-4252-99c8-5fb6dc461a62) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: List all tables in the DEMO_Customer360_db database.
+Deciding next tactical action for phase: Determine what tables are in the database DEMO_Customer360_db.
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -2928,39 +2924,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -3046,17 +3009,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -3146,9 +3134,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -3229,6 +3214,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -3344,6 +3339,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -3353,13 +3354,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -3435,7 +3429,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the number of databases on the system.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -3450,7 +3444,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get the number of databases on the system.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -3553,39 +3547,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -3671,17 +3632,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -3771,9 +3757,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -3854,6 +3837,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -3969,6 +3962,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -3978,13 +3977,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -4113,7 +4105,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "List all tables in the DEMO_Customer360_db database.",
+    "goal": "Determine what tables are in the database DEMO_Customer360_db.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -4133,7 +4125,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-List all tables in the DEMO_Customer360_db database.
+Determine what tables are in the database DEMO_Customer360_db.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -4168,13 +4160,13 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-23 16:22:23,978 - --- RESPONSE ---
+2025-08-23 16:36:16,080 - --- RESPONSE ---
 ```json
 {"tool_name": "base_tableList", "arguments": {"database_name": "DEMO_Customer360_db"}}
 ```
 --------------------------------------------------
 
-2025-08-23 16:22:25,689 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 16:36:17,215 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
 Executing CoreLLMTask: You are an expert data analyst. Your task is to create a final report for the user based on the provided data.
 
@@ -4242,28 +4234,32 @@ Always prioritize generating content that matches the *meaning* and *purpose* of
 5. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.
 
 --- ADDITIONAL FORMATTING INSTRUCTIONS ---
-Your entire response MUST be formatted in standard markdown and MUST be separated into two distinct parts:
+Your entire response MUST be formatted in standard markdown and MUST be structured as follows:
 
-1.  **The Direct Answer:** This MUST be the first part of your response. It must be a single, concise sentence that directly and factually answers the user's original question. It MUST NOT contain any additional context, analysis, or introductory phrases. For example, if the user asked 'How many databases are on the system?', your direct answer MUST be 'There are 21 databases on the system.' and nothing more.
+1.  **(Optional) Key Metric:** If the answer to the user's question can be summarized by a single primary value (either quantitative like a number, or qualitative like a status), you MUST provide it on the very first line in a specific JSON format. The line must start with `Key Metric: ` followed by a JSON object with a `value` (as a string) and a `label` (a short description).
+    - Quantitative Example: `Key Metric: {{"value": "21", "label": "Databases on system"}}`
+    - Qualitative Example: `Key Metric: {{"value": "High", "label": "System Utilization"}}`
+    If there is no single primary value, you MUST omit this line entirely.
 
-2.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all the supporting details, context, and deeper analysis derived from the data.
+2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.
 
-**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. Adhere strictly to the Direct Answer and Key Observations structure.
+3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context.
+
+**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. Adhere strictly to the structure defined above.
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 16:22:25,689 - --- RESPONSE ---
+2025-08-23 16:36:17,215 - --- RESPONSE ---
 The DEMO_Customer360_db database contains two tables: Equipment and CallCenter.
 
 ## Key Observations
-
-*   The `DEMO_Customer360_db` database contains two tables named `Equipment` and `CallCenter`.
-*   The query used to retrieve the table names filters based on the `TableName` column from the `dbc.TablesV` system view where the `DatabaseName` is `NULL` (likely a placeholder in this context and would need to be replaced with 'DEMO_Customer360_db' in a real query) and the `TableKind` is one of 'T', 'V', 'O', or 'Q', representing tables, views, objects, and queue tables respectively.
+*   The DEMO_Customer360_db database includes two tables: Equipment and CallCenter.
+*   The tables were identified by querying the `dbc.TablesV` system view, filtering by `DatabaseName` and `TableKind` ('T','V', 'O', 'Q').
 --------------------------------------------------
 
-2025-08-23 16:23:22,678 - --- FULL CONTEXT (Session: 5a9d0ca9-3653-46b0-bca3-47b68d91731b) ---
+2025-08-23 16:36:50,068 - --- FULL CONTEXT (Session: f9028476-787c-4252-99c8-5fb6dc461a62) ---
 --- REASON FOR CALL ---
-Generating a strategic meta-plan for the goal: 'what is the quality of Equipment?'
+Generating a strategic meta-plan for the goal: 'what is the qualtiy of Equipment?'
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -4336,39 +4332,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -4454,17 +4417,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -4554,9 +4542,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -4637,6 +4622,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -4752,6 +4747,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -4761,13 +4762,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -4843,7 +4837,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the number of databases on the system.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -4858,7 +4852,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get the number of databases on the system.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -4961,39 +4955,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -5079,17 +5040,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -5179,9 +5165,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -5262,6 +5245,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -5377,6 +5370,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -5386,13 +5385,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -5521,7 +5513,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "List all tables in the DEMO_Customer360_db database.",
+    "goal": "Determine what tables are in the database DEMO_Customer360_db.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -5539,7 +5531,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-List all tables in the DEMO_Customer360_db database.
+Determine what tables are in the database DEMO_Customer360_db.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -5646,39 +5638,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -5764,17 +5723,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -5864,9 +5848,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -5947,6 +5928,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -6062,6 +6053,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -6071,13 +6068,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -6095,10 +6085,10 @@ USER PROMPT:
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
 --- GOAL ---
-what is the quality of Equipment?
+what is the qualtiy of Equipment?
 
 --- CONTEXT ---
-- User's Original Question (for reference): what is the quality of Equipment?
+- User's Original Question (for reference): what is the qualtiy of Equipment?
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -6156,12 +6146,12 @@ what is the quality of Equipment?
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 
 
-2025-08-23 16:23:22,679 - --- RESPONSE ---
+2025-08-23 16:36:50,069 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get the column summary statistics for the Equipment table in the DEMO_Customer360_db database to determine its quality.",
+    "goal": "Determine the quality of the table Equipment in the database DEMO_Customer360_db.",
     "relevant_tools": [
       "qlty_columnSummary"
     ],
@@ -6174,9 +6164,9 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 ```
 --------------------------------------------------
 
-2025-08-23 16:23:23,985 - --- FULL CONTEXT (Session: 5a9d0ca9-3653-46b0-bca3-47b68d91731b) ---
+2025-08-23 16:36:51,026 - --- FULL CONTEXT (Session: f9028476-787c-4252-99c8-5fb6dc461a62) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get the column summary statistics for the Equipment table in the DEMO_Customer360_db database to determine its quality.
+Deciding next tactical action for phase: Determine the quality of the table Equipment in the database DEMO_Customer360_db.
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -6249,39 +6239,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -6367,17 +6324,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -6467,9 +6449,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -6550,6 +6529,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -6665,6 +6654,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -6674,13 +6669,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -6756,7 +6744,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the number of databases on the system.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -6771,7 +6759,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get the number of databases on the system.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -6874,39 +6862,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -6992,17 +6947,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -7092,9 +7072,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -7175,6 +7152,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -7290,6 +7277,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -7299,13 +7292,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -7434,7 +7420,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "List all tables in the DEMO_Customer360_db database.",
+    "goal": "Determine what tables are in the database DEMO_Customer360_db.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -7452,7 +7438,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-List all tables in the DEMO_Customer360_db database.
+Determine what tables are in the database DEMO_Customer360_db.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -7557,39 +7543,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: Customer ---
-- `cust_activeUsers` (tool): Fetch currently active database users
-- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
-  - Arguments:
-    - `infokey` (string, optional): No description.
-- `get_cube_cust_cube_db_space_metrics` (tool): 
-    Tool to query the cube 'table_skew_pct'.
-    Get the Teradata database space metrics for tables and databases
-
-    Expected inputs:
-        dimensions (str): Comma-separated dimension names to group by. Allowed values:
-    - DatabaseName: Name of the database
-    - TableName: Name of the table
-
-        measures (str): Comma-separated measure names to aggregate. Allowed values:
-    - current_perm: Object perm space in bytes
-    - peak_perm: Object peak perm space in bytes
-    - table_skew_pct: Object skew percentage
-
-        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
-DatabaseName = 'value'
-TableName = 'value'
-current_perm > 1000
-peak_perm > 1000
-table_skew_pct > 1000
-
-    Returns:
-        Query result as a formatted response.
-    
-  - Arguments:
-    - `dimensions` (string, optional): No description.
-    - `measures` (string, optional): No description.
-    - `filters` (string, optional): No description.
 --- Category: Data Quality ---
 - `qlty_columnSummary` (tool): 
 Get the column summary statistics for a table.
@@ -7675,17 +7628,42 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
-- `base_columnDescription` (tool): 
-Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+- `cust_activeUsers` (tool): Fetch currently active database users
+- `cust_td_serverInfo` (tool): Get the Teradata software information: demonstrates how to use parameters for prepared statements.
+  - Arguments:
+    - `infokey` (string, optional): No description.
+- `get_cube_cust_cube_db_space_metrics` (tool): 
+    Tool to query the cube 'table_skew_pct'.
+    Get the Teradata database space metrics for tables and databases
 
-Arguments:
-  database_name - Database name
-  obj_name - table or view name
+    Expected inputs:
+        dimensions (str): Comma-separated dimension names to group by. Allowed values:
+    - DatabaseName: Name of the database
+    - TableName: Name of the table
 
-Returns:
-  ResponseType: formatted response with query results + metadata
+        measures (str): Comma-separated measure names to aggregate. Allowed values:
+    - current_perm: Object perm space in bytes
+    - peak_perm: Object peak perm space in bytes
+    - table_skew_pct: Object skew percentage
 
+        filters (str): Comma-separated filter expressions to apply to either dimensions or measures selected. The dimension or measure used must be in the dimension list to group by or measure list, use valid SQL expressions, for example:
+DatabaseName = 'value'
+TableName = 'value'
+current_perm > 1000
+peak_perm > 1000
+table_skew_pct > 1000
+
+    Returns:
+        Query result as a formatted response.
+    
+  - Arguments:
+    - `dimensions` (string, optional): No description.
+    - `measures` (string, optional): No description.
+    - `filters` (string, optional): No description.
 - `dba_databaseVersion` (tool):  Get Teradata database version information.
+- `dba_sessionInfo` (tool): Get the Teradata session information for user.
+  - Arguments:
+    - `user_name` (string, optional): No description.
 - `dba_systemSpace` (tool): Get the Teradata total system database space usage.
 - `base_databaseList` (tool): Lists all databases in the Teradata System.
 --- Category: Feature Store ---
@@ -7775,9 +7753,6 @@ Returns:
   - Arguments:
     - `start_date` (string, optional): No description.
     - `end_date` (string, optional): No description.
-- `dba_sessionInfo` (tool): Get the Teradata session information for user.
-  - Arguments:
-    - `user_name` (string, optional): No description.
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -7858,6 +7833,16 @@ Get a list of SQL run against a table in the last number of days.
 Arguments:
   table_name - table name
   no_days - number of days
+
+Returns:
+  ResponseType: formatted response with query results + metadata
+
+- `base_columnDescription` (tool): 
+Shows detailed column information about a database table via SQLAlchemy, bind parameters if provided (prepared SQL), and return the fully rendered SQL (with literals) in metadata.
+
+Arguments:
+  database_name - Database name
+  obj_name - table or view name
 
 Returns:
   ResponseType: formatted response with query results + metadata
@@ -7973,6 +7958,12 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
+  - Arguments:
+    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
+    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
+    - `title` (string, required): A descriptive title for the chart.
+    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 - `util_getCurrentDate` (tool): Returns the current system date in YYYY-MM-DD format. Use this as the first step for any user query involving relative dates like 'today', 'yesterday', or 'this week'.
 - `util_calculateDateRange` (tool): Calculates a list of dates based on a start date and a natural language phrase (e.g., 'past 3 days', 'last week'). This is a necessary second step for multi-day queries.
   - Arguments:
@@ -7982,13 +7973,6 @@ Returns:
   - Arguments:
     - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
     - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
---- Category: Visualization ---
-- `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
-  - Arguments:
-    - `chart_type` (string, required): The type of chart to generate (e.g., 'bar', 'pie', 'line', 'scatter'). This MUST be one of the types listed in the 'Charting Guidelines'.
-    - `data` (list[dict], required): The data to be visualized, passed directly from the output of another tool.
-    - `title` (string, required): A descriptive title for the chart.
-    - `mapping` (dict, required): A dictionary that maps data keys to chart axes or roles (e.g., {'x_axis': 'product_name', 'y_axis': 'sales_total'}). The required keys for this mapping depend on the selected chart_type.
 --- Available Prompts ---
 --- Category: Table Management ---
 - `base_tableBusinessDesc` (prompt): You are a Teradata DBA who is an expert in describing the business use of tables in a database.
@@ -8006,10 +7990,10 @@ USER PROMPT:
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
 --- GOAL ---
-what is the quality of Equipment?
+what is the qualtiy of Equipment?
 
 --- CONTEXT ---
-- User's Original Question (for reference): what is the quality of Equipment?
+- User's Original Question (for reference): what is the qualtiy of Equipment?
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -8070,7 +8054,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the column summary statistics for the Equipment table in the DEMO_Customer360_db database to determine its quality.",
+    "goal": "Determine the quality of the table Equipment in the database DEMO_Customer360_db.",
     "relevant_tools": [
       "qlty_columnSummary"
     ],
@@ -8088,10 +8072,10 @@ SYSTEM PROMPT:
 You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided tool constraints.
 
 --- OVERALL WORKFLOW GOAL ---
-what is the quality of Equipment?
+what is the qualtiy of Equipment?
 
 --- CURRENT PHASE GOAL ---
-Get the column summary statistics for the Equipment table in the DEMO_Customer360_db database to determine its quality.
+Determine the quality of the table Equipment in the database DEMO_Customer360_db.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -8136,13 +8120,13 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-23 16:23:23,986 - --- RESPONSE ---
+2025-08-23 16:36:51,027 - --- RESPONSE ---
 ```json
 {"tool_name": "qlty_columnSummary", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "Equipment"}}
 ```
 --------------------------------------------------
 
-2025-08-23 16:23:26,355 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 16:36:53,152 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
 Executing CoreLLMTask: You are an expert data analyst. Your task is to create a final report for the user based on the provided data.
 
@@ -8157,7 +8141,7 @@ USER PROMPT:
 You are a highly capable text processing and synthesis assistant.
 
 --- PRIMARY GOAL ---
-Your most important task is to directly answer the user's original question: 'what is the quality of Equipment?'.
+Your most important task is to directly answer the user's original question: 'what is the qualtiy of Equipment?'.
 You MUST begin your response with the direct answer. Do not repeat the user's question or use conversational intros like 'Here is...'. After providing the direct answer, you may then proceed with a more general summary or analysis of the data.
 
 --- TASK ---
@@ -8307,26 +8291,30 @@ Always prioritize generating content that matches the *meaning* and *purpose* of
 5. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.
 
 --- ADDITIONAL FORMATTING INSTRUCTIONS ---
-Your entire response MUST be formatted in standard markdown and MUST be separated into two distinct parts:
+Your entire response MUST be formatted in standard markdown and MUST be structured as follows:
 
-1.  **The Direct Answer:** This MUST be the first part of your response. It must be a single, concise sentence that directly and factually answers the user's original question. It MUST NOT contain any additional context, analysis, or introductory phrases. For example, if the user asked 'How many databases are on the system?', your direct answer MUST be 'There are 21 databases on the system.' and nothing more.
+1.  **(Optional) Key Metric:** If the answer to the user's question can be summarized by a single primary value (either quantitative like a number, or qualitative like a status), you MUST provide it on the very first line in a specific JSON format. The line must start with `Key Metric: ` followed by a JSON object with a `value` (as a string) and a `label` (a short description).
+    - Quantitative Example: `Key Metric: {{"value": "21", "label": "Databases on system"}}`
+    - Qualitative Example: `Key Metric: {{"value": "High", "label": "System Utilization"}}`
+    If there is no single primary value, you MUST omit this line entirely.
 
-2.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all the supporting details, context, and deeper analysis derived from the data.
+2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.
 
-**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. Adhere strictly to the Direct Answer and Key Observations structure.
+3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context.
+
+**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. Adhere strictly to the structure defined above.
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 16:23:26,355 - --- RESPONSE ---
-The quality of the Equipment table appears to be high, with no null values in any of the columns.
+2025-08-23 16:36:53,152 - --- RESPONSE ---
+The quality of the Equipment table is high, with all columns exhibiting 100% non-null values.
 
 ## Key Observations
 
-*   All columns in the `Equipment` table have 100% non-null values.
-*   The columns include customer-related information such as `GENDER`, `ADDRESS`, `CUST_ID`, `FIRSTNAME`, `ZIP`, `CITY`, `LASTNAME`, and `STATE`.
-*   The `EQUIP_LTV` column, presumably representing the lifetime value of equipment, also has no null values.
-*   The datatypes of the columns vary, including `VARCHAR`, `SMALLINT`, and `INTEGER`, suggesting a mix of categorical and numerical data.
-*   There are no blank values reported in any of the string columns, indicating data completeness.
-*   The `CUST_ID`, `ZIP`, and `EQUIP_LTV` columns have zero counts, but this may be valid depending on the context of the data.
+*   The table `DEMO_Customer360_db.Equipment` has 9 columns.
+*   All columns (`GENDER`, `ADDRESS`, `CUST_ID`, `FIRSTNAME`, `ZIP`, `CITY`, `LASTNAME`, `STATE`, `EQUIP_LTV`) have 100 non-null values and 0 null values, indicating complete data for each record.
+*   There are no blank values in any of the string columns.
+*   The `CUST_ID`, `ZIP`, and `EQUIP_LTV` columns contain numeric data, with no negative values.
+*   The `NullPercentage` is 0.0% for all columns, and the `NonNullPercentage` is 100.0% for all columns, indicating excellent data completeness.
 --------------------------------------------------
 

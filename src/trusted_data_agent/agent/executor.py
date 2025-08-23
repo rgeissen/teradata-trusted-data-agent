@@ -102,9 +102,7 @@ class PlanExecutor:
         self.MAX_EXECUTION_DEPTH = 5
         
         self.disabled_history = disabled_history
-        # --- MODIFICATION START: Add flag to track the nature of the plan ---
         self.is_delegation_only_plan = False
-        # --- MODIFICATION END ---
 
 
     @staticmethod
@@ -145,25 +143,21 @@ class PlanExecutor:
                 async for event in self._generate_meta_plan(): yield event
                 self.state = self.AgentState.EXECUTING
                 
-                # --- MODIFICATION START: Determine if the plan is delegation-only immediately after creation ---
                 self.is_delegation_only_plan = (
                     self.meta_plan and
                     len(self.meta_plan) == 1 and
                     'executable_prompt' in self.meta_plan[0]
                 )
-                # --- MODIFICATION END ---
 
             if self.state == self.AgentState.EXECUTING:
                 async for event in self._run_plan(): yield event
 
             if self.state == self.AgentState.SUMMARIZING:
-                # --- MODIFICATION START: Check the pre-determined flag instead of the (now modified) plan ---
                 if self.is_delegation_only_plan:
                     app_logger.info("This was a delegation-only plan. Skipping redundant final summary.")
                     self.state = self.AgentState.DONE
                 else:
                     async for event in self._generate_final_summary(): yield event
-                # --- MODIFICATION END ---
 
         except Exception as e:
             root_exception = unwrap_exception(e)
@@ -875,21 +869,25 @@ class PlanExecutor:
 
         app_logger.info("Generating final summary using the universal CoreLLMTask.")
         
-        # --- MODIFICATION START: New, more precise instructions ---
+        # --- MODIFICATION START: New, more precise instructions for Key Metric ---
         standard_task_description = (
             "You are an expert data analyst. Your task is to create a final report for the user based on the provided data."
         )
         
         standard_formatting_instructions = (
-            "Your entire response MUST be formatted in standard markdown and MUST be separated into two distinct parts:\n\n"
-            "1.  **The Direct Answer:** This MUST be the first part of your response. It must be a single, concise sentence that directly and factually answers the user's original question. It MUST NOT contain any additional context, analysis, or introductory phrases. For example, if the user asked 'How many databases are on the system?', your direct answer MUST be 'There are 21 databases on the system.' and nothing more.\n\n"
-            "2.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all the supporting details, context, and deeper analysis derived from the data."
+            "Your entire response MUST be formatted in standard markdown and MUST be structured as follows:\n\n"
+            "1.  **(Optional) Key Metric:** If the answer to the user's question can be summarized by a single primary value (either quantitative like a number, or qualitative like a status), you MUST provide it on the very first line in a specific JSON format. The line must start with `Key Metric: ` followed by a JSON object with a `value` (as a string) and a `label` (a short description).\n"
+            "    - Quantitative Example: `Key Metric: {{\"value\": \"21\", \"label\": \"Databases on system\"}}`\n"
+            "    - Qualitative Example: `Key Metric: {{\"value\": \"High\", \"label\": \"System Utilization\"}}`\n"
+            "    If there is no single primary value, you MUST omit this line entirely.\n\n"
+            "2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.\n\n"
+            "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context."
         )
 
         if not self.active_prompt_name:
             ad_hoc_rule = (
                 "\n\n**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. "
-                "Adhere strictly to the Direct Answer and Key Observations structure."
+                "Adhere strictly to the structure defined above."
             )
             standard_formatting_instructions += ad_hoc_rule
         # --- MODIFICATION END ---
@@ -1062,7 +1060,7 @@ class PlanExecutor:
         
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
-            yield self._format_sse({"input_tokens": input_tokens, "output_tokens": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
+            yield self._format_sse({"statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
 
         try:
             json_str = response_text

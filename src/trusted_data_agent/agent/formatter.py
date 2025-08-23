@@ -182,43 +182,52 @@ class OutputFormatter:
         
         summary_to_process = summary_to_process.lstrip(': ').strip()
 
-        # The new prompt in executor.py separates the direct answer from observations.
-        # We split the response at the "Key Observations" heading to isolate the two parts.
-        parts = re.split(r'\n\s*##\s*Key Observations', summary_to_process, 1, re.IGNORECASE)
-        direct_answer_text = parts[0].strip()
-        remaining_content = ""
-        if len(parts) > 1:
-            remaining_content = "## Key Observations\n" + parts[1].strip()
-
-        def process_inline_markdown(text_content):
-            text_content = text_content.replace(r'\_', '_')
-            text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
-            text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
-            return text_content
-
-        # --- MODIFICATION START: Implement Key Metric Card ---
+        # --- MODIFICATION START: Implement intelligent Key Metric parsing ---
         final_html = ""
-        if direct_answer_text:
-            processed_answer = process_inline_markdown(direct_answer_text)
-            
-            # Use regex to find a prominent number (integer, float, or with commas)
-            metric_match = re.search(r'(\d[\d,.]*)', processed_answer)
+        lines = summary_to_process.strip().split('\n')
+        key_metric_data = None
+        remaining_content_str = summary_to_process
 
-            if metric_match:
-                metric_number = metric_match.group(1)
-                # Create a label by removing the number and cleaning up the surrounding text
-                metric_label = re.sub(r'(?i)\b(there are|is|are)\b', '', processed_answer, 1)
-                metric_label = re.sub(r'\s*\b' + re.escape(metric_number) + r'\b\s*', ' ', metric_label, 1).strip(' .:').capitalize()
-                
-                # Render the "Key Metric Card"
-                final_html += f"""
+        if lines and lines[0].strip().startswith("Key Metric:"):
+            try:
+                json_str = lines[0].strip()[len("Key Metric:"):].strip()
+                metric_data = json.loads(json_str)
+                if 'value' in metric_data and 'label' in metric_data:
+                    key_metric_data = metric_data
+                    remaining_content_str = "\n".join(lines[1:]).strip()
+            except (json.JSONDecodeError, IndexError):
+                # If parsing fails, we treat the whole response as content and do nothing here.
+                pass
+
+        if key_metric_data:
+            metric_value = str(key_metric_data.get('value', ''))
+            metric_label = key_metric_data.get('label', '')
+            
+            # Use a larger font for purely numeric values, and a smaller one for text
+            is_numeric = re.fullmatch(r'[\d,.]+', metric_value) is not None
+            value_class = "text-5xl" if is_numeric else "text-3xl"
+            
+            final_html += f"""
 <div class="key-metric-card bg-gray-900/50 p-4 rounded-lg mb-4 text-center">
-    <div class="text-5xl font-bold text-white">{metric_number}</div>
+    <div class="{value_class} font-bold text-white">{metric_value}</div>
     <div class="text-lg text-gray-400 mt-1">{metric_label}</div>
 </div>
 """
-            else:
-                # Fallback for non-numeric answers (e.g., text)
+        
+        if remaining_content_str:
+            # If no key metric was found, the remaining content is the whole summary.
+            # We need to render the first paragraph (the Direct Answer) in the fallback callout.
+            if not key_metric_data:
+                parts = re.split(r'\n\s*\n', remaining_content_str, 1)
+                direct_answer_text = parts[0]
+                observations_content = parts[1] if len(parts) > 1 else ""
+
+                def process_inline_markdown(text_content):
+                    text_content = text_content.replace(r'\_', '_')
+                    text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
+                    text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
+                    return text_content
+                
                 final_html += f"""
 <div class="direct-answer-callout bg-gray-900/50 border-l-4 border-teradata-orange p-4 rounded-r-lg mb-4">
     <div class="flex items-start">
@@ -229,20 +238,19 @@ class OutputFormatter:
         </div>
         <div class="ml-3 w-full">
             <div class="text-base text-gray-200">
-                <p>{processed_answer}</p>
+                <p>{process_inline_markdown(direct_answer_text)}</p>
             </div>
         </div>
     </div>
 </div>
 """
-        # --- MODIFICATION END ---
-        
-        remaining_html = self._render_standard_markdown(remaining_content)
-        
-        if remaining_html and remaining_html.strip():
-            final_html += remaining_html
+                final_html += self._render_standard_markdown(observations_content)
+            else:
+                # If a key metric was found, just render the rest of the content as standard markdown.
+                final_html += self._render_standard_markdown(remaining_content_str)
         
         return final_html
+        # --- MODIFICATION END ---
 
     def _render_ddl(self, tool_result: dict, index: int) -> str:
         if not isinstance(tool_result, dict) or "results" not in tool_result: return ""
@@ -401,10 +409,8 @@ class OutputFormatter:
 
                 if isinstance(item, dict):
                     tool_name = item.get("metadata", {}).get("tool_name")
-                    # --- MODIFICATION START: Skip rendering the result of the final summarization task ---
                     if tool_name == 'CoreLLMTask':
                         continue
-                    # --- MODIFICATION END ---
                     if item.get("type") == "business_description":
                         html += f"<div class='response-card'><h4 class='text-lg font-semibold text-white mb-2'>Business Description</h4><p class='text-gray-300'>{item.get('description')}</p></div>"
                     elif tool_name == 'base_tableDDL':
