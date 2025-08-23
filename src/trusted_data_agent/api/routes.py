@@ -206,7 +206,6 @@ async def get_app_config():
         "charting_enabled": APP_CONFIG.CHARTING_ENABLED
     })
 
-# --- MODIFICATION START: Add new endpoint to provide a version hash of the master prompts ---
 @api_bp.route("/api/prompts-version")
 async def get_prompts_version():
     """
@@ -223,7 +222,6 @@ async def get_prompts_version():
     except Exception as e:
         app_logger.error(f"Failed to generate prompts version hash: {e}", exc_info=True)
         return jsonify({"error": "Could not generate prompts version"}), 500
-# --- MODIFICATION END ---
 
 @api_bp.route("/api_key/<provider>")
 async def get_api_key(provider):
@@ -520,7 +518,9 @@ async def configure_services():
             profile_part = model.split('/')[-1]
             APP_CONFIG.CURRENT_MODEL_PROVIDER_IN_PROFILE = profile_part.split('.')[1]
         
-        await mcp_adapter.load_and_categorize_teradata_resources(STATE)
+        # --- MODIFICATION START: Call the renamed function ---
+        await mcp_adapter.load_and_categorize_mcp_resources(STATE)
+        # --- MODIFICATION END ---
         APP_CONFIG.TERADATA_MCP_CONNECTED = True
         
         APP_CONFIG.CHART_MCP_CONNECTED = True

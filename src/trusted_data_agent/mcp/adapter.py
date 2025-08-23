@@ -118,14 +118,14 @@ def _extract_prompt_type_from_description(description: str | None) -> tuple[str,
     return cleaned_description, prompt_type
 
 
-async def load_and_categorize_teradata_resources(STATE: dict):
+async def load_and_categorize_mcp_resources(STATE: dict):
     mcp_client = STATE.get('mcp_client')
     llm_instance = STATE.get('llm')
     if not mcp_client or not llm_instance:
         raise Exception("MCP or LLM client not initialized.")
 
     async with mcp_client.session("teradata_mcp_server") as temp_session:
-        app_logger.info("--- Loading and classifying Teradata tools and prompts... ---")
+        app_logger.info("--- Loading and classifying MCP tools and prompts... ---")
 
         loaded_tools = await load_mcp_tools(temp_session)
         loaded_prompts = []
@@ -202,11 +202,28 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
             if category not in STATE['structured_tools']:
                 STATE['structured_tools'][category] = []
+            
+            # --- MODIFICATION START: Process tool arguments for the UI ---
+            processed_args = []
+            if hasattr(tool, 'args') and isinstance(tool.args, dict):
+                for arg_name, arg_details in tool.args.items():
+                    # Ensure arg_details is a dictionary before processing
+                    if isinstance(arg_details, dict):
+                        processed_args.append({
+                            "name": arg_name,
+                            "type": arg_details.get("type", "any"),
+                            "description": arg_details.get("description", "No description available."),
+                            "required": arg_details.get("required", False)
+                        })
 
             is_disabled = tool.name in disabled_tools_list
             STATE['structured_tools'][category].append({
-                "name": tool.name, "description": tool.description, "disabled": is_disabled
+                "name": tool.name,
+                "description": tool.description,
+                "arguments": processed_args,
+                "disabled": is_disabled
             })
+            # --- MODIFICATION END ---
 
         tool_context_parts = ["--- Available Tools ---"]
         for category, tools in sorted(STATE['structured_tools'].items()):

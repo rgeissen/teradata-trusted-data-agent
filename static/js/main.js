@@ -145,7 +145,6 @@ const promptNameDisplay = document.getElementById('prompt-name-display');
 statusWindowContent.addEventListener('mouseenter', () => { isMouseOverStatus = true; });
 statusWindowContent.addEventListener('mouseleave', () => { isMouseOverStatus = false; });
 
-// --- MODIFICATION START: Add corrected function to check for and flush outdated default prompts ---
 async function checkAndUpdateDefaultPrompts() {
     try {
         const res = await fetch('/api/prompts-version');
@@ -180,15 +179,12 @@ async function checkAndUpdateDefaultPrompts() {
              console.log('Local prompt cache is up to date.');
         }
 
-        // Always update the hash in local storage on a successful fetch.
-        // This ensures the key is created on the first run and is always current.
         localStorage.setItem('promptVersionHash', serverVersion);
 
     } catch (e) {
         console.error('Error checking for prompt updates:', e);
     }
 }
-// --- MODIFICATION END ---
 
 
 function getSystemPrompts() {
@@ -729,6 +725,7 @@ async function toggleTool(toolName, isDisabled, buttonEl) {
     }
 }
 
+// --- MODIFICATION START: Refactor createResourceItem to handle tool arguments ---
 function createResourceItem(resource, type) {
     const detailsEl = document.createElement('details');
     detailsEl.id = `resource-${type}-${resource.name}`;
@@ -743,59 +740,67 @@ function createResourceItem(resource, type) {
         `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074L3.707 2.293zM10 12a2 2 0 110-4 2 2 0 010 4z" clip-rule="evenodd" /><path d="M2 10s3.939 4 8 4 8-4 8-4-3.939-4-8-4-8 4-8 4zm13.707 4.293a1 1 0 00-1.414-1.414L12.586 14.6A8.007 8.007 0 0110 16c-4.478 0-8.268-2.943-9.542-7 .946-2.317 2.83-4.224 5.166-5.447L2.293 1.293A1 1 0 00.879 2.707l14 14a1 1 0 001.414 0z" /></svg>` :
         `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" /></svg>`;
 
+    let argsHTML = '';
+    if (resource.arguments && resource.arguments.length > 0) {
+        argsHTML += `<div class="mt-4 pt-3 border-t border-gray-700/60">
+                                <h5 class="font-semibold text-sm text-white mb-2">Parameters</h5>
+                                <ul class="space-y-2 text-xs">`;
+        resource.arguments.forEach(arg => {
+            const requiredText = arg.required ? '<span class="text-red-400 font-bold">Required</span>' : '<span class="text-gray-400">Optional</span>';
+            const typeText = arg.type && arg.type !== 'unknown' ? `<span class="font-mono text-xs text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded-md">${arg.type}</span>` : '';
+
+            argsHTML += `<li class="p-2 bg-black/20 rounded-md">
+                                    <div class="flex justify-between items-center">
+                                        <div class="flex items-center gap-x-2">
+                                            <code class="font-semibold text-teradata-orange">${arg.name}</code>
+                                            ${typeText}
+                                        </div>
+                                        ${requiredText}
+                                    </div>
+                                    <p class="text-gray-400 mt-1">${arg.description}</p>
+                                 </li>`;
+        });
+        argsHTML += `</ul></div>`;
+    }
+    
     let contentHTML = '';
     if (type === 'prompts') {
         const runButtonDisabledAttr = resource.disabled ? 'disabled' : '';
         const runButtonTitle = resource.disabled ? 'This prompt is disabled.' : 'Run this prompt.';
 
-        let argsHTML = '';
-        if (resource.arguments && resource.arguments.length > 0) {
-            argsHTML += `<div class="mt-4 pt-3 border-t border-gray-700/60">
-                                    <h5 class="font-semibold text-sm text-white mb-2">Parameters</h5>
-                                    <ul class="space-y-2 text-xs">`;
-            resource.arguments.forEach(arg => {
-                const requiredText = arg.required ? '<span class="text-red-400 font-bold">Required</span>' : '<span class="text-gray-400">Optional</span>';
-                const typeText = arg.type && arg.type !== 'unknown' ? `<span class="font-mono text-xs text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded-md">${arg.type}</span>` : '';
-
-                argsHTML += `<li class="p-2 bg-black/20 rounded-md">
-                                        <div class="flex justify-between items-center">
-                                            <div class="flex items-center gap-x-2">
-                                                <code class="font-semibold text-teradata-orange">${arg.name}</code>
-                                                ${typeText}
-                                            </div>
-                                            ${requiredText}
-                                        </div>
-                                        <p class="text-gray-400 mt-1">${arg.description}</p>
-                                     </li>`;
-            });
-            argsHTML += `</ul></div>`;
-        }
-
         contentHTML = `
-                <div class="p-3 pt-2 text-sm text-gray-300 space-y-3">
-                    <p>${resource.description}</p>
-                    ${argsHTML}
-                    <div class="flex justify-end items-center gap-x-2 pt-3 border-t border-gray-700/60">
-                        <button class="prompt-toggle-button p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition-colors">${toggleIcon}</button>
-                        <button class="view-prompt-button px-3 py-1 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 transition-colors">Prompt</button>
-                        <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors" ${runButtonDisabledAttr} title="${runButtonTitle}">Run</button>
-                    </div>
-                </div>`;
-    } else { // For tools and resources
-         contentHTML = `
-                <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60 flex justify-between items-center">
-                    <p>${resource.description}</p>
-                    ${type === 'tools' ? `<button class="tool-toggle-button p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition-colors">${toggleIcon}</button>` : ''}
-                </div>`;
+            <div class="p-3 pt-2 text-sm text-gray-300 space-y-3">
+                <p>${resource.description}</p>
+                ${argsHTML}
+                <div class="flex justify-end items-center gap-x-2 pt-3 border-t border-gray-700/60">
+                    <button class="prompt-toggle-button p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition-colors">${toggleIcon}</button>
+                    <button class="view-prompt-button px-3 py-1 bg-gray-600 text-white text-xs font-semibold rounded-md hover:bg-gray-500 transition-colors">Prompt</button>
+                    <button class="run-prompt-button px-3 py-1 bg-teradata-orange text-white text-xs font-semibold rounded-md hover:bg-teradata-orange-dark transition-colors" ${runButtonDisabledAttr} title="${runButtonTitle}">Run</button>
+                </div>
+            </div>`;
+    } else if (type === 'tools') {
+        contentHTML = `
+            <div class="p-3 pt-2 text-sm text-gray-300 space-y-3">
+                <p>${resource.description}</p>
+                ${argsHTML}
+                <div class="flex justify-end items-center pt-3 border-t border-gray-700/60">
+                    <button class="tool-toggle-button p-1.5 text-gray-300 hover:text-white hover:bg-white/10 rounded-md transition-colors">${toggleIcon}</button>
+                </div>
+            </div>`;
+    } else { // For resources
+        contentHTML = `
+            <div class="p-3 pt-2 text-sm text-gray-300 border-t border-gray-700/60 flex justify-between items-center">
+                <p>${resource.description}</p>
+            </div>`;
     }
 
     detailsEl.innerHTML = `
-                <summary class="flex justify-between items-center p-3 font-semibold text-white hover:bg-gray-700/50 rounded-lg transition-colors cursor-pointer">
-                    <span>${resource.name}</span>
-                    <svg class="chevron w-5 h-5 text-[#F15F22] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                </summary>
-                ${contentHTML}
-            `;
+        <summary class="flex justify-between items-center p-3 font-semibold text-white hover:bg-gray-700/50 rounded-lg transition-colors cursor-pointer">
+            <span>${resource.name}</span>
+            <svg class="chevron w-5 h-5 text-[#F15F22] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+        </summary>
+        ${contentHTML}
+    `;
 
     if (type === 'prompts') {
         const runButton = detailsEl.querySelector('.run-prompt-button');
@@ -813,6 +818,7 @@ function createResourceItem(resource, type) {
 
     return detailsEl;
 }
+// --- MODIFICATION END ---
 
 function updatePromptsTabCounter() {
     const tabButton = document.querySelector('.resource-tab[data-type="prompts"]');
@@ -1447,9 +1453,7 @@ systemPromptPopupOverlay.addEventListener('click', (e) => {
 configForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    // --- MODIFICATION START: Call the prompt update checker during configuration ---
     await checkAndUpdateDefaultPrompts();
-    // --- MODIFICATION END ---
 
     const selectedModel = llmModelSelect.value;
     if (!selectedModel) {
@@ -1957,7 +1961,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     configForm.addEventListener('input', updateConfigButtonState);
     
     document.addEventListener('keydown', (e) => {
-        // Toggle locked mode with Shift + Alt
         if (e.key === 'Alt' && e.shiftKey) {
             e.preventDefault();
             isHistoryDisabledLocked = !isHistoryDisabledLocked;
@@ -1965,7 +1968,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return; 
         }
 
-        // Handle momentary press-and-hold of Alt
         if (e.key === 'Alt' && !isAltPressed) {
             e.preventDefault(); 
             isAltPressed = true;
