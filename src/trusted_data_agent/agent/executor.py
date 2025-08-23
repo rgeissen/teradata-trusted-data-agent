@@ -102,6 +102,9 @@ class PlanExecutor:
         self.MAX_EXECUTION_DEPTH = 5
         
         self.disabled_history = disabled_history
+        # --- MODIFICATION START: Add flag to track the nature of the plan ---
+        self.is_delegation_only_plan = False
+        # --- MODIFICATION END ---
 
 
     @staticmethod
@@ -141,24 +144,26 @@ class PlanExecutor:
             if self.state == self.AgentState.PLANNING:
                 async for event in self._generate_meta_plan(): yield event
                 self.state = self.AgentState.EXECUTING
+                
+                # --- MODIFICATION START: Determine if the plan is delegation-only immediately after creation ---
+                self.is_delegation_only_plan = (
+                    self.meta_plan and
+                    len(self.meta_plan) == 1 and
+                    'executable_prompt' in self.meta_plan[0]
+                )
+                # --- MODIFICATION END ---
 
             if self.state == self.AgentState.EXECUTING:
                 async for event in self._run_plan(): yield event
 
-            # --- MODIFICATION START: Skip final summary for delegation-only plans to prevent duplicate reports ---
-            is_delegation_only_plan = (
-                self.meta_plan and
-                len(self.meta_plan) == 1 and
-                'executable_prompt' in self.meta_plan[0]
-            )
-
             if self.state == self.AgentState.SUMMARIZING:
-                if is_delegation_only_plan:
+                # --- MODIFICATION START: Check the pre-determined flag instead of the (now modified) plan ---
+                if self.is_delegation_only_plan:
                     app_logger.info("This was a delegation-only plan. Skipping redundant final summary.")
                     self.state = self.AgentState.DONE
                 else:
                     async for event in self._generate_final_summary(): yield event
-            # --- MODIFICATION END ---
+                # --- MODIFICATION END ---
 
         except Exception as e:
             root_exception = unwrap_exception(e)
