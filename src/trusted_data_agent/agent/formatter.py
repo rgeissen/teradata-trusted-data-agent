@@ -182,7 +182,7 @@ class OutputFormatter:
         
         summary_to_process = summary_to_process.lstrip(': ').strip()
 
-        # --- MODIFICATION START: Implement intelligent Key Metric parsing ---
+        # --- MODIFICATION START: Final UX refinement for summary presentation ---
         final_html = ""
         lines = summary_to_process.strip().split('\n')
         key_metric_data = None
@@ -196,59 +196,47 @@ class OutputFormatter:
                     key_metric_data = metric_data
                     remaining_content_str = "\n".join(lines[1:]).strip()
             except (json.JSONDecodeError, IndexError):
-                # If parsing fails, we treat the whole response as content and do nothing here.
                 pass
 
         if key_metric_data:
             metric_value = str(key_metric_data.get('value', ''))
             metric_label = key_metric_data.get('label', '')
             
-            # Use a larger font for purely numeric values, and a smaller one for text
             is_numeric = re.fullmatch(r'[\d,.]+', metric_value) is not None
-            value_class = "text-5xl" if is_numeric else "text-3xl"
+            value_class = "text-4xl" if is_numeric else "text-2xl"
+            label_class = "text-base"
             
             final_html += f"""
 <div class="key-metric-card bg-gray-900/50 p-4 rounded-lg mb-4 text-center">
     <div class="{value_class} font-bold text-white">{metric_value}</div>
-    <div class="text-lg text-gray-400 mt-1">{metric_label}</div>
+    <div class="{label_class} text-gray-400 mt-1">{metric_label}</div>
 </div>
 """
+            # When a metric card is shown, we only render the Key Observations that follow it.
+            obs_match = re.search(r'##\s*Key Observations.*', remaining_content_str, re.DOTALL | re.IGNORECASE)
+            if obs_match:
+                final_html += self._render_standard_markdown(obs_match.group(0))
         
-        if remaining_content_str:
-            # If no key metric was found, the remaining content is the whole summary.
-            # We need to render the first paragraph (the Direct Answer) in the fallback callout.
-            if not key_metric_data:
-                parts = re.split(r'\n\s*\n', remaining_content_str, 1)
-                direct_answer_text = parts[0]
-                observations_content = parts[1] if len(parts) > 1 else ""
+        elif remaining_content_str:
+            # If no key metric, we render the direct answer in the new "Summary Statement" component.
+            parts = re.split(r'\n\s*\n', remaining_content_str, 1)
+            direct_answer_text = parts[0]
+            observations_content = parts[1] if len(parts) > 1 else ""
 
-                def process_inline_markdown(text_content):
-                    text_content = text_content.replace(r'\_', '_')
-                    text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
-                    text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
-                    return text_content
-                
-                final_html += f"""
-<div class="direct-answer-callout bg-gray-900/50 border-l-4 border-teradata-orange p-4 rounded-r-lg mb-4">
-    <div class="flex items-start">
-        <div class="flex-shrink-0">
-            <svg class="h-6 w-6 text-teradata-orange" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-        </div>
-        <div class="ml-3 w-full">
-            <div class="text-base text-gray-200">
-                <p>{process_inline_markdown(direct_answer_text)}</p>
-            </div>
-        </div>
-    </div>
+            def process_inline_markdown(text_content):
+                text_content = text_content.replace(r'\_', '_')
+                text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
+                text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
+                return text_content
+
+            final_html += f"""
+<div class="summary-statement bg-gray-900/50 p-4 rounded-lg mb-4">
+    <p class="text-base text-gray-200">{process_inline_markdown(direct_answer_text)}</p>
 </div>
 """
+            if observations_content:
                 final_html += self._render_standard_markdown(observations_content)
-            else:
-                # If a key metric was found, just render the rest of the content as standard markdown.
-                final_html += self._render_standard_markdown(remaining_content_str)
-        
+
         return final_html
         # --- MODIFICATION END ---
 
