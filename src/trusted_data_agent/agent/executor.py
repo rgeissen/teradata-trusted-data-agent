@@ -875,25 +875,24 @@ class PlanExecutor:
 
         app_logger.info("Generating final summary using the universal CoreLLMTask.")
         
+        # --- MODIFICATION START: New, more precise instructions ---
         standard_task_description = (
-            "You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. "
-            "Do not describe the raw data or explain how you performed the analysis. "
-            "Focus on providing a concise, specific, and business-friendly summary of the findings."
+            "You are an expert data analyst. Your task is to create a final report for the user based on the provided data."
         )
         
         standard_formatting_instructions = (
-            "You MUST format your entire response using standard markdown. "
-            "Use a level-2 heading (e.g., '## Key Observations') for sections. "
-            "Use bullet points (e.g., '- Item 1') for lists of observations. "
-            "Use bold text (e.g., '**Important Term**') for emphasis."
+            "Your entire response MUST be formatted in standard markdown and MUST be separated into two distinct parts:\n\n"
+            "1.  **The Direct Answer:** This MUST be the first part of your response. It must be a single, concise sentence that directly and factually answers the user's original question. It MUST NOT contain any additional context, analysis, or introductory phrases. For example, if the user asked 'How many databases are on the system?', your direct answer MUST be 'There are 21 databases on the system.' and nothing more.\n\n"
+            "2.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all the supporting details, context, and deeper analysis derived from the data."
         )
 
         if not self.active_prompt_name:
             ad_hoc_rule = (
-                "\n\n**CRITICAL FORMATTING RULE:** Your entire response MUST be a prose-based, narrative summary using standard markdown. "
-                "Do NOT use special key-value formats like `***Key:*** Value`. Start with a direct, one-paragraph answer, followed by a `## Key Observations` section with bullet points if applicable."
+                "\n\n**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. "
+                "Adhere strictly to the Direct Answer and Key Observations structure."
             )
             standard_formatting_instructions += ad_hoc_rule
+        # --- MODIFICATION END ---
 
         core_llm_command = {
             "tool_name": "CoreLLMTask",
@@ -1063,7 +1062,7 @@ class PlanExecutor:
         
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
-            yield self._format_sse({"statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
+            yield self._format_sse({"input_tokens": input_tokens, "output_tokens": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
 
         try:
             json_str = response_text

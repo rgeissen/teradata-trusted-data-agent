@@ -182,36 +182,44 @@ class OutputFormatter:
         
         summary_to_process = summary_to_process.lstrip(': ').strip()
 
-        lines = [line for line in summary_to_process.strip().split('\n') if line.strip()]
-        if not lines:
-            return ""
-
-        direct_answer_text = ""
+        # The new prompt in executor.py separates the direct answer from observations.
+        # We split the response at the "Key Observations" heading to isolate the two parts.
+        parts = re.split(r'\n\s*##\s*Key Observations', summary_to_process, 1, re.IGNORECASE)
+        direct_answer_text = parts[0].strip()
         remaining_content = ""
-        
-        first_line = lines[0]
-        heading_match = re.match(r'^(#{1,6})\s+(.*)$', first_line)
+        if len(parts) > 1:
+            remaining_content = "## Key Observations\n" + parts[1].strip()
 
-        if heading_match and len(lines) > 1:
-            direct_answer_text = lines[1].strip()
-            remaining_content = '\n'.join(lines[2:])
-        else:
-            paragraphs = re.split(r'\n\s*\n', summary_to_process.strip())
-            direct_answer_text = paragraphs[0].strip()
-            remaining_content = '\n\n'.join(paragraphs[1:])
-        
         def process_inline_markdown(text_content):
             text_content = text_content.replace(r'\_', '_')
             text_content = re.sub(r'`(.*?)`', r'<code class="bg-gray-900/70 text-teradata-orange rounded-md px-1.5 py-0.5 font-mono text-sm">\1</code>', text_content)
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
 
-        # --- MODIFICATION START ---
+        # --- MODIFICATION START: Implement Key Metric Card ---
         final_html = ""
         if direct_answer_text:
             processed_answer = process_inline_markdown(direct_answer_text)
-            # This creates the new "callout box" for the direct answer.
-            final_html += f"""
+            
+            # Use regex to find a prominent number (integer, float, or with commas)
+            metric_match = re.search(r'(\d[\d,.]*)', processed_answer)
+
+            if metric_match:
+                metric_number = metric_match.group(1)
+                # Create a label by removing the number and cleaning up the surrounding text
+                metric_label = re.sub(r'(?i)\b(there are|is|are)\b', '', processed_answer, 1)
+                metric_label = re.sub(r'\s*\b' + re.escape(metric_number) + r'\b\s*', ' ', metric_label, 1).strip(' .:').capitalize()
+                
+                # Render the "Key Metric Card"
+                final_html += f"""
+<div class="key-metric-card bg-gray-900/50 p-4 rounded-lg mb-4 text-center">
+    <div class="text-5xl font-bold text-white">{metric_number}</div>
+    <div class="text-lg text-gray-400 mt-1">{metric_label}</div>
+</div>
+"""
+            else:
+                # Fallback for non-numeric answers (e.g., text)
+                final_html += f"""
 <div class="direct-answer-callout bg-gray-900/50 border-l-4 border-teradata-orange p-4 rounded-r-lg mb-4">
     <div class="flex items-start">
         <div class="flex-shrink-0">
@@ -231,7 +239,6 @@ class OutputFormatter:
         
         remaining_html = self._render_standard_markdown(remaining_content)
         
-        # The callout box provides enough separation, so the <hr> is no longer needed.
         if remaining_html and remaining_html.strip():
             final_html += remaining_html
         
@@ -242,7 +249,7 @@ class OutputFormatter:
         results = tool_result.get("results")
         if not isinstance(results, list) or not results: return ""
         ddl_text = results[0].get('Request Text', 'DDL not available.')
-        ddl_text_sanitized = dl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        ddl_text_sanitized = ddl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         metadata = tool_result.get("metadata", {})
         table_name = metadata.get("table", "DDL")
         self.processed_data_indices.add(index)
