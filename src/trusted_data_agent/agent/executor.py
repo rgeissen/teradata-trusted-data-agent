@@ -62,7 +62,8 @@ def unwrap_exception(e: BaseException) -> BaseException:
 class PlanExecutor:
     AgentState = AgentState
 
-    def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None):
+    # --- MODIFICATION START: Accept 'disabled_history' flag in constructor ---
+    def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None, execution_depth: int = 0, disabled_history: bool = False):
         self.session_id = session_id
         self.original_user_input = original_user_input
         self.dependencies = dependencies
@@ -98,6 +99,12 @@ class PlanExecutor:
         if session_data:
             self.known_entities = session_data.get("known_entities", {}).copy()
 
+        self.execution_depth = execution_depth
+        self.MAX_EXECUTION_DEPTH = 5
+        
+        self.disabled_history = disabled_history
+    # --- MODIFICATION END ---
+
 
     @staticmethod
     def _format_sse(data: dict, event: str = None) -> str:
@@ -106,16 +113,19 @@ class PlanExecutor:
             msg += f"event: {event}\n"
         return f"{msg}\n"
 
+    # --- MODIFICATION START: Pass 'disabled_history' flag to the LLM handler ---
     async def _call_llm_and_update_tokens(self, prompt: str, reason: str, system_prompt_override: str = None, raise_on_error: bool = False) -> tuple[str, int, int]:
         """A centralized wrapper for calling the LLM that handles token updates."""
         response_text, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
             self.dependencies['STATE']['llm'], prompt, self.session_id,
             dependencies=self.dependencies, reason=reason,
-            system_prompt_override=system_prompt_override, raise_on_error=raise_on_error
+            system_prompt_override=system_prompt_override, raise_on_error=raise_on_error,
+            disabled_history=self.disabled_history
         )
         self.llm_debug_history.append({"reason": reason, "response": response_text})
         app_logger.info(f"LLM RESPONSE (DEBUG): Reason='{reason}', Response='{response_text}'")
         return response_text, statement_input_tokens, statement_output_tokens
+    # --- MODIFICATION END ---
 
     def _add_to_structured_data(self, tool_result: dict, context_key_override: str = None):
         """Adds tool results to the structured data dictionary."""
@@ -156,15 +166,17 @@ class PlanExecutor:
     def _create_optimized_context(self) -> tuple[str, str]:
         """
         Creates a token-efficient, high-signal context summary for the planner by
-        summarizing past results and explicitly extracting known entities from both
-        the current turn's history and the persistent session context.
+        summarizing past results and dynamically extracting known entities from both
+        the tool call arguments and the tool call results.
         """
         optimized_history = []
         known_entities = self.known_entities.copy()
         
-        # Use sets to efficiently collect unique discovered entities
-        all_known_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
-        discovered_entities = {key: set(value) for key, value in known_entities.items() if isinstance(value, list)}
+        all_known_tool_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
+        
+        normalized_to_canonical_map = {
+            arg.lower().replace('_', ''): arg for arg in all_known_tool_args
+        }
 
         for entry in self.action_history:
             action = entry.get("action", {})
@@ -187,28 +199,40 @@ class PlanExecutor:
             })
 
             if result_summary.get('status') == 'success':
-                # 1. Extract entities from tool arguments dynamically
                 args = action.get("arguments", {})
                 for arg_name, arg_value in args.items():
-                    if arg_name in all_known_args and arg_value:
-                        known_entities[arg_name] = arg_value # Set as "active" entity
+                    if arg_name in all_known_tool_args and arg_value:
+                        known_entities[arg_name] = arg_value
 
-                # 2. Extract entities from tool results (semi-scalable)
                 result_data = entry.get("result", {})
                 if 'results' in result_data and isinstance(result_data.get('results'), list):
                     for row in result_data['results']:
-                        if isinstance(row, dict):
-                            # Hardcoded for now, but extensible for other common entity types
-                            if 'DatabaseName' in row and row['DatabaseName']:
-                                discovered_entities.setdefault('databases_discovered', set()).add(row['DatabaseName'])
-                            if 'TableName' in row and row['TableName']:
-                                discovered_entities.setdefault('table_names_discovered', set()).add(row['TableName'])
+                        if not isinstance(row, dict):
+                            continue
+                        
+                        for row_key, row_value in row.items():
+                            if not row_value:
+                                continue
 
-        # Update the known_entities map with the full lists of discovered items
-        for key, value_set in discovered_entities.items():
-            known_entities[key] = sorted(list(value_set))
+                            normalized_row_key = row_key.lower().replace('_', '')
+                            
+                            if normalized_row_key in normalized_to_canonical_map:
+                                canonical_arg_name = normalized_to_canonical_map[normalized_row_key]
+                                
+                                if not isinstance(known_entities.get(canonical_arg_name), set):
+                                    known_entities[canonical_arg_name] = set()
+                                
+                                known_entities[canonical_arg_name].add(row_value)
 
-        return json.dumps(optimized_history, indent=2), json.dumps(known_entities, indent=2)
+        final_known_entities = {}
+        for key, value in known_entities.items():
+            if isinstance(value, set):
+                sorted_list = sorted(list(value))
+                final_known_entities[key] = sorted_list[0] if len(sorted_list) == 1 else sorted_list
+            else:
+                final_known_entities[key] = value
+
+        return json.dumps(optimized_history, indent=2), json.dumps(final_known_entities, indent=2)
 
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
@@ -254,7 +278,8 @@ class PlanExecutor:
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input,
             workflow_history=optimized_history_str,
-            known_entities=known_entities_str
+            known_entities=known_entities_str,
+            execution_depth=self.execution_depth
         )
         
         yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
@@ -298,10 +323,46 @@ class PlanExecutor:
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
 
+    # --- MODIFICATION START: Pass 'disabled_history' flag to sub-executor ---
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
         if not self.meta_plan:
             raise RuntimeError("Cannot execute plan: meta_plan is not generated.")
+
+        if (len(self.meta_plan) > 0 and 
+            'executable_prompt' in self.meta_plan[0] and
+            self.execution_depth < self.MAX_EXECUTION_DEPTH):
+            
+            phase_one = self.meta_plan[0]
+            prompt_name = phase_one.get('executable_prompt')
+            prompt_args = phase_one.get('arguments', {})
+            
+            yield self._format_sse({
+                "step": "Prompt Execution Granted",
+                "details": f"Executing prompt '{prompt_name}' as Phase 1 of the plan.",
+                "type": "workaround"
+            })
+            
+            sub_executor = PlanExecutor(
+                session_id=self.session_id,
+                original_user_input=phase_one.get('goal', f"Executing prompt: {prompt_name}"),
+                dependencies=self.dependencies,
+                active_prompt_name=prompt_name,
+                prompt_arguments=prompt_args,
+                execution_depth=self.execution_depth + 1,
+                disabled_history=self.disabled_history
+            )
+            
+            async for event in sub_executor.run():
+                yield event
+            
+            self.structured_collected_data.update(sub_executor.structured_collected_data)
+            self.workflow_state.update(sub_executor.workflow_state)
+            self.action_history.extend(sub_executor.action_history)
+            
+            self.meta_plan.pop(0)
+            for phase in self.meta_plan:
+                phase['phase'] -= 1
 
         while self.current_phase_index < len(self.meta_plan):
             current_phase = self.meta_plan[self.current_phase_index]
@@ -326,6 +387,7 @@ class PlanExecutor:
 
         app_logger.info("Meta-plan has been fully executed. Transitioning to summarization.")
         self.state = self.AgentState.SUMMARIZING
+    # --- MODIFICATION END ---
     
     def _extract_loop_items(self, source_phase_key: str) -> list:
         """
