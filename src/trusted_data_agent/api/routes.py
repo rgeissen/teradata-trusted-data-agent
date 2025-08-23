@@ -22,6 +22,8 @@ from trusted_data_agent.agent.prompts import PROVIDER_SYSTEM_PROMPTS, CHARTING_I
 from trusted_data_agent.agent.executor import PlanExecutor
 from trusted_data_agent.llm import handler as llm_handler
 from trusted_data_agent.mcp import adapter as mcp_adapter
+from trusted_data_agent.agent.formatter import OutputFormatter
+
 
 api_bp = Blueprint('api', __name__)
 app_logger = logging.getLogger("quart.app")
@@ -48,6 +50,15 @@ def set_dependencies(app_state):
     """Injects the global application state into this blueprint."""
     global STATE
     STATE = app_state
+
+def _get_prompt_info(prompt_name: str) -> dict | None:
+    """Helper to find prompt details from the structured prompts in the global state."""
+    structured_prompts = STATE.get('structured_prompts', {})
+    for category_prompts in structured_prompts.values():
+        for prompt in category_prompts:
+            if prompt.get("name") == prompt_name:
+                return prompt
+    return None
 
 def _regenerate_contexts():
     """
@@ -532,13 +543,11 @@ async def ask_stream():
             yield PlanExecutor._format_sse({"error": "Missing 'message' or invalid 'session_id'"}, "error")
             return
         
-        # --- MODIFICATION START: Add new event trigger for disabled history state ---
         if disabled_history:
             yield PlanExecutor._format_sse(
                 {"target": "context", "state": "history_disabled_processing"}, 
                 "context_state_update"
             )
-        # --- MODIFICATION END ---
 
         try:
             session_manager.add_to_history(session_id, 'user', user_input)
@@ -571,7 +580,10 @@ async def ask_stream():
 
 @api_bp.route("/invoke_prompt_stream", methods=["POST"])
 async def invoke_prompt_stream():
-    """Handles the direct invocation of a prompt from the UI, creating a prompt-driven workflow."""
+    """
+    Handles the direct invocation of a prompt from the UI. This route now contains
+    the core orchestration logic to differentiate between 'reporting' and 'context' prompts.
+    """
     data = await request.get_json()
     session_id = data.get("session_id")
     prompt_name = data.get("prompt_name")
@@ -579,16 +591,15 @@ async def invoke_prompt_stream():
     disabled_history = data.get("disabled_history", False)
     
     async def stream_generator():
+        # --- Initial Setup ---
         user_input = f"Manual execution of prompt: {prompt_name}"
         session_manager.add_to_history(session_id, 'user', user_input)
         
-        # --- MODIFICATION START: Add new event trigger for disabled history state ---
         if disabled_history:
             yield PlanExecutor._format_sse(
                 {"target": "context", "state": "history_disabled_processing"}, 
                 "context_state_update"
             )
-        # --- MODIFICATION END ---
         
         session_data = session_manager.get_session(session_id)
         if session_data['name'] == 'New Chat':
@@ -597,6 +608,10 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
         try:
+            # --- Orchestration Logic ---
+            prompt_info = _get_prompt_info(prompt_name)
+            prompt_type = prompt_info.get("prompt_type", "reporting") if prompt_info else "reporting"
+
             executor = PlanExecutor(
                 session_id=session_id, 
                 original_user_input=user_input, 
@@ -605,8 +620,44 @@ async def invoke_prompt_stream():
                 prompt_arguments=arguments,
                 disabled_history=disabled_history
             )
-            async for event in executor.run():
-                yield event
+
+            # --- Execute and Handle Based on Type ---
+            if prompt_type == 'reporting':
+                # For reporting prompts, stream all events directly. The executor handles the final summary.
+                app_logger.info(f"Executing 'reporting' prompt '{prompt_name}'. Standard execution flow.")
+                async for event in executor.run():
+                    yield event
+            
+            elif prompt_type == 'context':
+                # For context prompts, we intercept the event stream.
+                app_logger.info(f"Executing 'context' prompt '{prompt_name}'. Summarization will be skipped.")
+                final_event_name = None
+                
+                async for event_str in executor.run():
+                    # We need to parse the event to check its type
+                    event_data_str = event_str.split('data: ')[1].split('\n')[0]
+                    event_data = json.loads(event_data_str)
+                    
+                    # Check if this is the final summarization event
+                    is_final_summary_event = 'final_answer' in event_data
+                    
+                    if not is_final_summary_event:
+                        # If it's not the final summary, pass it through to the UI
+                        yield event_str
+                
+                # After the executor has run, its collected data is available.
+                # We now format this raw data directly, skipping the LLM summary.
+                app_logger.info(f"Context prompt '{prompt_name}' finished. Formatting raw data for output.")
+                formatter = OutputFormatter(
+                    llm_response_text=f"The following context has been gathered from executing the '{prompt_name}' prompt.",
+                    collected_data=executor.structured_collected_data,
+                    original_user_input=user_input,
+                    active_prompt_name=prompt_name
+                )
+                final_html = formatter.render()
+                session_manager.add_to_history(session_id, 'assistant', final_html)
+                yield PlanExecutor._format_sse({"final_answer": final_html}, "final_answer")
+
         except Exception as e:
             app_logger.error(f"An unhandled error occurred in /invoke_prompt_stream: {e}", exc_info=True)
             yield PlanExecutor._format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")

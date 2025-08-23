@@ -1,4 +1,4 @@
-2025-08-23 13:48:30,079 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:09:11,556 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the goal: 'how many databases are on the system?'
 
@@ -75,51 +75,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -340,6 +295,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -459,6 +455,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -538,12 +538,12 @@ how many databases are on the system?
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 
 
-2025-08-23 13:48:30,079 - --- RESPONSE ---
+2025-08-23 14:09:11,556 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -552,9 +552,9 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 ```
 --------------------------------------------------
 
-2025-08-23 13:48:30,532 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:09:12,388 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get a list of all databases on the system to determine how many exist.
+Deciding next tactical action for phase: Determine how many databases are on the system.
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -627,51 +627,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -892,6 +847,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -1011,6 +1007,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -1093,7 +1093,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -1110,7 +1110,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get a list of all databases on the system to determine how many exist.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -1143,13 +1143,13 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-23 13:48:30,532 - --- RESPONSE ---
+2025-08-23 14:09:12,389 - --- RESPONSE ---
 ```json
 {"tool_name": "base_databaseList", "arguments": {}}
 ```
 --------------------------------------------------
 
-2025-08-23 13:48:34,335 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 14:09:14,304 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
 Executing CoreLLMTask: You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. Do not describe the raw data or explain how you performed the analysis. Focus on providing a concise, specific, and business-friendly summary of the findings.
 
@@ -1475,19 +1475,18 @@ You MUST format your entire response using standard markdown. Use a level-2 head
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 13:48:34,335 - --- RESPONSE ---
-There are 21 databases on the system. These databases and users support a range of functions, from system operations and analytics to customer demos and cloud service management. Several user accounts are dedicated to As-A-Service (TDaaS) functions, indicating a strong focus on cloud-based service delivery.
+2025-08-23 14:09:14,305 - --- RESPONSE ---
+There are 24 databases on the system. These include databases of type 'DataBase' such as TD_SYSXML and DEMO_Customer360_db, as well as databases of type 'User' like All and mldb. The databases serve various purposes, including system functions, demonstration environments, and user-specific data storage.
 
 ## Key Observations
 
-- The system includes a mix of system-level databases (e.g., `TD_SYSXML`, `SYSLIB`) and user-defined databases (e.g., `DEMO_Customer360_db`, `mldb`).
-- Several user accounts are associated with Teradata as a Service (TDaaS), suggesting a cloud-based service offering. Examples include `TDaaS_TDBCMgmt2`, `TDaaS_BAR`, `TDaaS_Monitor`, `TDaaS_Support`, `TDaaS_Maint`, and `TDaaS_TDBCMgmt1`.
-- There are dedicated databases and users for demo purposes, such as `DEMO_Customer360_db`, `demo_user`, `DEMO_DigitalEvents_db`, and `DemoNow_Monitor`. This highlights the importance of demonstration environments.
-- Some user accounts are reserved for specific functions, such as `External_AP` for LDAP Auto Provisioning, `SystemFe` for System Field Engineers, `SysAdmin` for System Administrators, and `Crashdumps` for Crashdumps Processing Software.
-- Databases like `TD_ANALYTICS_DB` suggests the platform supports analytical workloads.
+- There are two distinct types of databases: "DataBase" and "User".
+- Several databases are associated with "As-A-Service" functionalities, indicated by their names (e.g., "TDaaS_TDBCMgmt2").
+- Some databases have specific comments indicating their purpose, such as "CREATED_BY: DEMO_Customer360_local" or "As-A-Service : POG/COG router management user".
+- A number of databases are related to system functions (e.g., TD_SYSXML, SYSLIB).
 --------------------------------------------------
 
-2025-08-23 13:49:03,645 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:09:53,858 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the goal: 'what's in DEMO_Customer360_db?'
 
@@ -1562,51 +1561,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -1827,6 +1781,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -1946,6 +1941,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -2028,7 +2027,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -2043,7 +2042,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get a list of all databases on the system to determine how many exist.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -2148,51 +2147,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -2413,6 +2367,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -2532,6 +2527,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -2664,12 +2663,12 @@ what's in DEMO_Customer360_db?
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 
 
-2025-08-23 13:49:03,646 - --- RESPONSE ---
+2025-08-23 14:09:53,859 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get a list of tables in the database DEMO_Customer360_db.",
+    "goal": "List all tables in the DEMO_Customer360_db database.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -2681,9 +2680,9 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 ```
 --------------------------------------------------
 
-2025-08-23 13:49:04,465 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:09:54,497 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get a list of tables in the database DEMO_Customer360_db.
+Deciding next tactical action for phase: List all tables in the DEMO_Customer360_db database.
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -2756,51 +2755,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -3021,6 +2975,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -3140,6 +3135,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -3222,7 +3221,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -3237,7 +3236,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get a list of all databases on the system to determine how many exist.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -3340,51 +3339,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -3605,6 +3559,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -3724,6 +3719,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -3859,7 +3858,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of tables in the database DEMO_Customer360_db.",
+    "goal": "List all tables in the DEMO_Customer360_db database.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -3879,7 +3878,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-Get a list of tables in the database DEMO_Customer360_db.
+List all tables in the DEMO_Customer360_db database.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -3914,13 +3913,13 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-23 13:49:04,465 - --- RESPONSE ---
+2025-08-23 14:09:54,497 - --- RESPONSE ---
 ```json
 {"tool_name": "base_tableList", "arguments": {"database_name": "DEMO_Customer360_db"}}
 ```
 --------------------------------------------------
 
-2025-08-23 13:49:06,136 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 14:09:56,040 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
 Executing CoreLLMTask: You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. Do not describe the raw data or explain how you performed the analysis. Focus on providing a concise, specific, and business-friendly summary of the findings.
 
@@ -3994,19 +3993,19 @@ You MUST format your entire response using standard markdown. Use a level-2 head
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 13:49:06,136 - --- RESPONSE ---
-DEMO_Customer360_db contains two tables: Equipment and CallCenter. These tables likely hold data related to customer equipment and call center operations, suggesting a focus on customer service and support within the database.
+2025-08-23 14:09:56,040 - --- RESPONSE ---
+DEMO_Customer360_db contains two tables: Equipment and CallCenter. These tables likely hold information related to equipment details and call center operations, potentially for customer service and support analysis within the customer 360 view.
 
 ## Key Observations
 
-- The **Equipment** table likely stores information about the equipment used by customers. This could include details such as equipment type, model, serial number, installation date, and maintenance history. This information can be used to track equipment performance, schedule maintenance, and identify potential issues.
-
-- The **CallCenter** table likely stores information about customer interactions with the call center. This could include details such as call date, time, duration, agent ID, customer ID, and the reason for the call. This information can be used to track call center performance, identify areas for improvement, and understand customer needs.
+- The database includes a table named **Equipment**, suggesting it stores data about physical assets or devices associated with customers or the business.
+- The presence of a **CallCenter** table indicates a focus on customer interaction tracking and potentially performance metrics related to support services.
+- Together, these tables can be used to analyze the relationship between equipment issues and call center activity, contributing to a comprehensive customer 360 view.
 --------------------------------------------------
 
-2025-08-23 13:49:34,840 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:10:10,572 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
-Generating a strategic meta-plan for the goal: 'what is the business description of equipment?'
+Generating a strategic meta-plan for the goal: 'what is the business description for equipment?'
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -4079,51 +4078,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -4344,6 +4298,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -4463,6 +4458,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -4545,7 +4544,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -4560,7 +4559,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get a list of all databases on the system to determine how many exist.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -4663,51 +4662,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -4928,6 +4882,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -5047,6 +5042,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -5182,7 +5181,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of tables in the database DEMO_Customer360_db.",
+    "goal": "List all tables in the DEMO_Customer360_db database.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -5200,7 +5199,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-Get a list of tables in the database DEMO_Customer360_db.
+List all tables in the DEMO_Customer360_db database.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -5307,51 +5306,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -5572,6 +5526,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -5691,6 +5686,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -5715,10 +5714,10 @@ USER PROMPT:
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
 --- GOAL ---
-what is the business description of equipment?
+what is the business description for equipment?
 
 --- CONTEXT ---
-- User's Original Question (for reference): what is the business description of equipment?
+- User's Original Question (for reference): what is the business description for equipment?
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -5776,12 +5775,12 @@ what is the business description of equipment?
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 
 
-2025-08-23 13:49:34,840 - --- RESPONSE ---
+2025-08-23 14:10:10,572 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.",
+    "goal": "Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.",
     "executable_prompt": "base_tableBusinessDesc",
     "arguments": {
       "database_name": "DEMO_Customer360_db",
@@ -5792,7 +5791,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 ```
 --------------------------------------------------
 
-2025-08-23 13:49:37,231 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:10:13,010 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
 Generating a strategic meta-plan for the goal: 'You are a Teradata DBA who is an expert in describing the business use of tables in a database.
 
@@ -5869,51 +5868,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -6134,6 +6088,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -6253,6 +6248,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -6335,7 +6334,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -6350,7 +6349,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get a list of all databases on the system to determine how many exist.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -6453,51 +6452,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -6718,6 +6672,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -6837,6 +6832,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -6972,7 +6971,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of tables in the database DEMO_Customer360_db.",
+    "goal": "List all tables in the DEMO_Customer360_db database.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -6990,7 +6989,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-Get a list of tables in the database DEMO_Customer360_db.
+List all tables in the DEMO_Customer360_db database.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -7095,51 +7094,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -7360,6 +7314,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -7479,6 +7474,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -7503,10 +7502,10 @@ USER PROMPT:
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
 --- GOAL ---
-what is the business description of equipment?
+what is the business description for equipment?
 
 --- CONTEXT ---
-- User's Original Question (for reference): what is the business description of equipment?
+- User's Original Question (for reference): what is the business description for equipment?
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -7567,7 +7566,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.",
+    "goal": "Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.",
     "executable_prompt": "base_tableBusinessDesc",
     "arguments": {
       "database_name": "DEMO_Customer360_db",
@@ -7646,51 +7645,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -7911,6 +7865,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -8030,6 +8025,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -8092,7 +8091,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CONTEXT ---
-- User's Original Question (for reference): Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.
+- User's Original Question (for reference): Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -8150,12 +8149,12 @@ Perform the phases in order, and do not skip any phase.
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 
 
-2025-08-23 13:49:37,232 - --- RESPONSE ---
+2025-08-23 14:10:13,010 - --- RESPONSE ---
 ```json
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'Equipment' in the database 'DEMO_Customer360_db'. The DDL should be a single string, and it should not contain any new lines or special characters.",
+    "goal": "Get the DDL for the 'Equipment' table in the 'DEMO_Customer360_db' database.",
     "relevant_tools": [
       "base_tableDDL"
     ],
@@ -8166,12 +8165,12 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
   },
   {
     "phase": 2,
-    "goal": "Describe the table 'Equipment' in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format final output in markdown.",
+    "goal": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns, using the DDL obtained in Phase 1 to guide the description.",
     "relevant_tools": [
       "CoreLLMTask"
     ],
     "arguments": {
-      "task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format the final output in markdown, including the table name, database name, description, and column descriptions.",
+      "task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns.",
       "source_data": [
         "result_of_phase_1"
       ]
@@ -8181,9 +8180,9 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 ```
 --------------------------------------------------
 
-2025-08-23 13:49:38,232 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:10:14,160 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Get the table DDL for the table 'Equipment' in the database 'DEMO_Customer360_db'. The DDL should be a single string, and it should not contain any new lines or special characters.
+Deciding next tactical action for phase: Get the DDL for the 'Equipment' table in the 'DEMO_Customer360_db' database.
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -8256,51 +8255,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -8521,6 +8475,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -8640,6 +8635,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -8722,7 +8721,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -8737,7 +8736,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get a list of all databases on the system to determine how many exist.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -8840,51 +8839,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -9105,6 +9059,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -9224,6 +9219,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -9359,7 +9358,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of tables in the database DEMO_Customer360_db.",
+    "goal": "List all tables in the DEMO_Customer360_db database.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -9377,7 +9376,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-Get a list of tables in the database DEMO_Customer360_db.
+List all tables in the DEMO_Customer360_db database.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -9482,51 +9481,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -9747,6 +9701,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -9866,6 +9861,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -9890,10 +9889,10 @@ USER PROMPT:
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
 --- GOAL ---
-what is the business description of equipment?
+what is the business description for equipment?
 
 --- CONTEXT ---
-- User's Original Question (for reference): what is the business description of equipment?
+- User's Original Question (for reference): what is the business description for equipment?
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -9954,7 +9953,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.",
+    "goal": "Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.",
     "executable_prompt": "base_tableBusinessDesc",
     "arguments": {
       "database_name": "DEMO_Customer360_db",
@@ -10031,51 +10030,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -10296,6 +10250,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -10415,6 +10410,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -10477,7 +10476,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CONTEXT ---
-- User's Original Question (for reference): Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.
+- User's Original Question (for reference): Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -10538,7 +10537,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'Equipment' in the database 'DEMO_Customer360_db'. The DDL should be a single string, and it should not contain any new lines or special characters.",
+    "goal": "Get the DDL for the 'Equipment' table in the 'DEMO_Customer360_db' database.",
     "relevant_tools": [
       "base_tableDDL"
     ],
@@ -10549,12 +10548,12 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
   },
   {
     "phase": 2,
-    "goal": "Describe the table 'Equipment' in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format final output in markdown.",
+    "goal": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns, using the DDL obtained in Phase 1 to guide the description.",
     "relevant_tools": [
       "CoreLLMTask"
     ],
     "arguments": {
-      "task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format the final output in markdown, including the table name, database name, description, and column descriptions.",
+      "task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns.",
       "source_data": [
         "result_of_phase_1"
       ]
@@ -10607,7 +10606,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'Equipment' in the database 'DEMO_Customer360_db'. The DDL should be a single string, and it should not contain any new lines or special characters.
+Get the DDL for the 'Equipment' table in the 'DEMO_Customer360_db' database.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -10652,15 +10651,15 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-23 13:49:38,233 - --- RESPONSE ---
+2025-08-23 14:10:14,160 - --- RESPONSE ---
 ```json
 {"tool_name": "base_tableDDL", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "Equipment"}}
 ```
 --------------------------------------------------
 
-2025-08-23 13:49:39,763 - --- FULL CONTEXT (Session: 87405a2f-599c-4aed-aa78-318f373ecf6c) ---
+2025-08-23 14:10:15,505 - --- FULL CONTEXT (Session: be05573a-9edf-46a3-8dd0-47a1eada49f0) ---
 --- REASON FOR CALL ---
-Deciding next tactical action for phase: Describe the table 'Equipment' in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format final output in markdown.
+Deciding next tactical action for phase: Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns, using the DDL obtained in Phase 1 to guide the description.
 
 --- History (History Disabled: False) ---
 [user]: You are a helpful assistant.
@@ -10733,51 +10732,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -10998,6 +10952,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -11117,6 +11112,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -11199,7 +11198,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of all databases on the system to determine how many exist.",
+    "goal": "Determine how many databases are on the system.",
     "relevant_tools": [
       "base_databaseList"
     ]
@@ -11214,7 +11213,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 how many databases are on the system?
 
 --- CURRENT PHASE GOAL ---
-Get a list of all databases on the system to determine how many exist.
+Determine how many databases are on the system.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -11317,51 +11316,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -11582,6 +11536,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -11701,6 +11696,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -11836,7 +11835,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get a list of tables in the database DEMO_Customer360_db.",
+    "goal": "List all tables in the DEMO_Customer360_db database.",
     "relevant_tools": [
       "base_tableList"
     ],
@@ -11854,7 +11853,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 what's in DEMO_Customer360_db?
 
 --- CURRENT PHASE GOAL ---
-Get a list of tables in the database DEMO_Customer360_db.
+List all tables in the DEMO_Customer360_db database.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -11959,51 +11958,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -12224,6 +12178,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -12343,6 +12338,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -12367,10 +12366,10 @@ USER PROMPT:
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
 --- GOAL ---
-what is the business description of equipment?
+what is the business description for equipment?
 
 --- CONTEXT ---
-- User's Original Question (for reference): what is the business description of equipment?
+- User's Original Question (for reference): what is the business description for equipment?
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -12431,7 +12430,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.",
+    "goal": "Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.",
     "executable_prompt": "base_tableBusinessDesc",
     "arguments": {
       "database_name": "DEMO_Customer360_db",
@@ -12508,51 +12507,6 @@ Here are examples of the correct thinking process:
 
 # Capabilities
 --- Available Tools ---
---- Category: AI/ML ---
-- `rag_executeWorkflow` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-
-This function handles the entire RAG pipeline:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Generate query embeddings (tokenization + embedding)
-4. Perform semantic search against chunk embeddings
-5. Return retrieved context chunks for answer generation
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided)
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `rag_executeWorkflow_ivsm` (tool): 
-Execute complete RAG workflow to answer user questions based on document context.
-
-This function handles the entire RAG pipeline using IVSM functions:
-1. Configuration setup (using configurable values from rag_config.yml)
-2. Store user query (with /rag prefix stripping)
-3. Tokenize query using ivsm.tokenizer_encode
-4. Create embedding view using ivsm.IVSM_score
-5. Convert embeddings to vector columns using ivsm.vector_to_columns
-6. Perform semantic search against chunk embeddings
-
-The function uses configuration values from rag_config.yml with fallback defaults.
-
-Arguments:
-  question - user question to process
-  k - number of top-k results to return (optional, uses config default if not provided
-
-Returns:
-  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
-
-- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
-  - Arguments:
-    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
-    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Auditing ---
 - `dba_tableSqlList` (tool): 
 Get a list of SQL run against a table in the last number of days.
@@ -12773,6 +12727,47 @@ Arguments:
 Returns:
   ResponseType: formatted response with query results + metadata
 
+--- Category: RAG ---
+- `rag_executeWorkflow` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+
+This function handles the entire RAG pipeline:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Generate query embeddings (tokenization + embedding)
+4. Perform semantic search against chunk embeddings
+5. Return retrieved context chunks for answer generation
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided)
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
+- `rag_executeWorkflow_ivsm` (tool): 
+Execute complete RAG workflow to answer user questions based on document context.
+
+This function handles the entire RAG pipeline using IVSM functions:
+1. Configuration setup (using configurable values from rag_config.yml)
+2. Store user query (with /rag prefix stripping)
+3. Tokenize query using ivsm.tokenizer_encode
+4. Create embedding view using ivsm.IVSM_score
+5. Convert embeddings to vector columns using ivsm.vector_to_columns
+6. Perform semantic search against chunk embeddings
+
+The function uses configuration values from rag_config.yml with fallback defaults.
+
+Arguments:
+  question - user question to process
+  k - number of top-k results to return (optional, uses config default if not provided
+
+Returns:
+  Returns the top-k most relevant chunks with metadata for context-grounded answer generation.
+
 --- Category: Sales ---
 - `sales_top_customers` (tool): Get the top 20 customers by lifetime value.
 - `sales_customer_profile` (tool): Get customer profile and metrics.
@@ -12892,6 +12887,10 @@ Returns:
   - Arguments:
     - `start_date` (string, required): The anchor date for the calculation, usually today's date from `util_getCurrentDate`. Must be in YYYY-MM-DD format.
     - `date_phrase` (string, required): The natural language phrase describing the desired range (e.g., 'past 3 days', 'last 2 weeks').
+- `CoreLLMTask` (tool): Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.
+  - Arguments:
+    - `task_description` (string, required): A natural language description of the internal task to be executed (e.g., 'describe the table in a business context', 'format final output'). The LLM infers this from the workflow plan.
+    - `source_data` (list[string], required): A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.
 --- Category: Visualization ---
 - `viz_createChart` (tool): Generates a data visualization based on provided data. You must specify the chart type and map the data fields to the appropriate visual roles.
   - Arguments:
@@ -12954,7 +12953,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CONTEXT ---
-- User's Original Question (for reference): Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.
+- User's Original Question (for reference): Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.
 - Workflow History (Actions taken so far): []
 - Known Entities (Key information discovered so far): {
   "database_name": "DEMO_Customer360_db",
@@ -13015,7 +13014,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 [
   {
     "phase": 1,
-    "goal": "Get the table DDL for the table 'Equipment' in the database 'DEMO_Customer360_db'. The DDL should be a single string, and it should not contain any new lines or special characters.",
+    "goal": "Get the DDL for the 'Equipment' table in the 'DEMO_Customer360_db' database.",
     "relevant_tools": [
       "base_tableDDL"
     ],
@@ -13026,12 +13025,12 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
   },
   {
     "phase": 2,
-    "goal": "Describe the table 'Equipment' in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format final output in markdown.",
+    "goal": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns, using the DDL obtained in Phase 1 to guide the description.",
     "relevant_tools": [
       "CoreLLMTask"
     ],
     "arguments": {
-      "task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format the final output in markdown, including the table name, database name, description, and column descriptions.",
+      "task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns.",
       "source_data": [
         "result_of_phase_1"
       ]
@@ -13082,7 +13081,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Get the table DDL for the table 'Equipment' in the database 'DEMO_Customer360_db'. The DDL should be a single string, and it should not contain any new lines or special characters.
+Get the DDL for the 'Equipment' table in the 'DEMO_Customer360_db' database.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -13174,7 +13173,7 @@ Perform the phases in order, and do not skip any phase.
 
 
 --- CURRENT PHASE GOAL ---
-Describe the table 'Equipment' in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format final output in markdown.
+Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns, using the DDL obtained in Phase 1 to guide the description.
 
 --- CONSTRAINTS ---
 - Permitted Tools for this Phase (You MUST use the exact argument names provided):
@@ -13251,15 +13250,15 @@ Your response MUST be a single, valid JSON object for a tool call. Do NOT add an
 USER PROMPT:
 Determine the next action based on the instructions and state provided in the system prompt.
 
-2025-08-23 13:49:39,764 - --- RESPONSE ---
+2025-08-23 14:10:15,506 - --- RESPONSE ---
 ```json
-{"tool_name": "CoreLLMTask", "arguments": {"task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format the final output in markdown, including the table name, database name, description, and column descriptions.", "source_data": ["result_of_phase_1"]}}
+{"tool_name": "CoreLLMTask", "arguments": {"task_description": "Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns.", "source_data": ["result_of_phase_1"]}}
 ```
 --------------------------------------------------
 
-2025-08-23 13:49:41,136 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 14:10:17,773 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
-Executing CoreLLMTask: Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format the final output in markdown, including the table name, database name, description, and column descriptions.
+Executing CoreLLMTask: Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns.
 
 --- History (History Disabled: False) ---
 
@@ -13272,7 +13271,7 @@ USER PROMPT:
 You are a highly capable text processing and synthesis assistant.
 
 --- TASK ---
-Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context. The description should be a single string. The description should include the following: - The purpose of the table - The purpose of the columns in the table. Format the final output in markdown, including the table name, database name, description, and column descriptions.
+Describe the table 'Equipment' in the 'DEMO_Customer360_db' database in a business context, including its purpose and the purpose of its columns.
 
 --- RELEVANT DATA (Selected from Previous Phases) ---
 {
@@ -13315,24 +13314,41 @@ Always prioritize generating content that matches the *meaning* and *purpose* of
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 13:49:41,136 - --- RESPONSE ---
-```markdown
-***Table Name:*** DEMO_Customer360_db.Equipment
+2025-08-23 14:10:17,773 - --- RESPONSE ---
 ***Database Name:*** DEMO_Customer360_db
-***Description:*** The Equipment table stores customer demographic and equipment lifetime value (LTV) data, enabling analysis of customer segments and the relationship between customer attributes and equipment value. This information can be used to optimize marketing campaigns, improve customer targeting, and predict future equipment needs.
-***CUST_ID:*** Unique identifier for the customer.
-***GENDER:*** Customer's gender.
-***FIRSTNAME:*** Customer's first name.
-***LASTNAME:*** Customer's last name.
-***ADDRESS:*** Customer's address.
-***STATE:*** Customer's state of residence.
-***CITY:*** Customer's city of residence.
-***ZIP:*** Customer's zip code.
-***EQUIP_LTV:*** The lifetime value of the equipment associated with the customer.
-```
+***Table Name:*** DEMO_Customer360_db.Equipment
+***Description:***
+The `Equipment` table stores customer equipment data, potentially for use in lifetime value calculations or service offerings. It includes demographic information and an equipment lifetime value score.
+
+***CUST_ID:***
+Customer Identifier. This column uniquely identifies each customer. It's a foreign key potentially linking to a customer table.
+
+***GENDER:***
+Customer Gender. This column stores the gender of the customer, which can be used for demographic analysis and targeted marketing.
+
+***FIRSTNAME:***
+Customer First Name. This column stores the first name of the customer.
+
+***LASTNAME:***
+Customer Last Name. This column stores the last name of the customer.
+
+***ADDRESS:***
+Customer Address. This column stores the street address of the customer.
+
+***STATE:***
+Customer State. This column stores the state in which the customer resides, useful for regional analysis.
+
+***CITY:***
+Customer City. This column stores the city in which the customer resides, useful for local analysis.
+
+***ZIP:***
+Customer Zip Code. This column stores the zip code of the customer's address.
+
+***EQUIP_LTV:***
+Equipment Lifetime Value. This column represents the calculated lifetime value of the equipment associated with the customer. This is likely a score or aggregated calculation used to predict future revenue or value derived from the customer's equipment.
 --------------------------------------------------
 
-2025-08-23 13:49:42,559 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 14:10:19,728 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
 Executing CoreLLMTask: You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. Do not describe the raw data or explain how you performed the analysis. Focus on providing a concise, specific, and business-friendly summary of the findings.
 
@@ -13347,7 +13363,7 @@ USER PROMPT:
 You are a highly capable text processing and synthesis assistant.
 
 --- PRIMARY GOAL ---
-Your most important task is to directly answer the user's original question: 'Get the business description of the table 'Equipment' in the 'DEMO_Customer360_db' database.'.
+Your most important task is to directly answer the user's original question: 'Get the business description for the 'Equipment' table in the database 'DEMO_Customer360_db'.'.
 You MUST begin your response with the direct answer. Do not repeat the user's question or use conversational intros like 'Here is...'. After providing the direct answer, you may then proceed with a more general summary or analysis of the data.
 
 --- TASK ---
@@ -13376,7 +13392,7 @@ You are an expert data analyst. Your task is to analyze the provided data and ex
       "status": "success",
       "results": [
         {
-          "response": "```markdown\n***Table Name:*** DEMO_Customer360_db.Equipment\n***Database Name:*** DEMO_Customer360_db\n***Description:*** The Equipment table stores customer demographic and equipment lifetime value (LTV) data, enabling analysis of customer segments and the relationship between customer attributes and equipment value. This information can be used to optimize marketing campaigns, improve customer targeting, and predict future equipment needs.\n***CUST_ID:*** Unique identifier for the customer.\n***GENDER:*** Customer's gender.\n***FIRSTNAME:*** Customer's first name.\n***LASTNAME:*** Customer's last name.\n***ADDRESS:*** Customer's address.\n***STATE:*** Customer's state of residence.\n***CITY:*** Customer's city of residence.\n***ZIP:*** Customer's zip code.\n***EQUIP_LTV:*** The lifetime value of the equipment associated with the customer.\n```"
+          "response": "***Database Name:*** DEMO_Customer360_db\n***Table Name:*** DEMO_Customer360_db.Equipment\n***Description:***\nThe `Equipment` table stores customer equipment data, potentially for use in lifetime value calculations or service offerings. It includes demographic information and an equipment lifetime value score.\n\n***CUST_ID:***\nCustomer Identifier. This column uniquely identifies each customer. It's a foreign key potentially linking to a customer table.\n\n***GENDER:***\nCustomer Gender. This column stores the gender of the customer, which can be used for demographic analysis and targeted marketing.\n\n***FIRSTNAME:***\nCustomer First Name. This column stores the first name of the customer.\n\n***LASTNAME:***\nCustomer Last Name. This column stores the last name of the customer.\n\n***ADDRESS:***\nCustomer Address. This column stores the street address of the customer.\n\n***STATE:***\nCustomer State. This column stores the state in which the customer resides, useful for regional analysis.\n\n***CITY:***\nCustomer City. This column stores the city in which the customer resides, useful for local analysis.\n\n***ZIP:***\nCustomer Zip Code. This column stores the zip code of the customer's address.\n\n***EQUIP_LTV:***\nEquipment Lifetime Value. This column represents the calculated lifetime value of the equipment associated with the customer. This is likely a score or aggregated calculation used to predict future revenue or value derived from the customer's equipment."
         }
       ]
     }
@@ -13407,24 +13423,43 @@ You MUST format your entire response using standard markdown. Use a level-2 head
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 13:49:42,559 - --- RESPONSE ---
-The Equipment table stores customer demographic and equipment lifetime value (LTV) data, enabling analysis of customer segments and the relationship between customer attributes and equipment value. This information can be used to optimize marketing campaigns, improve customer targeting, and predict future equipment needs.
+2025-08-23 14:10:19,729 - --- RESPONSE ---
+The `Equipment` table stores customer equipment data, potentially for use in lifetime value calculations or service offerings. It includes demographic information and an equipment lifetime value score.
 
-***Table Name:*** DEMO_Customer360_db.Equipment
 ***Database Name:*** DEMO_Customer360_db
-***Description:*** The Equipment table stores customer demographic and equipment lifetime value (LTV) data, enabling analysis of customer segments and the relationship between customer attributes and equipment value. This information can be used to optimize marketing campaigns, improve customer targeting, and predict future equipment needs.
-***CUST_ID:*** Unique identifier for the customer.
-***GENDER:*** Customer's gender.
-***FIRSTNAME:*** Customer's first name.
-***LASTNAME:*** Customer's last name.
-***ADDRESS:*** Customer's address.
-***STATE:*** Customer's state of residence.
-***CITY:*** Customer's city of residence.
-***ZIP:*** Customer's zip code.
-***EQUIP_LTV:*** The lifetime value of the equipment associated with the customer.
+***Table Name:*** DEMO_Customer360_db.Equipment
+***Description:***
+The `Equipment` table stores customer equipment data, potentially for use in lifetime value calculations or service offerings. It includes demographic information and an equipment lifetime value score.
+
+***CUST_ID:***
+Customer Identifier. This column uniquely identifies each customer. It's a foreign key potentially linking to a customer table.
+
+***GENDER:***
+Customer Gender. This column stores the gender of the customer, which can be used for demographic analysis and targeted marketing.
+
+***FIRSTNAME:***
+Customer First Name. This column stores the first name of the customer.
+
+***LASTNAME:***
+Customer Last Name. This column stores the last name of the customer.
+
+***ADDRESS:***
+Customer Address. This column stores the street address of the customer.
+
+***STATE:***
+Customer State. This column stores the state in which the customer resides, useful for regional analysis.
+
+***CITY:***
+Customer City. This column stores the city in which the customer resides, useful for local analysis.
+
+***ZIP:***
+Customer Zip Code. This column stores the zip code of the customer's address.
+
+***EQUIP_LTV:***
+Equipment Lifetime Value. This column represents the calculated lifetime value of the equipment associated with the customer. This is likely a score or aggregated calculation used to predict future revenue or value derived from the customer's equipment.
 --------------------------------------------------
 
-2025-08-23 13:49:43,583 - --- FULL CONTEXT (Session: one-off) ---
+2025-08-23 14:10:21,431 - --- FULL CONTEXT (Session: one-off) ---
 --- REASON FOR CALL ---
 Executing CoreLLMTask: You are an expert data analyst. Your task is to analyze the provided data and extract only the most important conclusions and key insights. Do not describe the raw data or explain how you performed the analysis. Focus on providing a concise, specific, and business-friendly summary of the findings.
 
@@ -13439,7 +13474,7 @@ USER PROMPT:
 You are a highly capable text processing and synthesis assistant.
 
 --- PRIMARY GOAL ---
-Your most important task is to directly answer the user's original question: 'what is the business description of equipment?'.
+Your most important task is to directly answer the user's original question: 'what is the business description for equipment?'.
 You MUST begin your response with the direct answer. Do not repeat the user's question or use conversational intros like 'Here is...'. After providing the direct answer, you may then proceed with a more general summary or analysis of the data.
 
 --- TASK ---
@@ -13468,7 +13503,7 @@ You are an expert data analyst. Your task is to analyze the provided data and ex
       "status": "success",
       "results": [
         {
-          "response": "```markdown\n***Table Name:*** DEMO_Customer360_db.Equipment\n***Database Name:*** DEMO_Customer360_db\n***Description:*** The Equipment table stores customer demographic and equipment lifetime value (LTV) data, enabling analysis of customer segments and the relationship between customer attributes and equipment value. This information can be used to optimize marketing campaigns, improve customer targeting, and predict future equipment needs.\n***CUST_ID:*** Unique identifier for the customer.\n***GENDER:*** Customer's gender.\n***FIRSTNAME:*** Customer's first name.\n***LASTNAME:*** Customer's last name.\n***ADDRESS:*** Customer's address.\n***STATE:*** Customer's state of residence.\n***CITY:*** Customer's city of residence.\n***ZIP:*** Customer's zip code.\n***EQUIP_LTV:*** The lifetime value of the equipment associated with the customer.\n```"
+          "response": "***Database Name:*** DEMO_Customer360_db\n***Table Name:*** DEMO_Customer360_db.Equipment\n***Description:***\nThe `Equipment` table stores customer equipment data, potentially for use in lifetime value calculations or service offerings. It includes demographic information and an equipment lifetime value score.\n\n***CUST_ID:***\nCustomer Identifier. This column uniquely identifies each customer. It's a foreign key potentially linking to a customer table.\n\n***GENDER:***\nCustomer Gender. This column stores the gender of the customer, which can be used for demographic analysis and targeted marketing.\n\n***FIRSTNAME:***\nCustomer First Name. This column stores the first name of the customer.\n\n***LASTNAME:***\nCustomer Last Name. This column stores the last name of the customer.\n\n***ADDRESS:***\nCustomer Address. This column stores the street address of the customer.\n\n***STATE:***\nCustomer State. This column stores the state in which the customer resides, useful for regional analysis.\n\n***CITY:***\nCustomer City. This column stores the city in which the customer resides, useful for local analysis.\n\n***ZIP:***\nCustomer Zip Code. This column stores the zip code of the customer's address.\n\n***EQUIP_LTV:***\nEquipment Lifetime Value. This column represents the calculated lifetime value of the equipment associated with the customer. This is likely a score or aggregated calculation used to predict future revenue or value derived from the customer's equipment."
         }
       ]
     }
@@ -13501,13 +13536,14 @@ You MUST format your entire response using standard markdown. Use a level-2 head
 
 Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description.
 
-2025-08-23 13:49:43,583 - --- RESPONSE ---
-The Equipment table stores customer demographic information alongside the lifetime value of equipment associated with each customer. This allows for analysis of customer segments, the relationship between customer attributes and equipment value, and optimization of marketing and customer targeting strategies.
+2025-08-23 14:10:21,432 - --- RESPONSE ---
+The `Equipment` table stores customer-related data, including demographic details and an equipment lifetime value (LTV) score, which is likely used for calculating customer lifetime value or offering tailored services. This table is crucial for understanding the value and characteristics of customers based on their equipment.
 
 ## Key Observations
 
-*   The table facilitates identifying high-value customer segments based on equipment LTV.
-*   Customer demographics (gender, location) can be correlated with equipment LTV to improve targeting.
-*   The data can be used to predict future equipment needs and personalize customer interactions.
+*   **Customer Identification:** The `CUST_ID` column uniquely identifies each customer, serving as a potential link to other customer-related tables.
+*   **Demographic Data:** Columns like `GENDER`, `FIRSTNAME`, `LASTNAME`, `ADDRESS`, `STATE`, `CITY`, and `ZIP` provide demographic information for customer segmentation and targeted marketing.
+*   **Equipment Lifetime Value (LTV):** The `EQUIP_LTV` column represents the calculated lifetime value of the equipment associated with the customer, helping predict future revenue and customer value.
+*   **Analytical Usefulness:** The table's data can be used for regional analysis, local analysis, and demographic analysis, facilitating a better understanding of customer distribution and behavior.
 --------------------------------------------------
 
