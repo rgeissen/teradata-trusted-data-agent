@@ -518,19 +518,27 @@ async def configure_services():
 
         return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
 
-# --- MODIFICATION START: Refactored to use the unified PlanExecutor constructor ---
 @api_bp.route("/ask_stream", methods=["POST"])
 async def ask_stream():
     """Handles the main chat conversation stream for ad-hoc user queries."""
     data = await request.get_json()
     user_input = data.get("message")
     session_id = data.get("session_id")
+    disabled_history = data.get("disabled_history", False)
     
     async def stream_generator():
         session_data = session_manager.get_session(session_id)
         if not all([user_input, session_id]) or not session_data:
             yield PlanExecutor._format_sse({"error": "Missing 'message' or invalid 'session_id'"}, "error")
             return
+        
+        # --- MODIFICATION START: Add new event trigger for disabled history state ---
+        if disabled_history:
+            yield PlanExecutor._format_sse(
+                {"target": "context", "state": "history_disabled_processing"}, 
+                "context_state_update"
+            )
+        # --- MODIFICATION END ---
 
         try:
             session_manager.add_to_history(session_id, 'user', user_input)
@@ -546,11 +554,11 @@ async def ask_stream():
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
             
-            # Use the unified constructor for an ad-hoc workflow.
             executor = PlanExecutor(
                 session_id=session_id, 
                 original_user_input=user_input, 
-                dependencies={'STATE': STATE}
+                dependencies={'STATE': STATE},
+                disabled_history=disabled_history
             )
             async for event in executor.run():
                 yield event
@@ -568,10 +576,19 @@ async def invoke_prompt_stream():
     session_id = data.get("session_id")
     prompt_name = data.get("prompt_name")
     arguments = data.get("arguments", {})
+    disabled_history = data.get("disabled_history", False)
     
     async def stream_generator():
         user_input = f"Manual execution of prompt: {prompt_name}"
         session_manager.add_to_history(session_id, 'user', user_input)
+        
+        # --- MODIFICATION START: Add new event trigger for disabled history state ---
+        if disabled_history:
+            yield PlanExecutor._format_sse(
+                {"target": "context", "state": "history_disabled_processing"}, 
+                "context_state_update"
+            )
+        # --- MODIFICATION END ---
         
         session_data = session_manager.get_session(session_id)
         if session_data['name'] == 'New Chat':
@@ -580,13 +597,13 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"session_name_update": {"id": session_id, "name": new_name}}, "session_update")
 
         try:
-            # Use the unified constructor, passing prompt info directly.
             executor = PlanExecutor(
                 session_id=session_id, 
                 original_user_input=user_input, 
                 dependencies={'STATE': STATE},
                 active_prompt_name=prompt_name,
-                prompt_arguments=arguments
+                prompt_arguments=arguments,
+                disabled_history=disabled_history
             )
             async for event in executor.run():
                 yield event
@@ -595,4 +612,3 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
 
     return Response(stream_generator(), mimetype="text/event-stream")
-# --- MODIFICATION END ---

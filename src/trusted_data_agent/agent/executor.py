@@ -62,7 +62,6 @@ def unwrap_exception(e: BaseException) -> BaseException:
 class PlanExecutor:
     AgentState = AgentState
 
-    # --- MODIFICATION START: Accept 'disabled_history' flag in constructor ---
     def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None, execution_depth: int = 0, disabled_history: bool = False):
         self.session_id = session_id
         self.original_user_input = original_user_input
@@ -103,7 +102,6 @@ class PlanExecutor:
         self.MAX_EXECUTION_DEPTH = 5
         
         self.disabled_history = disabled_history
-    # --- MODIFICATION END ---
 
 
     @staticmethod
@@ -113,7 +111,6 @@ class PlanExecutor:
             msg += f"event: {event}\n"
         return f"{msg}\n"
 
-    # --- MODIFICATION START: Pass 'disabled_history' flag to the LLM handler ---
     async def _call_llm_and_update_tokens(self, prompt: str, reason: str, system_prompt_override: str = None, raise_on_error: bool = False) -> tuple[str, int, int]:
         """A centralized wrapper for calling the LLM that handles token updates."""
         response_text, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
@@ -125,7 +122,6 @@ class PlanExecutor:
         self.llm_debug_history.append({"reason": reason, "response": response_text})
         app_logger.info(f"LLM RESPONSE (DEBUG): Reason='{reason}', Response='{response_text}'")
         return response_text, statement_input_tokens, statement_output_tokens
-    # --- MODIFICATION END ---
 
     def _add_to_structured_data(self, tool_result: dict, context_key_override: str = None):
         """Adds tool results to the structured data dictionary."""
@@ -244,10 +240,9 @@ class PlanExecutor:
             prompt_def = self.dependencies['STATE'].get('mcp_prompts', {}).get(self.active_prompt_name)
             required_args = {arg.name for arg in prompt_def.arguments} if prompt_def and hasattr(prompt_def, 'arguments') else set()
             
-            enriched_args, enrich_events, was_enriched = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
-            if was_enriched:
-                yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
-                yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
+            # --- MODIFICATION START: Remove old context indicator trigger ---
+            enriched_args, enrich_events, _ = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
+            # --- MODIFICATION END ---
 
             for event in enrich_events:
                 yield event
@@ -323,7 +318,6 @@ class PlanExecutor:
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
 
-    # --- MODIFICATION START: Pass 'disabled_history' flag to sub-executor ---
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
         if not self.meta_plan:
@@ -387,7 +381,6 @@ class PlanExecutor:
 
         app_logger.info("Meta-plan has been fully executed. Transitioning to summarization.")
         self.state = self.AgentState.SUMMARIZING
-    # --- MODIFICATION END ---
     
     def _extract_loop_items(self, source_phase_key: str) -> list:
         """
@@ -543,10 +536,9 @@ class PlanExecutor:
                     yield event
                 return 
 
-            enriched_args, enrich_events, was_enriched = self._get_required_args_and_enrich(relevant_tools)
-            if was_enriched:
-                yield self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update")
-                yield self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update")
+            # --- MODIFICATION START: Remove old context indicator trigger ---
+            enriched_args, enrich_events, _ = self._get_required_args_and_enrich(relevant_tools)
+            # --- MODIFICATION END ---
             
             for event in enrich_events:
                 self.events_to_yield.append(event)
@@ -635,14 +627,16 @@ class PlanExecutor:
             if not is_fast_path:
                 yield self._format_sse({"step": "Tool Execution Intent", "details": action}, "tool_result")
             
-            CLIENT_SIDE_UTILITY_TOOLS = ["util_getCurrentDate", "util_calculateDateRange"]
+            # --- MODIFICATION START: Remove 'context' as a status target ---
             status_target = None
             if tool_name == "CoreLLMTask":
                 status_target = "llm"
-            elif tool_name in CLIENT_SIDE_UTILITY_TOOLS:
-                status_target = "context"
+            elif tool_name.startswith("util_"):
+                # Utility tools no longer trigger a status indicator.
+                status_target = None
             else:
                 status_target = "db"
+            # --- MODIFICATION END ---
             
             if status_target:
                 yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
