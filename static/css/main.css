@@ -302,7 +302,7 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    transition: background-color 1s ease-in-out, box-shadow 1s ease-in-out;
+    transition: background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
 }
 .connection-dot.disconnected {
     background-color: #ef4444; /* red-500 */
@@ -320,9 +320,32 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     box-shadow: 0 0 8px #facc15;
     animation: blink 1s infinite;
 }
-/* --- MODIFICATION START: Add new style for history disabled preview (steady yellow) --- */
 .connection-dot.history-disabled-preview {
     background-color: #facc15; /* yellow-400 */
     box-shadow: 0 0 8px #facc15;
+}
+
+/* --- MODIFICATION START: Add styles for send icon rotation and input hint --- */
+#send-icon {
+    transition: transform 0.2s ease-in-out;
+    transform: rotate(90deg); /* Default to East */
+}
+#send-icon.flipped {
+    transform: rotate(-90deg); /* West for disabled history */
+}
+
+.input-hint {
+    color: #9ca3af; /* gray-400 */
+    font-size: 0.75rem; /* text-xs */
+    text-align: center;
+    margin-top: 0.5rem; /* mt-2 */
+}
+.input-hint kbd {
+    background-color: #4b5563; /* gray-600 */
+    border-radius: 0.25rem;
+    padding: 0.1rem 0.4rem;
+    font-size: 0.7rem;
+    border: 1px solid #6b7280; /* gray-500 */
+    box-shadow: 0 1px 0 #374151; /* gray-700 */
 }
 /* --- MODIFICATION END --- */
