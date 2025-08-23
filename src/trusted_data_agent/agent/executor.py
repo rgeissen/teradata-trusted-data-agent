@@ -240,9 +240,7 @@ class PlanExecutor:
             prompt_def = self.dependencies['STATE'].get('mcp_prompts', {}).get(self.active_prompt_name)
             required_args = {arg.name for arg in prompt_def.arguments} if prompt_def and hasattr(prompt_def, 'arguments') else set()
             
-            # --- MODIFICATION START: Remove old context indicator trigger ---
             enriched_args, enrich_events, _ = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
-            # --- MODIFICATION END ---
 
             for event in enrich_events:
                 yield event
@@ -536,9 +534,7 @@ class PlanExecutor:
                     yield event
                 return 
 
-            # --- MODIFICATION START: Remove old context indicator trigger ---
             enriched_args, enrich_events, _ = self._get_required_args_and_enrich(relevant_tools)
-            # --- MODIFICATION END ---
             
             for event in enrich_events:
                 self.events_to_yield.append(event)
@@ -627,24 +623,17 @@ class PlanExecutor:
             if not is_fast_path:
                 yield self._format_sse({"step": "Tool Execution Intent", "details": action}, "tool_result")
             
-            # --- MODIFICATION START: Remove 'context' as a status target ---
-            status_target = None
+            status_target = "db"
             if tool_name == "CoreLLMTask":
                 status_target = "llm"
             elif tool_name.startswith("util_"):
-                # Utility tools no longer trigger a status indicator.
-                status_target = None
-            else:
-                status_target = "db"
-            # --- MODIFICATION END ---
+                status_target = "llm"
             
-            if status_target:
-                yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
+            yield self._format_sse({"target": status_target, "state": "busy"}, "status_indicator_update")
             
             tool_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], action)
 
-            if status_target:
-                yield self._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
+            yield self._format_sse({"target": status_target, "state": "idle"}, "status_indicator_update")
 
             if input_tokens > 0 or output_tokens > 0:
                 updated_session = session_manager.get_session(self.session_id)

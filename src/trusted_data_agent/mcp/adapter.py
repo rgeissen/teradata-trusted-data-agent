@@ -97,6 +97,26 @@ def _extract_and_clean_description(description: str | None) -> tuple[str, str]:
         
     return cleaned_description, datatype
 
+def _extract_prompt_type_from_description(description: str | None) -> tuple[str, str]:
+    """
+    Parses a prompt's description to find a prompt_type hint, returning the
+    cleaned description and the type ('reporting' or 'context'). Defaults to
+    'reporting' if no tag is found.
+    """
+    if not isinstance(description, str):
+        return "", "reporting"
+
+    prompt_type = "reporting"  # Default value
+    match = re.search(r'\s*\((prompt_type:\s*(reporting|context))\)', description, re.IGNORECASE)
+    
+    if match:
+        prompt_type = match.group(2).lower()
+        cleaned_description = description.replace(match.group(0), "").strip()
+    else:
+        cleaned_description = description
+        
+    return cleaned_description, prompt_type
+
 
 async def load_and_categorize_teradata_resources(STATE: dict):
     mcp_client = STATE.get('mcp_client')
@@ -223,19 +243,23 @@ async def load_and_categorize_teradata_resources(STATE: dict):
 
                 is_disabled = prompt_obj.name in disabled_prompts_list
                 
+                cleaned_prompt_desc, prompt_type = _extract_prompt_type_from_description(prompt_obj.description)
+
                 processed_args = []
                 if hasattr(prompt_obj, 'arguments') and prompt_obj.arguments:
                     for arg in prompt_obj.arguments:
                         arg_dict = arg.model_dump()
-                        cleaned_desc, arg_type = _extract_and_clean_description(arg_dict.get("description"))
-                        arg_dict['description'] = cleaned_desc; arg_dict['type'] = arg_type
+                        cleaned_arg_desc, arg_type = _extract_and_clean_description(arg_dict.get("description"))
+                        arg_dict['description'] = cleaned_arg_desc
+                        arg_dict['type'] = arg_type
                         processed_args.append(arg_dict)
                 
                 STATE['structured_prompts'][category].append({
                     "name": prompt_obj.name,
-                    "description": prompt_obj.description or "No description available.",
+                    "description": cleaned_prompt_desc or "No description available.",
                     "arguments": processed_args,
-                    "disabled": is_disabled
+                    "disabled": is_disabled,
+                    "prompt_type": prompt_type
                 })
 
         prompt_context_parts = ["--- Available Prompts ---"]
