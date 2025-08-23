@@ -5,6 +5,7 @@ import logging
 import asyncio
 import sys
 import copy
+import hashlib
 
 from quart import Blueprint, request, jsonify, render_template, Response
 from google.api_core import exceptions as google_exceptions
@@ -204,6 +205,25 @@ async def get_app_config():
         "all_models_unlocked": APP_CONFIG.ALL_MODELS_UNLOCKED,
         "charting_enabled": APP_CONFIG.CHARTING_ENABLED
     })
+
+# --- MODIFICATION START: Add new endpoint to provide a version hash of the master prompts ---
+@api_bp.route("/api/prompts-version")
+async def get_prompts_version():
+    """
+    Returns a SHA-256 hash of the master system prompts. This is used by the
+    frontend to detect when prompts have been updated and the local cache
+    for non-custom prompts should be flushed.
+    """
+    try:
+        # Sort keys to ensure a consistent hash regardless of dictionary order
+        prompts_str = json.dumps(PROVIDER_SYSTEM_PROMPTS, sort_keys=True)
+        # Hash the resulting string
+        prompt_hash = hashlib.sha256(prompts_str.encode('utf-8')).hexdigest()
+        return jsonify({"version": prompt_hash})
+    except Exception as e:
+        app_logger.error(f"Failed to generate prompts version hash: {e}", exc_info=True)
+        return jsonify({"error": "Could not generate prompts version"}), 500
+# --- MODIFICATION END ---
 
 @api_bp.route("/api_key/<provider>")
 async def get_api_key(provider):

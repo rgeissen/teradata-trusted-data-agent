@@ -134,10 +134,8 @@ let mcpIndicatorTimeout = null;
 let llmIndicatorTimeout = null;
 let contextIndicatorTimeout = null;
 
-// --- MODIFICATION START: Add variables for modifier key states ---
 let isAltPressed = false;
 let isHistoryDisabledLocked = false;
-// --- MODIFICATION END ---
 
 let defaultPromptsCache = {};
 
@@ -146,6 +144,52 @@ const promptNameDisplay = document.getElementById('prompt-name-display');
 
 statusWindowContent.addEventListener('mouseenter', () => { isMouseOverStatus = true; });
 statusWindowContent.addEventListener('mouseleave', () => { isMouseOverStatus = false; });
+
+// --- MODIFICATION START: Add corrected function to check for and flush outdated default prompts ---
+async function checkAndUpdateDefaultPrompts() {
+    try {
+        const res = await fetch('/api/prompts-version');
+        if (!res.ok) {
+            console.error('Could not fetch prompt version from server.');
+            return;
+        }
+        const data = await res.json();
+        const serverVersion = data.version;
+
+        if (!serverVersion) {
+            console.error('Server did not return a valid prompt version.');
+            return;
+        }
+
+        const localVersion = localStorage.getItem('promptVersionHash');
+
+        if (serverVersion !== localVersion) {
+            console.log('New master system prompts detected on server. Flushing non-custom local prompts.');
+            
+            const allPrompts = getSystemPrompts();
+            const updatedPrompts = {};
+
+            for (const key in allPrompts) {
+                if (allPrompts[key].isCustom === true) {
+                    updatedPrompts[key] = allPrompts[key];
+                }
+            }
+
+            localStorage.setItem('userSystemPrompts', JSON.stringify(updatedPrompts));
+        } else {
+             console.log('Local prompt cache is up to date.');
+        }
+
+        // Always update the hash in local storage on a successful fetch.
+        // This ensures the key is created on the first run and is always current.
+        localStorage.setItem('promptVersionHash', serverVersion);
+
+    } catch (e) {
+        console.error('Error checking for prompt updates:', e);
+    }
+}
+// --- MODIFICATION END ---
+
 
 function getSystemPrompts() {
     try {
@@ -1403,6 +1447,10 @@ systemPromptPopupOverlay.addEventListener('click', (e) => {
 configForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    // --- MODIFICATION START: Call the prompt update checker during configuration ---
+    await checkAndUpdateDefaultPrompts();
+    // --- MODIFICATION END ---
+
     const selectedModel = llmModelSelect.value;
     if (!selectedModel) {
         configStatus.textContent = 'Please select your LLM Model.';
@@ -1845,7 +1893,6 @@ chatModalForm.addEventListener('submit', async (e) => {
     }
 });
 
-// --- MODIFICATION START: Add UI update function and new key listeners for hybrid mode ---
 function updateHintAndIndicatorState() {
     const hintSpan = inputHint.querySelector('span');
     if (isHistoryDisabledLocked) {
@@ -1860,6 +1907,8 @@ function updateHintAndIndicatorState() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    await checkAndUpdateDefaultPrompts();
+    
     try {
         const res = await fetch('/app-config');
         const appConfig = await res.json();
@@ -1942,4 +1991,3 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 });
-// --- MODIFICATION END ---

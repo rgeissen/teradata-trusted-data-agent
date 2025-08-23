@@ -50,6 +50,28 @@ def create_app():
 
     set_dependencies(APP_STATE)
     app.register_blueprint(api_bp)
+
+    # --- MODIFICATION START: Add Content Security Policy headers ---
+    @app.after_request
+    async def add_security_headers(response):
+        """
+        Adds Content Security Policy headers to every response to prevent
+        common cross-site scripting attacks and to allow necessary
+        external resources like Google APIs and CDNs.
+        """
+        csp_policy = [
+            "default-src 'self'",
+            "script-src 'self' https://cdn.tailwindcss.com https://unpkg.com",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+            "font-src 'self' https://fonts.gstatic.com",
+            "connect-src 'self' *.googleapis.com https://*.withgoogle.com",
+            "worker-src 'self' blob:",
+            "img-src 'self' data:"
+        ]
+        response.headers['Content-Security-Policy'] = "; ".join(csp_policy)
+        return response
+    # --- MODIFICATION END ---
+    
     return app
 
 app = create_app()
