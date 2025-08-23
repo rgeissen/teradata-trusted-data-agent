@@ -206,12 +206,33 @@ class OutputFormatter:
             text_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text_content)
             return text_content
 
-        styled_answer = f'<p class="text-lg font-semibold text-white mb-4">{process_inline_markdown(direct_answer_text)}</p>'
+        # --- MODIFICATION START ---
+        final_html = ""
+        if direct_answer_text:
+            processed_answer = process_inline_markdown(direct_answer_text)
+            # This creates the new "callout box" for the direct answer.
+            final_html += f"""
+<div class="direct-answer-callout bg-gray-900/50 border-l-4 border-teradata-orange p-4 rounded-r-lg mb-4">
+    <div class="flex items-start">
+        <div class="flex-shrink-0">
+            <svg class="h-6 w-6 text-teradata-orange" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <div class="ml-3 w-full">
+            <div class="text-base text-gray-200">
+                <p>{processed_answer}</p>
+            </div>
+        </div>
+    </div>
+</div>
+"""
+        # --- MODIFICATION END ---
+        
         remaining_html = self._render_standard_markdown(remaining_content)
         
-        final_html = styled_answer
+        # The callout box provides enough separation, so the <hr> is no longer needed.
         if remaining_html and remaining_html.strip():
-            final_html += '<hr class="border-gray-600 my-4">'
             final_html += remaining_html
         
         return final_html
@@ -221,7 +242,7 @@ class OutputFormatter:
         results = tool_result.get("results")
         if not isinstance(results, list) or not results: return ""
         ddl_text = results[0].get('Request Text', 'DDL not available.')
-        ddl_text_sanitized = ddl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        ddl_text_sanitized = dl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         metadata = tool_result.get("metadata", {})
         table_name = metadata.get("table", "DDL")
         self.processed_data_indices.add(index)
