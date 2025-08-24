@@ -282,6 +282,8 @@ class PlanExecutor:
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
         prompt_obj = None
+        explicit_parameters_section = ""
+        
         if self.active_prompt_name:
             yield self._format_sse({"step": "Loading Workflow Prompt", "details": f"Loading '{self.active_prompt_name}'"})
             mcp_client = self.dependencies['STATE'].get('mcp_client')
@@ -339,8 +341,17 @@ class PlanExecutor:
             if not prompt_obj: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded.")
             
             self.workflow_goal_prompt = get_prompt_text_content(prompt_obj)
+            app_logger.info(f"--- RENDERED PROMPT GOAL FOR SUB-PLANNER ---\n{self.workflow_goal_prompt}\n" + "-"*44)
             if not self.workflow_goal_prompt:
                 raise ValueError(f"Could not extract text content from rendered prompt '{self.active_prompt_name}'.")
+
+            # --- MODIFICATION: Build the explicit parameters section for sub-prompts ---
+            param_items = [f"- {key}: {json.dumps(value)}" for key, value in self.prompt_arguments.items()]
+            explicit_parameters_section = (
+                "\n--- EXPLICIT PARAMETERS ---\n"
+                "The following parameters were explicitly provided for this prompt execution:\n"
+                + "\n".join(param_items) + "\n"
+            )
         else:
             self.workflow_goal_prompt = self.original_user_input
 
@@ -351,8 +362,15 @@ class PlanExecutor:
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
-        previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
-        session_entities_str = json.dumps(self.session_known_entities, indent=2)
+        # --- MODIFICATION: Isolate context for sub-prompt planning ---
+        if self.active_prompt_name:
+            # For sub-prompts, provide a clean slate to prevent context pollution.
+            previous_turn_summary_str = "[]"
+            session_entities_str = "{}"
+        else:
+            # For the main plan, use the full context.
+            previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
+            session_entities_str = json.dumps(self.session_known_entities, indent=2)
 
         active_prompt_context_section = ""
         if self.active_prompt_name:
@@ -360,6 +378,7 @@ class PlanExecutor:
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
+            explicit_parameters_section=explicit_parameters_section,
             original_user_input=self.original_user_input,
             turn_action_history=previous_turn_summary_str,
             session_known_entities=session_entities_str,
@@ -427,6 +446,7 @@ class PlanExecutor:
                 "type": "workaround"
             })
             
+            # --- MODIFICATION: Isolate prompt execution context by passing an empty history ---
             sub_executor = PlanExecutor(
                 session_id=self.session_id,
                 original_user_input=phase_one.get('goal', f"Executing prompt: {prompt_name}"),
@@ -435,7 +455,7 @@ class PlanExecutor:
                 prompt_arguments=prompt_args,
                 execution_depth=self.execution_depth + 1,
                 disabled_history=self.disabled_history,
-                previous_turn_data=self.turn_action_history
+                previous_turn_data=[] # This ensures a clean slate for the sub-planner
             )
             
             async for event in sub_executor.run():

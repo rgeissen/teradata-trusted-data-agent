@@ -320,6 +320,7 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     box-shadow: 0 0 8px #facc15;
     animation: blink 1s infinite;
 }
+/* --- MODIFICATION START: Add styles for new context modes --- */
 .connection-dot.history-disabled-preview {
     background-color: #facc15; /* yellow-400 */
     box-shadow: 0 0 8px #facc15;
@@ -328,13 +329,14 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     background-color: var(--teradata-orange);
     box-shadow: 0 0 8px var(--teradata-orange);
 }
+/* --- MODIFICATION END --- */
 
 #send-icon {
     transition: transform 0.2s ease-in-out;
     transform: rotate(90deg); /* Default to East */
 }
 #send-icon.flipped {
-    transform: rotate(-90deg); /* West for disabled history */
+    transform: rotate(-90deg); /* West for full context */
 }
 
 .input-hint {

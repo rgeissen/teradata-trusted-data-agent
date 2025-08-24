@@ -134,8 +134,10 @@ let mcpIndicatorTimeout = null;
 let llmIndicatorTimeout = null;
 let contextIndicatorTimeout = null;
 
-let isAltPressed = false;
-let isHistoryDisabledLocked = false;
+// --- MODIFICATION START: Invert state variables for new context logic ---
+let isAltPressed = false; // For temporary (hold) switch to full context
+let isFullContextLocked = false; // For permanent toggle of full context mode
+// --- MODIFICATION END ---
 
 let defaultPromptsCache = {};
 
@@ -525,6 +527,12 @@ async function startStream(endpoint, body) {
     currentStatusId = 0;
     isInFastPath = false;
     setThinkingIndicator(false);
+
+    // --- MODIFICATION START: Calculate disabled_history based on new logic ---
+    const useFullContext = isFullContextLocked || isAltPressed;
+    body.disabled_history = !useFullContext;
+    // --- MODIFICATION END ---
+
     contextStatusDot.classList.remove('history-disabled-preview');
 
     try {
@@ -725,7 +733,6 @@ async function toggleTool(toolName, isDisabled, buttonEl) {
     }
 }
 
-// --- MODIFICATION START: Refactor createResourceItem to handle tool arguments ---
 function createResourceItem(resource, type) {
     const detailsEl = document.createElement('details');
     detailsEl.id = `resource-${type}-${resource.name}`;
@@ -818,7 +825,6 @@ function createResourceItem(resource, type) {
 
     return detailsEl;
 }
-// --- MODIFICATION END ---
 
 function updatePromptsTabCounter() {
     const tabButton = document.querySelector('.resource-tab[data-type="prompts"]');
@@ -1063,8 +1069,7 @@ chatForm.addEventListener('submit', async (e) => {
     if (!message || !currentSessionId) return;
     startStream('/ask_stream', { 
         message, 
-        session_id: currentSessionId, 
-        disabled_history: isAltPressed || isHistoryDisabledLocked
+        session_id: currentSessionId
     });
 });
 
@@ -1125,8 +1130,7 @@ function openPromptModal(prompt) {
         await startStream('/invoke_prompt_stream', {
             session_id: currentSessionId,
             prompt_name: promptName,
-            arguments: arugments,
-            disabled_history: isAltPressed || isHistoryDisabledLocked
+            arguments: arugments
         });
     };
 }
@@ -1176,7 +1180,7 @@ function openCorrectionModal(data) {
 
         closePromptModal();
 
-        startStream('/ask_stream', { message: correctedPrompt, session_id: currentSessionId, disabled_history: isAltPressed || isHistoryDisabledLocked });
+        startStream('/ask_stream', { message: correctedPrompt, session_id: currentSessionId });
     };
 }
 
@@ -1897,18 +1901,36 @@ chatModalForm.addEventListener('submit', async (e) => {
     }
 });
 
+// --- MODIFICATION START: Rewrite UI update logic for new context modes ---
 function updateHintAndIndicatorState() {
-    const hintSpan = inputHint.querySelector('span');
-    if (isHistoryDisabledLocked) {
-        hintSpan.innerHTML = 'Contextless Mode is <strong class="text-orange-400">ON</strong>. (Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to turn off)';
-        contextStatusDot.className = 'connection-dot history-disabled-locked';
+    const hintTextSpan = inputHint.querySelector('span:first-child');
+    const hintTooltipSpan = inputHint.querySelector('.tooltip');
+    
+    const useFullContext = isFullContextLocked || isAltPressed;
+
+    if (isFullContextLocked) {
+        // Full context is locked on
+        hintTextSpan.innerHTML = `<strong>Full Session Context:</strong> <span class="text-orange-400 font-semibold">On</span>`;
+        hintTooltipSpan.innerHTML = `Full session context is locked on. Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to switch back to "Last Turn" context.`;
+        contextStatusDot.className = 'connection-dot history-disabled-locked'; // Orange color
         sendIcon.classList.add('flipped');
-    } else {
-        hintSpan.innerHTML = 'Hold <kbd>Alt</kbd> / <kbd>Option</kbd> for a contextless search.';
-        contextStatusDot.className = 'connection-dot idle';
+    } else if (isAltPressed) {
+        // Full context is temporarily on
+        hintTextSpan.innerHTML = `<strong>Context:</strong> <span class="text-yellow-400 font-semibold">Session History</span>`;
+        hintTooltipSpan.innerHTML = `Temporarily using full session context for this query.`;
+        contextStatusDot.className = 'connection-dot history-disabled-preview'; // Yellow color
+        sendIcon.classList.add('flipped');
+    }
+    else {
+        // Default contextless mode
+        hintTextSpan.innerHTML = `<strong>Context:</strong> <span class="text-gray-400 font-semibold">Last Turn</span>`;
+        hintTooltipSpan.innerHTML = `Default context is the last turn. Hold <kbd>Alt</kbd> for a single query with full session context, or press <kbd>Shift</kbd> + <kbd>Alt</kbd> to lock session context on.`;
+        contextStatusDot.className = 'connection-dot idle'; // Green color
         sendIcon.classList.remove('flipped');
     }
 }
+// --- MODIFICATION END ---
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     await checkAndUpdateDefaultPrompts();
@@ -1960,23 +1982,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     configForm.addEventListener('input', updateConfigButtonState);
     
+    // --- MODIFICATION START: Update event listeners for new key logic ---
     document.addEventListener('keydown', (e) => {
+        // Permanent Toggle: Shift + Alt
         if (e.key === 'Alt' && e.shiftKey) {
             e.preventDefault();
-            isHistoryDisabledLocked = !isHistoryDisabledLocked;
+            isFullContextLocked = !isFullContextLocked;
             updateHintAndIndicatorState();
-            return; 
+            return;
         }
 
+        // Temporary Switch (Hold): Alt
         if (e.key === 'Alt' && !isAltPressed) {
             e.preventDefault(); 
             isAltPressed = true;
-            if (!isHistoryDisabledLocked) {
-                sendIcon.classList.add('flipped');
-                if (!contextStatusDot.classList.contains('busy')) {
-                    contextStatusDot.className = 'connection-dot history-disabled-preview';
-                }
-            }
+            updateHintAndIndicatorState();
         }
     });
 
@@ -1984,12 +2004,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (e.key === 'Alt') {
             e.preventDefault();
             isAltPressed = false;
-            if (!isHistoryDisabledLocked) {
-                sendIcon.classList.remove('flipped');
-                if (contextStatusDot.classList.contains('history-disabled-preview')) {
-                    contextStatusDot.className = 'connection-dot idle';
-                }
-            }
+            updateHintAndIndicatorState();
         }
     });
+    // --- MODIFICATION END ---
+    
+    // Initial UI state update on load
+    updateHintAndIndicatorState();
 });
