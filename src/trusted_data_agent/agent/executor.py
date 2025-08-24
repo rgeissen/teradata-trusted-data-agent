@@ -238,6 +238,7 @@ class PlanExecutor:
         
         return current_entities
 
+    # --- MODIFICATION START: Implement generic prompt argument enrichment ---
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
         prompt_obj = None
@@ -246,14 +247,53 @@ class PlanExecutor:
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
-            prompt_def = self.dependencies['STATE'].get('mcp_prompts', {}).get(self.active_prompt_name)
-            required_args = {arg.name for arg in prompt_def.arguments} if prompt_def and hasattr(prompt_def, 'arguments') else set()
-            
-            enriched_args, enrich_events, _ = self._enrich_arguments_from_history(required_args, self.prompt_arguments, is_prompt=True)
+            # --- START ENRICHMENT LOGIC ---
+            # Find the prompt definition in the local 'master table'
+            prompt_def = None
+            structured_prompts = self.dependencies['STATE'].get('structured_prompts', {})
+            for category_prompts in structured_prompts.values():
+                for p in category_prompts:
+                    if p.get("name") == self.active_prompt_name:
+                        prompt_def = p
+                        break
+                if prompt_def: break
 
-            for event in enrich_events:
-                yield event
+            if not prompt_def:
+                raise ValueError(f"Could not find a definition for prompt '{self.active_prompt_name}' in the local cache.")
+
+            # Identify required arguments from the definition
+            required_args = {arg['name'] for arg in prompt_def.get('arguments', []) if arg.get('required')}
+            
+            # Enrich the arguments provided in the plan with session context
+            enriched_args = self.prompt_arguments.copy()
+            inferred_args = set()
+            
+            for arg_name in required_args:
+                if arg_name not in enriched_args or enriched_args.get(arg_name) is None:
+                    if arg_name in self.session_known_entities:
+                        enriched_args[arg_name] = self.session_known_entities[arg_name]
+                        inferred_args.add(arg_name)
+
+            # Yield a status update if enrichment occurred
+            if inferred_args:
+                yield self._format_sse({
+                    "step": "System Correction",
+                    "details": f"System inferred missing arguments {inferred_args} from conversation history.",
+                    "type": "workaround",
+                    "correction_type": "inferred_argument"
+                })
+            
+            # --- FALLBACK STRATEGY ---
+            # Validate that all required arguments are now present
+            missing_args = {arg for arg in required_args if arg not in enriched_args or enriched_args.get(arg) is None}
+            if missing_args:
+                raise ValueError(
+                    f"Cannot execute prompt '{self.active_prompt_name}' because the following required arguments "
+                    f"are missing and could not be found in the session context: {missing_args}"
+                )
+            
             self.prompt_arguments = enriched_args
+            # --- END ENRICHMENT LOGIC ---
 
             try:
                 async with mcp_client.session("teradata_mcp_server") as temp_session:
@@ -262,6 +302,8 @@ class PlanExecutor:
                     )
             except Exception as e:
                 app_logger.error(f"Failed to load MCP prompt '{self.active_prompt_name}': {e}", exc_info=True)
+                # Re-raise to ensure the error propagates correctly
+                raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded from the MCP server.") from e
 
             if not prompt_obj: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded.")
             
@@ -334,6 +376,7 @@ class PlanExecutor:
             yield self._format_sse({"step": "Strategic Meta-Plan Generated", "details": self.meta_plan})
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
+    # --- MODIFICATION END ---
 
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
