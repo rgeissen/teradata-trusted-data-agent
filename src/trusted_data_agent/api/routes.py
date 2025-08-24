@@ -556,18 +556,15 @@ async def configure_services():
 
         return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
 
-# --- MODIFICATION START: Add guardrail to prevent execution before configuration ---
 @api_bp.route("/ask_stream", methods=["POST"])
 async def ask_stream():
     """Handles the main chat conversation stream for ad-hoc user queries."""
-    # --- GUARDRAIL ---
     if not STATE.get('mcp_tools'):
         async def error_gen():
             yield PlanExecutor._format_sse({
                 "error": "The agent is not fully configured. Please ensure the LLM and MCP server details are set correctly in the 'Config' tab before starting a chat."
             }, "error")
         return Response(error_gen(), mimetype="text/event-stream")
-    # --- END GUARDRAIL ---
 
     data = await request.get_json()
     user_input = data.get("message")
@@ -600,11 +597,14 @@ async def ask_stream():
                 session_manager.add_to_history(session_id, 'assistant', greeting_response)
                 return
             
+            previous_turn_data = session_data.get("last_turn_data", [])
+
             executor = PlanExecutor(
                 session_id=session_id, 
                 original_user_input=user_input, 
                 dependencies={'STATE': STATE},
-                disabled_history=disabled_history
+                disabled_history=disabled_history,
+                previous_turn_data=previous_turn_data
             )
             async for event in executor.run():
                 yield event
@@ -621,14 +621,12 @@ async def invoke_prompt_stream():
     Handles the direct invocation of a prompt from the UI. This route now contains
     the core orchestration logic to differentiate between 'reporting' and 'context' prompts.
     """
-    # --- GUARDRAIL ---
     if not STATE.get('mcp_tools'):
         async def error_gen():
             yield PlanExecutor._format_sse({
                 "error": "The agent is not fully configured. Please ensure the LLM and MCP server details are set correctly in the 'Config' tab before invoking a prompt."
             }, "error")
         return Response(error_gen(), mimetype="text/event-stream")
-    # --- END GUARDRAIL ---
 
     data = await request.get_json()
     session_id = data.get("session_id")
@@ -657,6 +655,8 @@ async def invoke_prompt_stream():
             # --- Orchestration Logic ---
             prompt_info = _get_prompt_info(prompt_name)
             prompt_type = prompt_info.get("prompt_type", "reporting") if prompt_info else "reporting"
+            
+            previous_turn_data = session_data.get("last_turn_data", [])
 
             executor = PlanExecutor(
                 session_id=session_id, 
@@ -664,7 +664,8 @@ async def invoke_prompt_stream():
                 dependencies={'STATE': STATE},
                 active_prompt_name=prompt_name,
                 prompt_arguments=arguments,
-                disabled_history=disabled_history
+                disabled_history=disabled_history,
+                previous_turn_data=previous_turn_data
             )
 
             # --- Execute and Handle Based on Type ---
@@ -708,4 +709,3 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
 
     return Response(stream_generator(), mimetype="text/event-stream")
-# --- MODIFICATION END ---

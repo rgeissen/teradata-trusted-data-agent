@@ -23,6 +23,20 @@ from trusted_data_agent.agent import orchestrators
 
 app_logger = logging.getLogger("quart.app")
 
+# --- MODIFICATION START: Add definitive error handling ---
+DEFINITIVE_TOOL_ERRORS = {
+    "Object .* does not exist": "The requested database object (e.g., table or view) does not exist. Please check the name for typos.",
+    "Invalid query": "The generated query was invalid and could not be run against the database.",
+    "3523": "The user does not have the necessary permissions for the requested object." # Example of a specific Teradata error code
+}
+
+class DefinitiveToolError(Exception):
+    """Custom exception for unrecoverable tool errors."""
+    def __init__(self, message, friendly_message):
+        super().__init__(message)
+        self.friendly_message = friendly_message
+# --- MODIFICATION END ---
+
 def get_prompt_text_content(prompt_obj):
     """
     Extracts the text content from a loaded prompt object, handling different
@@ -62,7 +76,7 @@ def unwrap_exception(e: BaseException) -> BaseException:
 class PlanExecutor:
     AgentState = AgentState
 
-    def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None, execution_depth: int = 0, disabled_history: bool = False):
+    def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None, execution_depth: int = 0, disabled_history: bool = False, previous_turn_data: list = None):
         self.session_id = session_id
         self.original_user_input = original_user_input
         self.dependencies = dependencies
@@ -102,6 +116,7 @@ class PlanExecutor:
         self.MAX_EXECUTION_DEPTH = 5
         
         self.disabled_history = disabled_history
+        self.previous_turn_data = previous_turn_data or []
         self.is_delegation_only_plan = False
 
 
@@ -138,6 +153,7 @@ class PlanExecutor:
 
     async def run(self):
         """The main, unified execution loop for the agent."""
+        final_answer_override = None
         try:
             if self.state == self.AgentState.PLANNING:
                 async for event in self._generate_meta_plan(): yield event
@@ -148,12 +164,30 @@ class PlanExecutor:
                     len(self.meta_plan) == 1 and
                     'executable_prompt' in self.meta_plan[0]
                 )
-
-            if self.state == self.AgentState.EXECUTING:
-                async for event in self._run_plan(): yield event
+            
+            # --- MODIFICATION START: Add try/except for definitive errors ---
+            try:
+                if self.state == self.AgentState.EXECUTING:
+                    async for event in self._run_plan(): yield event
+            except DefinitiveToolError as e:
+                app_logger.error(f"Execution halted by definitive tool error: {e.friendly_message}")
+                yield self._format_sse({"step": "Unrecoverable Error", "details": e.friendly_message, "type": "error"}, "tool_result")
+                final_answer_override = f"I could not complete the request. Reason: {e.friendly_message}"
+                self.state = self.AgentState.SUMMARIZING
+            # --- MODIFICATION END ---
 
             if self.state == self.AgentState.SUMMARIZING:
-                if self.is_delegation_only_plan:
+                if final_answer_override:
+                    formatter = OutputFormatter(
+                        llm_response_text=final_answer_override,
+                        collected_data=self.structured_collected_data,
+                        original_user_input=self.original_user_input
+                    )
+                    final_html = formatter.render()
+                    session_manager.add_to_history(self.session_id, 'assistant', final_html)
+                    yield self._format_sse({"final_answer": final_html}, "final_answer")
+                    self.state = self.AgentState.DONE
+                elif self.is_delegation_only_plan:
                     app_logger.info("This was a delegation-only plan. Skipping redundant final summary.")
                     self.state = self.AgentState.DONE
                 else:
@@ -167,15 +201,15 @@ class PlanExecutor:
         finally:
             final_known_entities = self._update_session_known_entities()
             session_manager.update_session_known_session_entities(self.session_id, final_known_entities)
-            app_logger.debug(f"Saved final known entities to session {self.session_id}: {json.dumps(final_known_entities)}")
+            session_manager.update_last_turn_data(self.session_id, self.turn_action_history)
+            app_logger.debug(f"Saved final known entities and last turn data to session {self.session_id}")
 
-    def _create_turn_summary(self) -> str:
+    def _create_summary_from_history(self, history: list) -> str:
         """
-        Creates a token-efficient, high-signal summary of the current turn's
-        actions for the planner.
+        Creates a token-efficient, high-signal summary of a history list for the planner.
         """
         optimized_history = []
-        for entry in self.turn_action_history:
+        for entry in history:
             action = entry.get("action", {})
             result = entry.get("result", {})
             
@@ -195,6 +229,13 @@ class PlanExecutor:
                 "result_summary": result_summary
             })
         return json.dumps(optimized_history, indent=2)
+
+    def _create_turn_summary(self) -> str:
+        """
+        Creates a token-efficient, high-signal summary of the current turn's
+        actions for the planner.
+        """
+        return self._create_summary_from_history(self.turn_action_history)
 
     def _update_session_known_entities(self) -> dict:
         """
@@ -238,7 +279,6 @@ class PlanExecutor:
         
         return current_entities
 
-    # --- MODIFICATION START: Implement generic prompt argument enrichment ---
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
         prompt_obj = None
@@ -247,8 +287,6 @@ class PlanExecutor:
             mcp_client = self.dependencies['STATE'].get('mcp_client')
             if not mcp_client: raise RuntimeError("MCP client is not connected.")
             
-            # --- START ENRICHMENT LOGIC ---
-            # Find the prompt definition in the local 'master table'
             prompt_def = None
             structured_prompts = self.dependencies['STATE'].get('structured_prompts', {})
             for category_prompts in structured_prompts.values():
@@ -261,10 +299,8 @@ class PlanExecutor:
             if not prompt_def:
                 raise ValueError(f"Could not find a definition for prompt '{self.active_prompt_name}' in the local cache.")
 
-            # Identify required arguments from the definition
             required_args = {arg['name'] for arg in prompt_def.get('arguments', []) if arg.get('required')}
             
-            # Enrich the arguments provided in the plan with session context
             enriched_args = self.prompt_arguments.copy()
             inferred_args = set()
             
@@ -274,7 +310,6 @@ class PlanExecutor:
                         enriched_args[arg_name] = self.session_known_entities[arg_name]
                         inferred_args.add(arg_name)
 
-            # Yield a status update if enrichment occurred
             if inferred_args:
                 yield self._format_sse({
                     "step": "System Correction",
@@ -283,8 +318,6 @@ class PlanExecutor:
                     "correction_type": "inferred_argument"
                 })
             
-            # --- FALLBACK STRATEGY ---
-            # Validate that all required arguments are now present
             missing_args = {arg for arg in required_args if arg not in enriched_args or enriched_args.get(arg) is None}
             if missing_args:
                 raise ValueError(
@@ -293,7 +326,6 @@ class PlanExecutor:
                 )
             
             self.prompt_arguments = enriched_args
-            # --- END ENRICHMENT LOGIC ---
 
             try:
                 async with mcp_client.session("teradata_mcp_server") as temp_session:
@@ -302,7 +334,6 @@ class PlanExecutor:
                     )
             except Exception as e:
                 app_logger.error(f"Failed to load MCP prompt '{self.active_prompt_name}': {e}", exc_info=True)
-                # Re-raise to ensure the error propagates correctly
                 raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded from the MCP server.") from e
 
             if not prompt_obj: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded.")
@@ -320,7 +351,7 @@ class PlanExecutor:
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
-        turn_summary_str = self._create_turn_summary()
+        previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
         session_entities_str = json.dumps(self.session_known_entities, indent=2)
 
         active_prompt_context_section = ""
@@ -330,7 +361,7 @@ class PlanExecutor:
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input,
-            turn_action_history=turn_summary_str,
+            turn_action_history=previous_turn_summary_str,
             session_known_entities=session_entities_str,
             execution_depth=self.execution_depth,
             active_prompt_context_section=active_prompt_context_section
@@ -376,7 +407,6 @@ class PlanExecutor:
             yield self._format_sse({"step": "Strategic Meta-Plan Generated", "details": self.meta_plan})
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate a valid meta-plan from the LLM. Response: {response_text}. Error: {e}")
-    # --- MODIFICATION END ---
 
     async def _run_plan(self):
         """Executes the generated meta-plan, delegating to loop or standard executors."""
@@ -404,7 +434,8 @@ class PlanExecutor:
                 active_prompt_name=prompt_name,
                 prompt_arguments=prompt_args,
                 execution_depth=self.execution_depth + 1,
-                disabled_history=self.disabled_history
+                disabled_history=self.disabled_history,
+                previous_turn_data=self.turn_action_history
             )
             
             async for event in sub_executor.run():
@@ -711,6 +742,13 @@ class PlanExecutor:
             
             if isinstance(tool_result, dict) and tool_result.get("status") == "error":
                 yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
+                
+                # --- MODIFICATION START: Intercept definitive errors ---
+                error_data_str = str(tool_result.get('data', ''))
+                for error_pattern, friendly_message in DEFINITIVE_TOOL_ERRORS.items():
+                    if re.search(error_pattern, error_data_str, re.IGNORECASE):
+                        raise DefinitiveToolError(error_data_str, friendly_message)
+                # --- MODIFICATION END ---
                 
                 if attempt < max_retries - 1:
                     yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Tool failed. Attempting self-correction ({attempt + 1}/{max_retries - 1})."})
