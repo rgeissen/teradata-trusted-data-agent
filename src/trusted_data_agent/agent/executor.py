@@ -341,11 +341,9 @@ class PlanExecutor:
             if not prompt_obj: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded.")
             
             self.workflow_goal_prompt = get_prompt_text_content(prompt_obj)
-            app_logger.info(f"--- RENDERED PROMPT GOAL FOR SUB-PLANNER ---\n{self.workflow_goal_prompt}\n" + "-"*44)
             if not self.workflow_goal_prompt:
                 raise ValueError(f"Could not extract text content from rendered prompt '{self.active_prompt_name}'.")
 
-            # --- MODIFICATION: Build the explicit parameters section for sub-prompts ---
             param_items = [f"- {key}: {json.dumps(value)}" for key, value in self.prompt_arguments.items()]
             explicit_parameters_section = (
                 "\n--- EXPLICIT PARAMETERS ---\n"
@@ -362,19 +360,27 @@ class PlanExecutor:
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
-        # --- MODIFICATION: Isolate context for sub-prompt planning ---
         if self.active_prompt_name:
-            # For sub-prompts, provide a clean slate to prevent context pollution.
             previous_turn_summary_str = "[]"
             session_entities_str = "{}"
         else:
-            # For the main plan, use the full context.
             previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
             session_entities_str = json.dumps(self.session_known_entities, indent=2)
 
         active_prompt_context_section = ""
         if self.active_prompt_name:
             active_prompt_context_section = f"- Active Prompt: You are currently executing the '{self.active_prompt_name}' prompt. Your plan should execute the steps described in the goal, not re-call the same prompt."
+
+        # --- MODIFICATION START: Add consolidated context log ---
+        app_logger.info(
+            f"\n--- Meta-Planner Context ---\n"
+            f"Original User Input: {self.original_user_input}\n"
+            f"Execution Depth: {self.execution_depth}\n"
+            f"Session Known Entities:\n{session_entities_str}\n"
+            f"Previous Turn History Summary:\n{previous_turn_summary_str}\n"
+            f"--------------------------"
+        )
+        # --- MODIFICATION END ---
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
@@ -446,7 +452,6 @@ class PlanExecutor:
                 "type": "workaround"
             })
             
-            # --- MODIFICATION: Isolate prompt execution context by passing an empty history ---
             sub_executor = PlanExecutor(
                 session_id=self.session_id,
                 original_user_input=phase_one.get('goal', f"Executing prompt: {prompt_name}"),
@@ -455,7 +460,7 @@ class PlanExecutor:
                 prompt_arguments=prompt_args,
                 execution_depth=self.execution_depth + 1,
                 disabled_history=self.disabled_history,
-                previous_turn_data=[] # This ensures a clean slate for the sub-planner
+                previous_turn_data=[] 
             )
             
             async for event in sub_executor.run():
@@ -763,12 +768,10 @@ class PlanExecutor:
             if isinstance(tool_result, dict) and tool_result.get("status") == "error":
                 yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
                 
-                # --- MODIFICATION START: Intercept definitive errors ---
                 error_data_str = str(tool_result.get('data', ''))
                 for error_pattern, friendly_message in DEFINITIVE_TOOL_ERRORS.items():
                     if re.search(error_pattern, error_data_str, re.IGNORECASE):
                         raise DefinitiveToolError(error_data_str, friendly_message)
-                # --- MODIFICATION END ---
                 
                 if attempt < max_retries - 1:
                     yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Tool failed. Attempting self-correction ({attempt + 1}/{max_retries - 1})."})

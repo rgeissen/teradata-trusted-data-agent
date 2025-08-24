@@ -182,7 +182,9 @@ class OutputFormatter:
         """
         clean_summary = self.raw_summary
 
-        markdown_block_match = re.search(r"```(?:markdown)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
+        # --- MODIFICATION START: Generalize regex to handle any language in code blocks ---
+        markdown_block_match = re.search(r"```(?:\w+)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
+        # --- MODIFICATION END ---
         if markdown_block_match:
             clean_summary = markdown_block_match.group(1).strip()
         
