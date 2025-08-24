@@ -117,55 +117,46 @@ def _extract_prompt_type_from_description(description: str | None) -> tuple[str,
         
     return cleaned_description, prompt_type
 
-# --- MODIFICATION START: Add new parser function for tool descriptions ---
-def _parse_arguments_from_mcp_tool_parameter_description(description: str) -> tuple[str, list]:
+# --- MODIFICATION START: New helper functions to parse raw tool data ---
+def _get_arg_descriptions_from_string(description: str) -> tuple[str, dict]:
     """
-    Parses argument definitions from a tool's main description string.
+    Parses the "Arguments" or "Args" section of a description string to extract
+    a simple map of {arg_name: arg_description}.
     """
-    
-    # Regex to find the start of the arguments section, case-insensitive
-    args_section_match = re.search(r'\n(Arguments|Args):\s*\n', description, re.IGNORECASE)
-    
+    if not description:
+        return "", {}
+
+    args_section_match = re.search(r'\n\s*(Arguments|Args):\s*\n', description, re.IGNORECASE)
     if not args_section_match:
-        return description, []
+        return description, {}
 
     cleaned_description = description[:args_section_match.start()].strip()
     args_section_text = description[args_section_match.end():]
     
-    processed_args = []
+    # Simple regex for 'name - description' or 'name: description' formats
+    pattern = re.compile(r'^\s*(?P<name>\w+)\s*[-:]\s*(?P<desc>.+)')
+    descriptions = {}
     
-    # Regex to capture different argument formats, prioritizing more detailed ones
-    # Format 1: `name` (type, required/optional): description
-    # Format 2: name (type): description
-    # Format 3: name - description
-    arg_patterns = [
-        re.compile(r'^\s*-\s*`?(?P<name>\w+)`?\s*\((?P<type>[\w\[\]]+)\s*,\s*(?P<req>required|optional)\):\s*(?P<desc>.+)'),
-        re.compile(r'^\s*(?P<name>\w+)\s*\((?P<type>[\w\[\]]+)\):\s*(?P<desc>.+)'),
-        re.compile(r'^\s*(?P<name>\w+)\s*-\s*(?P<desc>.+)')
-    ]
-
     for line in args_section_text.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
+        match = pattern.match(line.strip())
+        if match:
+            data = match.groupdict()
+            descriptions[data['name']] = data['desc'].strip()
             
-        arg_data = {}
-        for pattern in arg_patterns:
-            match = pattern.match(line)
-            if match:
-                data = match.groupdict()
-                arg_data['name'] = data.get('name')
-                arg_data['description'] = data.get('desc', 'No description.').strip()
-                arg_data['type'] = data.get('type', 'any')
-                
-                req_status = data.get('req', 'optional')
-                arg_data['required'] = req_status.lower() == 'required'
-                break
-        
-        if arg_data:
-            processed_args.append(arg_data)
-            
-    return cleaned_description, processed_args
+    return cleaned_description, descriptions
+
+def _get_type_from_schema(schema: dict) -> str:
+    """Extracts a simple type name from a JSON schema property."""
+    if not isinstance(schema, dict):
+        return "any"
+    if "type" in schema:
+        return schema["type"]
+    if "anyOf" in schema and isinstance(schema["anyOf"], list):
+        # Find the first non-null type
+        for type_option in schema["anyOf"]:
+            if isinstance(type_option, dict) and type_option.get("type") != "null":
+                return type_option.get("type", "any")
+    return "any"
 # --- MODIFICATION END ---
 
 
@@ -178,7 +169,48 @@ async def load_and_categorize_mcp_resources(STATE: dict):
     async with mcp_client.session("teradata_mcp_server") as temp_session:
         app_logger.info("--- Loading and classifying MCP tools and prompts... ---")
 
-        loaded_tools = await load_mcp_tools(temp_session)
+        # --- MODIFICATION START: Process raw tool data instead of using adapter ---
+        list_tools_result = await temp_session.list_tools()
+        raw_tools = list_tools_result.tools if hasattr(list_tools_result, 'tools') else []
+        
+        processed_tools = []
+        class SimpleTool: # Helper class to create a consistent object structure
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
+
+        for raw_tool in raw_tools:
+            tool_name = raw_tool.name
+            tool_desc = raw_tool.description or ""
+            processed_args = []
+            cleaned_description = tool_desc
+
+            # Primary strategy: Use the rich inputSchema
+            if hasattr(raw_tool, 'inputSchema') and raw_tool.inputSchema and 'properties' in raw_tool.inputSchema:
+                cleaned_description, arg_desc_map = _get_arg_descriptions_from_string(tool_desc)
+                schema = raw_tool.inputSchema
+                required_args = schema.get('required', []) or []
+                
+                for arg_name, arg_schema in schema['properties'].items():
+                    processed_args.append({
+                        "name": arg_name,
+                        "type": _get_type_from_schema(arg_schema),
+                        "required": arg_name in required_args,
+                        "description": arg_desc_map.get(arg_name, arg_schema.get('title', 'No description.'))
+                    })
+            # Fallback strategy: Parse the description string if no schema is present
+            else:
+                 cleaned_description, processed_args = _parse_arguments_from_mcp_tool_parameter_description(tool_desc)
+            
+            # Create a consistent tool object for the rest of the application
+            processed_tools.append(SimpleTool(
+                name=tool_name,
+                description=cleaned_description,
+                args={arg['name']: arg for arg in processed_args} # Keep .args structure for context builder
+            ))
+
+        loaded_tools = processed_tools
+        # --- MODIFICATION END ---
+        
         loaded_prompts = []
         try:
             list_prompts_result = await temp_session.list_prompts()
@@ -186,11 +218,8 @@ async def load_and_categorize_mcp_resources(STATE: dict):
                 loaded_prompts = list_prompts_result.prompts
         except Exception as e:
             app_logger.error(f"CRITICAL ERROR while loading prompts: {e}", exc_info=True)
-
-        class SimpleTool:
-            def __init__(self, **kwargs):
-                self.__dict__.update(kwargs)
         
+        # Add client-side utility tools
         viz_tool_obj = SimpleTool(**VIZ_TOOL_DEFINITION)
         loaded_tools.append(viz_tool_obj)
         for util_tool_def in UTIL_TOOL_DEFINITIONS:
@@ -254,12 +283,8 @@ async def load_and_categorize_mcp_resources(STATE: dict):
             if category not in STATE['structured_tools']:
                 STATE['structured_tools'][category] = []
             
-            # --- MODIFICATION START: Use new parser for descriptions, with fallback ---
-            tool_description = tool.description or ""
-            cleaned_description, processed_args = _parse_arguments_from_mcp_tool_parameter_description(tool_description)
-            
-            # If parser found no args, fall back to the structured .args attribute
-            if not processed_args and hasattr(tool, 'args') and isinstance(tool.args, dict):
+            processed_args = []
+            if hasattr(tool, 'args') and isinstance(tool.args, dict):
                 for arg_name, arg_details in tool.args.items():
                     if isinstance(arg_details, dict):
                         processed_args.append({
@@ -272,11 +297,10 @@ async def load_and_categorize_mcp_resources(STATE: dict):
             is_disabled = tool.name in disabled_tools_list
             STATE['structured_tools'][category].append({
                 "name": tool.name,
-                "description": cleaned_description,
+                "description": tool.description,
                 "arguments": processed_args,
                 "disabled": is_disabled
             })
-            # --- MODIFICATION END ---
 
         tool_context_parts = ["--- Available Tools ---"]
         for category, tools in sorted(STATE['structured_tools'].items()):
@@ -285,10 +309,11 @@ async def load_and_categorize_mcp_resources(STATE: dict):
                 tool_context_parts.append(f"--- Category: {category} ---")
                 for tool_info in enabled_tools_in_category:
                     tool_obj = STATE['mcp_tools'][tool_info['name']]
-                    tool_str = f"- `{tool_obj.name}` (tool): {tool_obj.description}"
+                    tool_str = f"- `{tool_obj.name}` (tool): {tool_obj.description}" # Use cleaned description
                     args_dict = tool_obj.args if isinstance(tool_obj.args, dict) else {}
 
-                    if args_dict and "Arguments:" not in tool_obj.description:
+                    # This block now uses the rich .args dict we built
+                    if args_dict:
                         tool_str += "\n  - Arguments:"
                         for arg_name, arg_details in args_dict.items():
                             arg_type = arg_details.get('type', 'any')
