@@ -121,9 +121,7 @@ class PlanExecutor:
             disabled_history=self.disabled_history
         )
         self.llm_debug_history.append({"reason": reason, "response": response_text})
-        # --- MODIFICATION START: Demote verbose log to DEBUG level ---
         app_logger.debug(f"LLM RESPONSE (DEBUG): Reason='{reason}', Response='{response_text}'")
-        # --- MODIFICATION END ---
         return response_text, statement_input_tokens, statement_output_tokens
 
     def _add_to_structured_data(self, tool_result: dict, context_key_override: str = None):
@@ -170,18 +168,18 @@ class PlanExecutor:
             _, final_known_entities_str = self._create_optimized_context()
             final_known_entities = json.loads(final_known_entities_str)
             session_manager.update_session_known_entities(self.session_id, final_known_entities)
-            # --- MODIFICATION START: Demote verbose log to DEBUG level ---
             app_logger.debug(f"Saved final known entities to session {self.session_id}: {final_known_entities_str}")
-            # --- MODIFICATION END ---
 
+    # --- MODIFICATION START: Correct context logic to preserve session memory ---
     def _create_optimized_context(self) -> tuple[str, str]:
         """
-        Creates a token-efficient, high-signal context summary for the planner by
-        summarizing past results and dynamically extracting known entities from both
-        the tool call arguments and the tool call results.
+        Creates a token-efficient, high-signal context summary for the planner.
+        It starts with the session's known entities and updates them with new
+        information discovered during the current turn.
         """
         optimized_history = []
-        known_entities = self.known_entities.copy()
+        # CRITICAL: Start with the session's memory to maintain context between turns.
+        current_entities = self.known_entities.copy()
         
         all_known_tool_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
         
@@ -213,7 +211,7 @@ class PlanExecutor:
                 args = action.get("arguments", {})
                 for arg_name, arg_value in args.items():
                     if arg_name in all_known_tool_args and arg_value:
-                        known_entities[arg_name] = arg_value
+                        current_entities[arg_name] = arg_value
 
                 result_data = entry.get("result", {})
                 if 'results' in result_data and isinstance(result_data.get('results'), list):
@@ -230,23 +228,19 @@ class PlanExecutor:
                             if normalized_row_key in normalized_to_canonical_map:
                                 canonical_arg_name = normalized_to_canonical_map[normalized_row_key]
                                 
-                                if not isinstance(known_entities.get(canonical_arg_name), set):
-                                    known_entities[canonical_arg_name] = set()
-                                
-                                known_entities[canonical_arg_name].add(row_value)
-
-        final_known_entities = {}
-        for key, value in known_entities.items():
-            if isinstance(value, set):
-                sorted_list = sorted(list(value))
-                final_known_entities[key] = sorted_list[0] if len(sorted_list) == 1 else sorted_list
-            else:
-                final_known_entities[key] = value
-
-        return json.dumps(optimized_history, indent=2), json.dumps(final_known_entities, indent=2)
+                                if isinstance(row_value, (str, int, float)):
+                                    current_entities[canonical_arg_name] = row_value
+        
+        # The final set of entities for this turn is returned to the planner.
+        # This same set will be saved back to the session at the end of the run.
+        return json.dumps(optimized_history, indent=2), json.dumps(current_entities, indent=2)
+    # --- MODIFICATION END ---
 
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
+        # --- MODIFICATION START: Harden against prompt loading failures ---
+        prompt_obj = None
+        # --- MODIFICATION END ---
         if self.active_prompt_name:
             yield self._format_sse({"step": "Loading Workflow Prompt", "details": f"Loading '{self.active_prompt_name}'"})
             mcp_client = self.dependencies['STATE'].get('mcp_client')
@@ -261,10 +255,15 @@ class PlanExecutor:
                 yield event
             self.prompt_arguments = enriched_args
 
-            async with mcp_client.session("teradata_mcp_server") as temp_session:
-                prompt_obj = await load_mcp_prompt(
-                    temp_session, name=self.active_prompt_name, arguments=self.prompt_arguments
-                )
+            try:
+                async with mcp_client.session("teradata_mcp_server") as temp_session:
+                    prompt_obj = await load_mcp_prompt(
+                        temp_session, name=self.active_prompt_name, arguments=self.prompt_arguments
+                    )
+            except Exception as e:
+                app_logger.error(f"Failed to load MCP prompt '{self.active_prompt_name}': {e}", exc_info=True)
+                # The prompt_obj will remain None, and the check below will handle it.
+
             if not prompt_obj: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded.")
             
             self.workflow_goal_prompt = get_prompt_text_content(prompt_obj)
@@ -282,12 +281,17 @@ class PlanExecutor:
 
         optimized_history_str, known_entities_str = self._create_optimized_context()
 
+        active_prompt_context_section = ""
+        if self.active_prompt_name:
+            active_prompt_context_section = f"- Active Prompt: You are currently executing the '{self.active_prompt_name}' prompt. Your plan should execute the steps described in the goal, not re-call the same prompt."
+
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input,
             workflow_history=optimized_history_str,
             known_entities=known_entities_str,
-            execution_depth=self.execution_depth
+            execution_depth=self.execution_depth,
+            active_prompt_context_section=active_prompt_context_section
         )
         
         yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
@@ -865,69 +869,70 @@ class PlanExecutor:
 
     async def _generate_final_summary(self):
         """
-        Generates the final summary using a universal, parameterized CoreLLMTask.
-        This ensures consistent, high-quality summaries for all workflows.
+        Generates the final summary. It prioritizes the result of a planner-defined
+        CoreLLMTask and falls back to a standard summary for ad-hoc queries.
         """
         final_summary_text = ""
-        final_collected_data = self.structured_collected_data
-
-        app_logger.info("Generating final summary using the universal CoreLLMTask.")
         
-        standard_task_description = (
-            "You are an expert data analyst. Your task is to create a final report for the user based on the provided data."
-        )
+        last_action = self.action_history[-1].get("action", {}) if self.action_history else {}
+        last_result = self.action_history[-1].get("result", {}) if self.action_history else {}
+
+        if (last_action.get("tool_name") == "CoreLLMTask" and 
+            last_result.get("status") == "success"):
+            
+            app_logger.info("Planner-defined summary found. Using its result directly.")
+            summary_data = last_result.get("results", [{}])[0]
+            final_summary_text = summary_data.get("response", "Planner summary task failed to produce text.")
         
-        standard_formatting_instructions = (
-            "Your entire response MUST be formatted in standard markdown and MUST be structured as follows:\n\n"
-            "1.  **(Optional) Key Metric:** If the answer to the user's question can be summarized by a single primary value (either quantitative like a number, or qualitative like a status), you MUST provide it on the very first line in a specific JSON format. The line must start with `Key Metric: ` followed by a JSON object with a `value` (as a string) and a `label` (a short description).\n"
-            "    - Quantitative Example: `Key Metric: {{\"value\": \"21\", \"label\": \"Databases on system\"}}`\n"
-            "    - Qualitative Example: `Key Metric: {{\"value\": \"High\", \"label\": \"System Utilization\"}}`\n"
-            "    If there is no single primary value, you MUST omit this line entirely.\n\n"
-            "2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.\n\n"
-            "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context."
-        )
-
-        if not self.active_prompt_name:
-            ad_hoc_rule = (
-                "\n\n**CRITICAL RULE (Ad-hoc Queries):** For this report, you MUST NOT use special key-value formats like `***Key:*** Value`. "
-                "Adhere strictly to the structure defined above."
-            )
-            standard_formatting_instructions += ad_hoc_rule
-
-        core_llm_command = {
-            "tool_name": "CoreLLMTask",
-            "arguments": {
-                "task_description": standard_task_description,
-                "formatting_instructions": standard_formatting_instructions,
-                "user_question": self.original_user_input,
-                "source_data": list(self.workflow_state.keys()),
-                "data": copy.deepcopy(self.workflow_state)
-            }
-        }
-        
-        yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
-        
-        yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
-        summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
-        yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
-
-        updated_session = session_manager.get_session(self.session_id)
-        if updated_session:
-            yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
-
-        if (summary_result and summary_result.get("status") == "success" and
-            "response" in (summary_result.get("results", [{}])[0] or {})):
-            final_summary_text = summary_result["results"][0]["response"]
         else:
-            app_logger.error(f"CoreLLMTask failed to generate a standard summary. Fallback response will be used. Result: {summary_result}")
-            final_summary_text = "The agent has completed its work, but an issue occurred while generating the final summary."
+            app_logger.info("No planner-defined summary. Generating standard ad-hoc summary.")
+            standard_task_description = (
+                "You are an expert data analyst. Your task is to create a final report for the user based on the provided data."
+            )
+            standard_formatting_instructions = (
+                "Your entire response MUST be formatted in standard markdown and MUST be structured as follows:\n\n"
+                "1.  **(Optional) Key Metric:** If the answer to the user's question can be summarized by a single primary value (either quantitative like a number, or qualitative like a status), you MUST provide it on the very first line in a specific JSON format. The line must start with `Key Metric: ` followed by a JSON object with a `value` (as a string) and a `label` (a short description).\n"
+                "    - Quantitative Example: `Key Metric: {{\"value\": \"21\", \"label\": \"Databases on system\"}}`\n"
+                "    - Qualitative Example: `Key Metric: {{\"value\": \"High\", \"label\": \"System Utilization\"}}`\n"
+                "    If there is no single primary value, you MUST omit this line entirely.\n\n"
+                "2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.\n\n"
+                "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context."
+            )
+
+            core_llm_command = {
+                "tool_name": "CoreLLMTask",
+                "arguments": {
+                    "task_description": standard_task_description,
+                    "formatting_instructions": standard_formatting_instructions,
+                    "user_question": self.original_user_input,
+                    "source_data": list(self.workflow_state.keys()),
+                    "data": copy.deepcopy(self.workflow_state)
+                }
+            }
+            
+            yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
+            
+            yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
+            summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
+            yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
+
+            updated_session = session_manager.get_session(self.session_id)
+            if updated_session:
+                yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+
+            if (summary_result and summary_result.get("status") == "success" and
+                "response" in (summary_result.get("results", [{}])[0] or {})):
+                final_summary_text = summary_result["results"][0]["response"]
+            else:
+                app_logger.error(f"CoreLLMTask failed to generate a standard summary. Fallback response will be used. Result: {summary_result}")
+                final_summary_text = "The agent has completed its work, but an issue occurred while generating the final summary."
 
         clean_summary = final_summary_text.replace("FINAL_ANSWER:", "").strip() or "The agent has completed its work."
         yield self._format_sse({"step": "LLM has generated the final answer", "details": clean_summary}, "llm_thought")
 
         formatter = OutputFormatter(
             llm_response_text=clean_summary,
-            collected_data=final_collected_data,
+            collected_data=self.structured_collected_data,
             original_user_input=self.original_user_input,
             active_prompt_name=self.active_prompt_name
         )
@@ -1032,7 +1037,10 @@ class PlanExecutor:
         return constraints
 
     async def _recover_from_phase_failure(self, failed_phase_goal: str):
-        """Attempts to recover from a persistently failing phase by generating a new plan."""
+        """
+        Attempts to recover from a persistently failing phase by generating a new plan.
+        This version is robust to conversational text mixed with the JSON output.
+        """
         yield self._format_sse({"step": "Attempting LLM-based Recovery", "details": "The current plan is stuck. Asking LLM to generate a new plan."})
 
         last_error = "No specific error message found."
@@ -1067,14 +1075,25 @@ class PlanExecutor:
             yield self._format_sse({"statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0)}, "token_update")
 
         try:
-            json_str = response_text
-            if response_text.strip().startswith("```json"):
-                match = re.search(r"```json\s*\n(.*?)\n\s*```", response_text, re.DOTALL)
-                if match:
-                    json_str = match.group(1).strip()
+            json_match = re.search(r'(\[.*\]|\{.*\})', response_text, re.DOTALL)
+            if not json_match:
+                raise ValueError("No valid JSON plan or action found in the recovery response.")
             
-            new_plan = json.loads(json_str)
-            if not isinstance(new_plan, list): raise ValueError("Recovery plan is not a list.")
+            json_str = json_match.group(1)
+            plan_object = json.loads(json_str)
+
+            if isinstance(plan_object, dict) and ("tool_name" in plan_object or "prompt_name" in plan_object):
+                app_logger.warning("Recovery LLM returned a direct action; wrapping it in a plan.")
+                tool_name = plan_object.get("tool_name") or plan_object.get("prompt_name")
+                new_plan = [{
+                    "phase": 1,
+                    "goal": f"Recovered plan: Execute the action for the user's request: '{self.original_user_input}'",
+                    "relevant_tools": [tool_name]
+                }]
+            elif isinstance(plan_object, list):
+                new_plan = plan_object
+            else:
+                raise ValueError("Recovered plan is not a valid list or action object.")
 
             yield self._format_sse({"step": "Recovery Plan Generated", "details": new_plan})
             

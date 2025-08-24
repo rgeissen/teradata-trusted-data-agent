@@ -401,17 +401,14 @@ async def new_session():
     if not STATE.get('llm') or not APP_CONFIG.TERADATA_MCP_CONNECTED:
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     
-    # --- MODIFICATION START: Replace manual file purge with safe logger reset ---
     try:
         llm_logger = logging.getLogger("llm_conversation")
         
-        # Find and remove the old file handler to release the file lock
         for handler in llm_logger.handlers[:]:
             if isinstance(handler, logging.FileHandler):
                 handler.close()
                 llm_logger.removeHandler(handler)
         
-        # Add a new file handler that truncates the file (mode='w')
         log_file_path = os.path.join("logs", "llm_conversations.log")
         new_handler = logging.FileHandler(log_file_path, mode='w')
         new_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
@@ -420,7 +417,6 @@ async def new_session():
         app_logger.info(f"Safely reset and purged {log_file_path} for new session.")
     except Exception as e:
         app_logger.error(f"Failed to purge llm_conversations.log: {e}", exc_info=True)
-    # --- MODIFICATION END ---
 
     data = await request.get_json()
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
@@ -560,9 +556,19 @@ async def configure_services():
 
         return jsonify({"status": "error", "message": f"Configuration failed: {error_message}"}), 500
 
+# --- MODIFICATION START: Add guardrail to prevent execution before configuration ---
 @api_bp.route("/ask_stream", methods=["POST"])
 async def ask_stream():
     """Handles the main chat conversation stream for ad-hoc user queries."""
+    # --- GUARDRAIL ---
+    if not STATE.get('mcp_tools'):
+        async def error_gen():
+            yield PlanExecutor._format_sse({
+                "error": "The agent is not fully configured. Please ensure the LLM and MCP server details are set correctly in the 'Config' tab before starting a chat."
+            }, "error")
+        return Response(error_gen(), mimetype="text/event-stream")
+    # --- END GUARDRAIL ---
+
     data = await request.get_json()
     user_input = data.get("message")
     session_id = data.get("session_id")
@@ -615,6 +621,15 @@ async def invoke_prompt_stream():
     Handles the direct invocation of a prompt from the UI. This route now contains
     the core orchestration logic to differentiate between 'reporting' and 'context' prompts.
     """
+    # --- GUARDRAIL ---
+    if not STATE.get('mcp_tools'):
+        async def error_gen():
+            yield PlanExecutor._format_sse({
+                "error": "The agent is not fully configured. Please ensure the LLM and MCP server details are set correctly in the 'Config' tab before invoking a prompt."
+            }, "error")
+        return Response(error_gen(), mimetype="text/event-stream")
+    # --- END GUARDRAIL ---
+
     data = await request.get_json()
     session_id = data.get("session_id")
     prompt_name = data.get("prompt_name")
@@ -693,3 +708,4 @@ async def invoke_prompt_stream():
             yield PlanExecutor._format_sse({"error": "An unexpected server error occurred during prompt invocation.", "details": str(e)}, "error")
 
     return Response(stream_generator(), mimetype="text/event-stream")
+# --- MODIFICATION END ---

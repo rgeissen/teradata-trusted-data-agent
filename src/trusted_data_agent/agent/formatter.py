@@ -31,18 +31,21 @@ class OutputFormatter:
                     return True
         return False
 
-    def _parse_structured_markdown(self, text: str) -> dict | None:
+    def _parse_structured_markdown(self, text: str) -> tuple[dict | None, str]:
         """
-        Parses a specific markdown format like '***Key:*** value' into a structured dictionary,
-        making it robust to formatting errors like missing newlines, commas, and key name variations.
+        Parses a specific markdown format like '***Key:*** value' from a larger
+        text block into a structured dictionary. It makes the parsing robust to
+        formatting errors and returns both the parsed data and the remaining
+        text with the structured parts removed.
         """
         data = {'columns': []}
+        # This pattern now finds key-value pairs anywhere in the text.
         pattern = re.compile(r'\*{3}(.*?):\*{3}\s*`?(.*?)`?(?=\s*(?:- )?\*{3}|$)', re.DOTALL)
         
         matches = pattern.findall(text)
         
         if not matches:
-            return None
+            return None, text
 
         header_key_synonyms = {
             'table name': 'table_name',
@@ -53,7 +56,10 @@ class OutputFormatter:
             'business purpose': 'description'
         }
         
-        for key, value in matches:
+        # Keep track of the text spans that we've parsed to remove them later.
+        spans_to_remove = []
+        for match in pattern.finditer(text):
+            key, value = match.groups()
             key_clean = key.strip().lower()
             value_clean = value.strip()
 
@@ -61,16 +67,33 @@ class OutputFormatter:
 
             if canonical_key:
                 data[canonical_key] = value_clean
-            elif 'column descriptions' in key_clean or 'columns' in key_clean:
-                col_match = re.match(r'^\*+(.*?):\*+\s*(.*)$', value_clean, re.DOTALL)
-                if col_match:
-                    data['columns'].append({'name': col_match.group(1).strip(), 'description': col_match.group(2).strip()})
+                spans_to_remove.append(match.span())
+            elif 'column descriptions' in key_clean or 'columns' in key_clean or 'key data elements' in key_clean:
+                # Handle nested column descriptions within a larger value block
+                col_pattern = re.compile(r'^\s*-\s*\*{3}(.*?):\*{3}\s*(.*)', re.MULTILINE)
+                col_matches = col_pattern.findall(value_clean)
+                if col_matches:
+                    for col_key, col_val in col_matches:
+                        data['columns'].append({'name': col_key.strip(), 'description': col_val.strip()})
+                spans_to_remove.append(match.span())
             else:
+                # This handles simple key:value for columns
                 data['columns'].append({'name': key.strip(), 'description': value_clean})
+                spans_to_remove.append(match.span())
+
+        # Rebuild the string without the parts we've parsed.
+        remaining_text = ""
+        last_end = 0
+        for start, end in sorted(spans_to_remove):
+            remaining_text += text[last_end:start]
+            last_end = end
+        remaining_text += text[last_end:]
 
         if 'table_name' in data or 'description' in data or data.get('columns'):
-            return data
-        return None
+            return data, remaining_text.strip()
+        
+        return None, text
+
 
     def _render_structured_report(self, data: dict) -> str:
         """
@@ -353,20 +376,30 @@ class OutputFormatter:
         </div>
         """
 
+    # --- MODIFICATION START: Make workflow formatter robust to mixed content ---
     def _format_workflow_report(self) -> str:
         """
-        A specialized formatter to render the results of a multi-step workflow
-        that produces structured, grouped data. This is the only path that should
-        attempt to render a special "structured report" from the LLM summary.
+        A specialized formatter to render the results of a multi-step workflow.
+        It now robustly handles LLM summaries that mix structured key-value
+        pairs with standard markdown.
         """
-        sanitized_summary = ""
-        parsed_data = self._parse_structured_markdown(self.raw_summary)
+        summary_html = ""
+        # The parser now returns both the structured data and the remaining text.
+        parsed_data, remaining_text = self._parse_structured_markdown(self.raw_summary)
+        
         if parsed_data:
-            sanitized_summary = self._render_structured_report(parsed_data)
-        else:
-            sanitized_summary = self._sanitize_summary()
+            # Render the structured part first.
+            summary_html += self._render_structured_report(parsed_data)
+        
+        if remaining_text:
+            # Render any remaining text as standard markdown.
+            summary_html += self._render_standard_markdown(remaining_text)
+        
+        # If nothing was parsed or remained, fall back to the basic sanitizer.
+        if not summary_html:
+            summary_html = self._sanitize_summary()
 
-        html = f"<div class='response-card summary-card'>{sanitized_summary}</div>"
+        html = f"<div class='response-card summary-card'>{summary_html}</div>"
         
         if isinstance(self.collected_data, dict) and self.collected_data:
             data_to_process = self.collected_data
@@ -412,6 +445,7 @@ class OutputFormatter:
             html += "</div></details>"
 
         return html
+    # --- MODIFICATION END ---
 
     def _format_standard_query_report(self) -> str:
         """

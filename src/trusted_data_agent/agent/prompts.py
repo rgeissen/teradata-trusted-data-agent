@@ -23,10 +23,9 @@ Your response MUST be a single JSON object for a tool/prompt call OR a single pl
 # Decision Process
 To select the correct capability, you MUST follow this two-step process, governed by one critical rule:
 
-**CRITICAL RULE: Prioritize Specificity and Arguments.** Your primary filter for selecting a capability is its specificity. You MUST select the most granular capability that uses the most entities from the user's request (e.g., prefer a tool that uses a `table_name` over one that only uses a `database_name` if a table is mentioned). For direct actions and single analyses, you MUST select a `tool_name`; only select a `prompt_name` for broad, multi-step tasks explicitly described by the prompt.
-
-1.  **Identify the Category:** First, analyze the user's request to determine which Tool or Prompt Category is the most relevant to their intent. The available categories are listed in the "Capabilities" section below.
-2.  **Select the Capability:** Second, from within that single most relevant category, select the best tool or prompt to fulfill the request, adhering to the Critical Rule above.
+**CRITICAL RULE: Follow this strict hierarchy for capability selection:**
+1.  **Prompt First for Defined Workflows:** If the user's request is a strong semantic match for the description of an available `prompt`, you **MUST** select that `prompt_name`. Prompts represent pre-defined, multi-step workflows and are the preferred method for common, complex tasks.
+2.  **Tools for Direct Actions:** If no prompt is a direct match, analyze the request for a direct action or analysis. Select the most specific `tool_name` that fulfills this action. Prioritize tools that use the most specific entities from the user's request (e.g., prefer a tool that uses a `table_name` over one that only uses a `database_name` if a table is mentioned).
 
 # Best Practices
 - **Context is Key:** Always use information from previous turns to fill in arguments like `db_name` or `table_name`.
@@ -65,10 +64,9 @@ Your response MUST be a single JSON object for a tool/prompt call OR a single pl
 # Decision Process
 To select the correct capability, you MUST follow this two-step process, governed by one critical rule:
 
-**CRITICAL RULE: Prioritize Specificity and Arguments.** Your primary filter for selecting a capability is its specificity. You MUST select the most granular capability that uses the most entities from the user's request (e.g., prefer a tool that uses a `table_name` over one that only uses a `database_name` if a table is mentioned). For direct actions and single analyses, you MUST select a `tool_name`; only select a `prompt_name` for broad, multi-step tasks explicitly described by the prompt.
-
-1.  **Identify the Category:** First, analyze the user's request to determine which Tool or Prompt Category is the most relevant to their intent. The available categories are listed in the "Capabilities" section below.
-2.  **Select the Capability:** Second, from within that single most relevant category, select the best tool or prompt to fulfill the request, adhering to the Critical Rule above.
+**CRITICAL RULE: Follow this strict hierarchy for capability selection:**
+1.  **Prompt First for Defined Workflows:** If the user's request is a strong semantic match for the description of an available `prompt`, you **MUST** select that `prompt_name`. Prompts represent pre-defined, multi-step workflows and are the preferred method for common, complex tasks.
+2.  **Tools for Direct Actions:** If no prompt is a direct match, analyze the request for a direct action or analysis. Select the most specific `tool_name` that fulfills this action. Prioritize tools that use the most specific entities from the user's request (e.g., prefer a tool that uses a `table_name` over one that only uses a `database_name` if a table is mentioned).
 
 # Few-Shot Examples
 Here are examples of the correct thinking process:
@@ -76,28 +74,19 @@ Here are examples of the correct thinking process:
 **Example 1:**
 - **User Query:** "what is the quality of table 'online' in database 'DEMO_Customer360_db'?"
 - **Thought Process:**
-    1.  The user's query is about a **table**.
-    2.  My critical rule is to prioritize specificity. I must choose a table-level tool.
-    3.  The `qlty_databaseQuality` prompt is for databases, not specific tables, so it's incorrect.
-    4.  The `qlty_columnSummary` tool takes a `table_name` and is the most specific, correct choice.
+    1. The user's request is about data quality, but it's not a broad request for a "description". No prompt is a perfect match.
+    2. Therefore, I move to step 2 of my critical rule: select a tool for a direct action.
+    3. The user's query is about a **table**. I must choose a table-level tool.
+    4. The `qlty_columnSummary` tool takes a `table_name` and is the most specific, correct choice.
 - **Correct Response:** `{"tool_name": "qlty_columnSummary", "arguments": {"database_name": "DEMO_Customer360_db", "table_name": "online"}}`
 
 **Example 2:**
 - **User Query:** "describe the business purpose of the 'DEMO_Customer360_db' database"
 - **Thought Process:**
-    1.  The user's query is about a **database**. It's a broad request ("describe").
-    2.  A prompt is better for broad tasks.
-    3.  The `base_databaseBusinessDesc` prompt takes a `database_name` and is the correct choice.
+    1. The user's request is a "business description". I will check for a matching prompt first.
+    2. The `base_databaseBusinessDesc` prompt is described as being for this exact purpose. It is a strong semantic match.
+    3. According to my critical rule, I **MUST** select this prompt.
 - **Correct Response:** `{"prompt_name": "base_databaseBusinessDesc", "arguments": {"database_name": "DEMO_Customer360_db"}}`
-
-**Example 3:**
-- **User Query:** "what is the system utilization?"
-- **Thought Process:**
-    1.  The user is asking for a specific metric: "system utilization". This is a direct request for data.
-    2.  My critical rule states I must prioritize a `tool_name` for direct actions.
-    3.  The `dba_systemVoice` prompt is for adopting a persona, not for fetching specific metrics. It is the incorrect choice.
-    4.  The `dba_resusageSummary` tool in the `Performance` category is designed to get system usage summary metrics. This is the correct choice.
-- **Correct Response:** `{"tool_name": "dba_resusageSummary", "arguments": {}}`
 
 # Best Practices
 - **Context is Key:** Always use information from previous turns to fill in arguments like `db_name` or `table_name`.
@@ -136,10 +125,9 @@ Your response MUST be a single JSON object for a tool/prompt call OR a single pl
 # Decision Process
 To select the correct capability, you MUST follow this two-step process, governed by one critical rule:
 
-**CRITICAL RULE: Prioritize Specificity and Arguments.** Your primary filter for selecting a capability is its specificity. You MUST select the most granular capability that uses the most entities from the user's request (e.g., prefer a tool that uses a `table_name` over one that only uses a `database_name` if a table is mentioned). For direct actions and single analyses, you MUST select a `tool_name`; only select a `prompt_name` for broad, multi-step tasks explicitly described by the prompt.
-
-1.  **Identify the Category:** First, analyze the user's request to determine which Tool or Prompt Category is the most relevant to their intent. The available categories are listed in the "Capabilities" section below.
-2.  **Select the Capability:** Second, from within that single most relevant category, select the best tool or prompt to fulfill the request, adhering to the Critical Rule above.
+**CRITICAL RULE: Follow this strict hierarchy for capability selection:**
+1.  **Prompt First for Defined Workflows:** If the user's request is a strong semantic match for the description of an available `prompt`, you **MUST** select that `prompt_name`. Prompts represent pre-defined, multi-step workflows and are the preferred method for common, complex tasks.
+2.  **Tools for Direct Actions:** If no prompt is a direct match, analyze the request for a direct action or analysis. Select the most specific `tool_name` that fulfills this action. Prioritize tools that use the most specific entities from the user's request (e.g., prefer a tool that uses a `table_name` over one that only uses a `database_name` if a table is mentioned).
 
 # Best Practices
 - **Context is Key:** Always use information from previous turns to fill in arguments like `db_name` or `table_name`.
@@ -309,6 +297,7 @@ Example format:
 ```
 """
 
+# --- MODIFIED: Reverted to the simpler planner prompt before the "reasoning" field was introduced. ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
@@ -320,7 +309,7 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
 - Workflow History (Actions taken so far): {workflow_history}
 - Known Entities (Key information discovered so far): {known_entities}
 - Current Execution Depth: {execution_depth} (Max is 5)
-
+{active_prompt_context_section}
 --- INSTRUCTIONS ---
 1.  **Analyze the Goal and Context**: Carefully read the "GOAL" and review the "CONTEXT" section to understand the user's full intent and what has already been established.
 2.  **CRITICAL RULE (Contextual Prioritization):** You **MUST** prioritize entities from the user's current `GOAL` over conflicting information in `Known Entities`. The `Known Entities` memory is only for supplementing the `GOAL` (e.g., filling in a missing `database_name`), not for overriding it.
@@ -340,10 +329,10 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
     -   (Optional) `"type": "loop"`: If a phase requires iterating over a list of items, you MUST include this key.
     -   (Optional) `"loop_over"`: If `"type"` is `"loop"`, specify the data source for the iteration (e.g., `"result_of_phase_1"`).
 5.  **Embed Parameters**: When defining the `"goal"` for a phase, you MUST scan the main "GOAL" for any hardcoded arguments or parameters (e.g., table names, database names) relevant to that phase's task. You MUST embed these found parameters directly into the `"goal"` string to make it self-contained and explicit.
-6.  **Final Synthesis and Formatting Phase**: If the main "GOAL" describes a multi-step process with a final reporting requirement, your plan **MUST** conclude with a single, final phase that handles both the synthesis of the final report AND its formatting. The `relevant_tools` for this final phase **MUST** be `["CoreLLMTask"]`.
+6.  **Final Synthesis and Formatting Phase**: If the main "GOAL" describes a multi-step process that requires a final summary or a specifically formatted report, your plan **MUST** conclude with a single, final phase. This phase **MUST** use the `CoreLLMTask` tool. Crucially, the `task_description` for this `CoreLLMTask` **MUST** be the complete and verbatim text of the main "GOAL" itself. This ensures that all original context and formatting instructions are passed to the final synthesis step.
 7.  **CRITICAL RULE (Simplicity)**: If the "GOAL" is a simple, direct request that can be answered with a single tool call or a single prompt execution, your plan **MUST** consist of only a single phase that calls the one most appropriate capability. Do not add unnecessary synthesis phases for simple data retrieval.
 8.  **CRITICAL RULE (Execution Focus)**: Every phase you define **MUST** correspond to a concrete, tool-based action or a prompt execution. You **MUST NOT** create phases for simple verification, confirmation, or acknowledgement of known information. Your plan must focus only on the execution steps required to gather new information or process existing data.
-9.  **CRITICAL RULE (Recursion Prevention)**: Review the `Current Execution Depth`. You MUST NOT create a plan that calls an `executable_prompt` if the depth is approaching the maximum of 5, as this may cause an infinite loop.
+9.  **CRITICAL RULE (Recursion Prevention)**: Review the `Current Execution Depth`. You MUST NOT create a plan that calls an `executable_prompt` if the depth is approaching the maximum of 5, as this may cause an infinite loop. Also, if the "CONTEXT" section indicates you are already inside an `Active Prompt`, you **MUST NOT** create a plan that calls that same prompt again via `executable_prompt`.
 10. **CRITICAL RULE (Efficiency)**: If a phase's `"goal"` already contains all the instructions for the final synthesis and formatting of the report (as specified in the main "GOAL"), you **MUST** make this the last phase of the plan. Do not add a separate, redundant formatting-only phase after it.
 11. **CRITICAL RULE (Plan Flattening)**: Your plan **MUST ALWAYS** be a flat, sequential list of phases. You **MUST NOT** create nested loops or structures. To handle requests that imply nested logic (e.g., "for each X, do Y for each Z"), you **MUST** decompose the task into multiple, sequential looping phases. The first phase gathers and flattens all the items from the nested level, and subsequent phases iterate over that single flattened list.
 
