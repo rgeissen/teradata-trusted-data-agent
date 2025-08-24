@@ -388,7 +388,7 @@ async def get_session_history(session_id):
     session_data = session_manager.get_session(session_id)
     if session_data:
         response_data = {
-            "history": session_data.get("generic_history", []),
+            "history": session_data.get("session_history", []),
             "input_tokens": session_data.get("input_tokens", 0),
             "output_tokens": session_data.get("output_tokens", 0)
         }

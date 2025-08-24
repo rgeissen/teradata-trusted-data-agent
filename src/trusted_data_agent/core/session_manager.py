@@ -26,13 +26,13 @@ def create_session(provider: str, llm_instance: any, charting_intensity: str) ->
     _SESSIONS[session_id] = {
         "system_prompt_template": system_prompt_template,
         "charting_intensity": charting_intensity,
-        "generic_history": [],
+        "session_history": [],
         "chat_object": chat_object,
         "name": "New Chat",
         "created_at": datetime.now().isoformat(),
         "input_tokens": 0,
         "output_tokens": 0,
-        "known_entities": {} # --- MODIFICATION: Initialize persistent context memory
+        "session_known_entities": {}
     }
     return session_id
 
@@ -49,7 +49,7 @@ def get_all_sessions() -> list[dict]:
 
 def add_to_history(session_id: str, role: str, content: str):
     if session_id in _SESSIONS:
-        _SESSIONS[session_id]['generic_history'].append({'role': role, 'content': content})
+        _SESSIONS[session_id]['session_history'].append({'role': role, 'content': content})
 
 def update_session_name(session_id: str, new_name: str):
     if session_id in _SESSIONS:
@@ -57,7 +57,7 @@ def update_session_name(session_id: str, new_name: str):
 
 def get_session_history(session_id: str) -> list | None:
     if session_id in _SESSIONS:
-        return _SESSIONS[session_id]['generic_history']
+        return _SESSIONS[session_id]['session_history']
     return None
 
 def update_token_count(session_id: str, input_tokens: int, output_tokens: int):
@@ -66,9 +66,7 @@ def update_token_count(session_id: str, input_tokens: int, output_tokens: int):
         _SESSIONS[session_id]['input_tokens'] += input_tokens
         _SESSIONS[session_id]['output_tokens'] += output_tokens
 
-# --- MODIFICATION START: Add function to update known entities ---
-def update_session_known_entities(session_id: str, entities: dict):
+def update_session_known_session_entities(session_id: str, entities: dict):
     """Saves the discovered entities map to the session."""
     if session_id in _SESSIONS:
-        _SESSIONS[session_id]['known_entities'].update(entities)
-# --- MODIFICATION END ---
+        _SESSIONS[session_id]['session_known_entities'].update(entities)

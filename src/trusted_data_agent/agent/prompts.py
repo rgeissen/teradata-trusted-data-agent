@@ -277,7 +277,7 @@ Your task is to analyze the provided information about a failed tool call and ge
 - Failed Command (this is what was attempted): {failed_command}
 - Error Message (this is why it failed): {error_message}
 - Relevant Context from History (use this to fill in missing values): {history_context}
-- Full Conversation History (for more complex cases): {full_history}
+- Full Conversation History (for more complex cases): {session_history}
 
 --- INSTRUCTIONS ---
 1.  **Analyze the Error**: Read the "Error Message" to understand why the tool failed. Common reasons include missing arguments (like `database_name`), incorrect values, or formatting issues.
@@ -306,8 +306,8 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
 
 --- CONTEXT ---
 - User's Original Question (for reference): {original_user_input}
-- Workflow History (Actions taken so far): {workflow_history}
-- Known Entities (Key information discovered so far): {known_entities}
+- Workflow History (Actions taken so far): {turn_action_history}
+- Known Entities (Key information discovered so far): {session_known_entities}
 - Current Execution Depth: {execution_depth} (Max is 5)
 {active_prompt_context_section}
 --- INSTRUCTIONS ---
@@ -377,7 +377,7 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
 - Previous Attempt (if any): {last_attempt_info}
 
 --- WORKFLOW STATE & HISTORY ---
-- Actions Taken So Far: {workflow_history}
+- Actions Taken So Far: {turn_action_history}
 - Data Collected So Far: {all_collected_data}
 {loop_context_section}
 {context_enrichment_section}

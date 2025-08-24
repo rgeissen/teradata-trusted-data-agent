@@ -70,7 +70,7 @@ class PlanExecutor:
         
         self.structured_collected_data = {}
         self.workflow_state = {} 
-        self.action_history = []
+        self.turn_action_history = []
         self.meta_plan = None
         self.current_phase_index = 0
         self.last_tool_output = None
@@ -93,10 +93,10 @@ class PlanExecutor:
         self.llm_debug_history = []
         self.max_steps = 40
         
-        self.known_entities = {}
+        self.session_known_entities = {}
         session_data = session_manager.get_session(self.session_id)
         if session_data:
-            self.known_entities = session_data.get("known_entities", {}).copy()
+            self.session_known_entities = session_data.get("session_known_entities", {}).copy()
 
         self.execution_depth = execution_depth
         self.MAX_EXECUTION_DEPTH = 5
@@ -165,29 +165,17 @@ class PlanExecutor:
             self.state = self.AgentState.ERROR
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
         finally:
-            _, final_known_entities_str = self._create_optimized_context()
-            final_known_entities = json.loads(final_known_entities_str)
-            session_manager.update_session_known_entities(self.session_id, final_known_entities)
-            app_logger.debug(f"Saved final known entities to session {self.session_id}: {final_known_entities_str}")
+            final_known_entities = self._update_session_known_entities()
+            session_manager.update_session_known_session_entities(self.session_id, final_known_entities)
+            app_logger.debug(f"Saved final known entities to session {self.session_id}: {json.dumps(final_known_entities)}")
 
-    # --- MODIFICATION START: Correct context logic to preserve session memory ---
-    def _create_optimized_context(self) -> tuple[str, str]:
+    def _create_turn_summary(self) -> str:
         """
-        Creates a token-efficient, high-signal context summary for the planner.
-        It starts with the session's known entities and updates them with new
-        information discovered during the current turn.
+        Creates a token-efficient, high-signal summary of the current turn's
+        actions for the planner.
         """
         optimized_history = []
-        # CRITICAL: Start with the session's memory to maintain context between turns.
-        current_entities = self.known_entities.copy()
-        
-        all_known_tool_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
-        
-        normalized_to_canonical_map = {
-            arg.lower().replace('_', ''): arg for arg in all_known_tool_args
-        }
-
-        for entry in self.action_history:
+        for entry in self.turn_action_history:
             action = entry.get("action", {})
             result = entry.get("result", {})
             
@@ -206,8 +194,25 @@ class PlanExecutor:
                 "action": action,
                 "result_summary": result_summary
             })
+        return json.dumps(optimized_history, indent=2)
 
-            if result_summary.get('status') == 'success':
+    def _update_session_known_entities(self) -> dict:
+        """
+        Processes the current turn's history to update the session's long-term
+        memory of known entities.
+        """
+        current_entities = self.session_known_entities.copy()
+        all_known_tool_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
+        
+        normalized_to_canonical_map = {
+            arg.lower().replace('_', ''): arg for arg in all_known_tool_args
+        }
+
+        for entry in self.turn_action_history:
+            action = entry.get("action", {})
+            result = entry.get("result", {})
+
+            if result.get('status') == 'success':
                 args = action.get("arguments", {})
                 for arg_name, arg_value in args.items():
                     if arg_name in all_known_tool_args and arg_value:
@@ -231,16 +236,11 @@ class PlanExecutor:
                                 if isinstance(row_value, (str, int, float)):
                                     current_entities[canonical_arg_name] = row_value
         
-        # The final set of entities for this turn is returned to the planner.
-        # This same set will be saved back to the session at the end of the run.
-        return json.dumps(optimized_history, indent=2), json.dumps(current_entities, indent=2)
-    # --- MODIFICATION END ---
+        return current_entities
 
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
-        # --- MODIFICATION START: Harden against prompt loading failures ---
         prompt_obj = None
-        # --- MODIFICATION END ---
         if self.active_prompt_name:
             yield self._format_sse({"step": "Loading Workflow Prompt", "details": f"Loading '{self.active_prompt_name}'"})
             mcp_client = self.dependencies['STATE'].get('mcp_client')
@@ -262,7 +262,6 @@ class PlanExecutor:
                     )
             except Exception as e:
                 app_logger.error(f"Failed to load MCP prompt '{self.active_prompt_name}': {e}", exc_info=True)
-                # The prompt_obj will remain None, and the check below will handle it.
 
             if not prompt_obj: raise ValueError(f"Prompt '{self.active_prompt_name}' could not be loaded.")
             
@@ -279,7 +278,8 @@ class PlanExecutor:
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
-        optimized_history_str, known_entities_str = self._create_optimized_context()
+        turn_summary_str = self._create_turn_summary()
+        session_entities_str = json.dumps(self.session_known_entities, indent=2)
 
         active_prompt_context_section = ""
         if self.active_prompt_name:
@@ -288,8 +288,8 @@ class PlanExecutor:
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             original_user_input=self.original_user_input,
-            workflow_history=optimized_history_str,
-            known_entities=known_entities_str,
+            turn_action_history=turn_summary_str,
+            session_known_entities=session_entities_str,
             execution_depth=self.execution_depth,
             active_prompt_context_section=active_prompt_context_section
         )
@@ -369,7 +369,7 @@ class PlanExecutor:
             
             self.structured_collected_data.update(sub_executor.structured_collected_data)
             self.workflow_state.update(sub_executor.workflow_state)
-            self.action_history.extend(sub_executor.action_history)
+            self.turn_action_history.extend(sub_executor.turn_action_history)
             
             self.meta_plan.pop(0)
             for phase in self.meta_plan:
@@ -467,7 +467,7 @@ class PlanExecutor:
             })
             
             context_args = {}
-            for history_item in self.action_history:
+            for history_item in self.turn_action_history:
                 action = history_item.get("action", {})
                 if "arguments" in action:
                     context_args.update(action.get("arguments", {}))
@@ -495,7 +495,7 @@ class PlanExecutor:
                 async for event in self._execute_tool(command, phase, is_fast_path=True):
                     yield event
                 
-                self.action_history.append({"action": command, "result": self.last_tool_output})
+                self.turn_action_history.append({"action": command, "result": self.last_tool_output})
                 all_loop_results.append(self.last_tool_output)
 
             yield self._format_sse({"target": "db", "state": "idle"}, "status_indicator_update")
@@ -690,7 +690,7 @@ class PlanExecutor:
                 break 
         
         if not is_fast_path:
-            self.action_history.append({"action": action, "result": self.last_tool_output})
+            self.turn_action_history.append({"action": action, "result": self.last_tool_output})
             phase_num = phase.get("phase", self.current_phase_index + 1)
             phase_result_key = f"result_of_phase_{phase_num}"
             self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
@@ -759,7 +759,7 @@ class PlanExecutor:
             current_phase_goal=current_phase_goal,
             permitted_tools_with_details=permitted_tools_with_details,
             last_attempt_info=self.last_failed_action_info,
-            workflow_history=json.dumps(self.action_history, indent=2),
+            turn_action_history=json.dumps(self.turn_action_history, indent=2),
             all_collected_data=json.dumps(self.workflow_state, indent=2),
             loop_context_section=loop_context_section,
             context_enrichment_section=context_enrichment_section
@@ -874,8 +874,8 @@ class PlanExecutor:
         """
         final_summary_text = ""
         
-        last_action = self.action_history[-1].get("action", {}) if self.action_history else {}
-        last_result = self.action_history[-1].get("result", {}) if self.action_history else {}
+        last_action = self.turn_action_history[-1].get("action", {}) if self.turn_action_history else {}
+        last_result = self.turn_action_history[-1].get("result", {}) if self.turn_action_history else {}
 
         if (last_action.get("tool_name") == "CoreLLMTask" and 
             last_result.get("status") == "success"):
@@ -963,7 +963,7 @@ class PlanExecutor:
         if not session_data:
             return enriched_args, [], False
 
-        for entry in reversed(self.action_history):
+        for entry in reversed(self.turn_action_history):
             if not args_to_find: break
             
             action_args = entry.get("action", {}).get("arguments", {})
@@ -1045,7 +1045,7 @@ class PlanExecutor:
 
         last_error = "No specific error message found."
         failed_tool_name = "N/A (Phase Failed)"
-        for action in reversed(self.action_history):
+        for action in reversed(self.turn_action_history):
             result = action.get("result", {})
             if isinstance(result, dict) and result.get("status") == "error":
                 last_error = result.get("data", result.get("error", "Unknown error"))
@@ -1099,7 +1099,7 @@ class PlanExecutor:
             
             self.meta_plan = new_plan
             self.current_phase_index = 0
-            self.action_history.append({"action": "RECOVERY_REPLAN", "result": "success"})
+            self.turn_action_history.append({"action": "RECOVERY_REPLAN", "result": "success"})
 
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"LLM-based recovery failed. The LLM did not return a valid new plan. Response: {response_text}. Error: {e}")
@@ -1135,14 +1135,14 @@ class PlanExecutor:
             events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
 
         session_data = session_manager.get_session(self.session_id)
-        full_history = session_data.get("generic_history", []) if session_data else []
+        session_history = session_data.get("session_history", []) if session_data else []
 
         correction_prompt = TACTICAL_SELF_CORRECTION_PROMPT.format(
             tool_definition=json.dumps(vars(tool_def), default=str),
             failed_command=json.dumps(failed_action),
             error_message=json.dumps(error_result.get('data', 'No error data.')),
             history_context=json.dumps(history_context),
-            full_history=json.dumps(full_history)
+            session_history=json.dumps(session_history)
         )
         
         events.append(self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update"))
