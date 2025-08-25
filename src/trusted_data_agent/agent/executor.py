@@ -116,6 +116,9 @@ class PlanExecutor:
         self.disabled_history = disabled_history
         self.previous_turn_data = previous_turn_data or []
         self.is_delegation_only_plan = False
+        # --- MODIFICATION START: Add flag for synthesis from history mode ---
+        self.is_synthesis_from_history = False
+        # --- MODIFICATION END ---
 
 
     @staticmethod
@@ -164,6 +167,22 @@ class PlanExecutor:
                     len(self.meta_plan) == 1 and
                     'executable_prompt' in self.meta_plan[0]
                 )
+
+            # --- MODIFICATION START: Handle "Synthesis from History" Edge Case ---
+            self.is_synthesis_from_history = (
+                self.meta_plan and
+                len(self.meta_plan) == 1 and
+                self.meta_plan[0].get('relevant_tools') == ["CoreLLMTask"]
+            )
+
+            if self.is_synthesis_from_history:
+                app_logger.info("Detected a 'synthesis from history' plan. CoreLLMTask will run in full_context mode.")
+                yield self._format_sse({
+                    "step": "Plan Optimization",
+                    "type": "plan_optimization",
+                    "details": "Agent determined the answer exists in history. Bypassing data collection and attempting direct synthesis."
+                })
+            # --- MODIFICATION END ---
             
             try:
                 if self.state == self.AgentState.EXECUTING:
@@ -793,12 +812,24 @@ class PlanExecutor:
         tool_name = action.get("tool_name")
         max_retries = 3
         
+        # --- MODIFICATION START: Inject context for full_context mode ---
+        if tool_name == "CoreLLMTask" and self.is_synthesis_from_history:
+            app_logger.info("Preparing CoreLLMTask for 'full_context' execution.")
+            session_data = session_manager.get_session(self.session_id)
+            session_history = session_data.get("session_history", []) if session_data else []
+            
+            action.setdefault("arguments", {})["mode"] = "full_context"
+            action.setdefault("arguments", {})["session_history"] = session_history
+            # Pass the original user question to the task for grounding
+            action["arguments"]["user_question"] = self.original_user_input
+        # --- MODIFICATION END ---
+        
         for attempt in range(max_retries):
             if 'notification' in action:
                 yield self._format_sse({"step": "System Notification", "details": action['notification'], "type": "workaround"})
                 del action['notification']
 
-            if tool_name == "CoreLLMTask":
+            if tool_name == "CoreLLMTask" and not self.is_synthesis_from_history:
                 action.setdefault("arguments", {})["data"] = copy.deepcopy(self.workflow_state)
             
             if not is_fast_path:

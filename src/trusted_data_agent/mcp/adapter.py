@@ -491,85 +491,123 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-async def _invoke_core_llm_task(STATE: dict, command: dict) -> tuple[dict, int, int]:
+# --- MODIFICATION START: Refactor CoreLLMTask to support two modes ---
+async def _invoke_core_llm_task(STATE: dict, command: dict, session_history: list = None, mode: str = "standard") -> tuple[dict, int, int]:
     """
     Executes a task handled by the LLM itself and returns the result along with token counts.
+    Supports two modes:
+    - 'standard': Synthesizes an answer from structured data provided in the 'source_data' argument.
+    - 'full_context': Synthesizes an answer by analyzing the full conversational history.
     """
     args = command.get("arguments", {})
-    task_description = args.get("task_description")
-    source_data_keys = args.get("source_data", [])
-    formatting_instructions = args.get("formatting_instructions")
-    user_question = args.get("user_question")
-    
-    full_workflow_state = args.get("data", {}) 
-    
-    app_logger.info(f"Executing client-side LLM task: {task_description}")
+    user_question = args.get("user_question", "No user question provided.")
+    llm_instance = STATE.get('llm')
+    final_prompt = ""
+    reason = ""
 
-    focused_data_for_task = {}
-    if isinstance(full_workflow_state, dict):
-        for key in source_data_keys:
-            if key in full_workflow_state:
-                focused_data_for_task[key] = full_workflow_state[key]
-    
-    if not focused_data_for_task:
-        app_logger.warning(f"CoreLLMTask was called for '{task_description}' but no source data was found for keys: {source_data_keys}. Passing all data as a fallback.")
-        focused_data_for_task = full_workflow_state
+    if mode == 'full_context':
+        app_logger.info(f"Executing client-side LLM task in 'full_context' mode.")
+        reason = f"Synthesizing answer for '{user_question}' from conversation history."
 
-    known_context = {}
-    if isinstance(full_workflow_state, dict):
-        for phase_results in full_workflow_state.values():
-            if isinstance(phase_results, list):
-                for result in phase_results:
-                    if isinstance(result, dict) and "metadata" in result:
-                        metadata = result.get("metadata", {})
-                        if "database" in metadata and "database_name" not in known_context:
-                            known_context["database_name"] = metadata["database"]
-                        if "table" in metadata and "table_name" not in known_context:
-                            known_context["table_name"] = metadata["table"]
+        history_str_parts = []
+        if session_history:
+            for entry in session_history:
+                role = entry.get('role', 'unknown')
+                content = entry.get('content', '')
+                # We add a separator to prevent the LLM from getting confused by the raw HTML content
+                history_str_parts.append(f"--- Role: {role.capitalize()} ---\n{content}\n--- End Entry ---")
+        history_str = "\n".join(history_str_parts)
 
-    known_context_str = "\n".join([f"- {key}: {value}" for key, value in known_context.items()]) if known_context else "None"
-
-    final_prompt = "You are a highly capable text processing and synthesis assistant.\n\n"
-
-    if user_question:
-        final_prompt += (
-            "--- PRIMARY GOAL ---\n"
-            f"Your most important task is to directly answer the user's original question: '{user_question}'.\n"
-            "You MUST begin your response with the direct answer. Do not repeat the user's question or use conversational intros like 'Here is...'. "
-            "After providing the direct answer, you may then proceed with a more general summary or analysis of the data.\n\n"
+        final_prompt = (
+            "You are an expert data analyst and synthesizer. Your task is to answer the user's question by carefully analyzing the provided conversation history.\n"
+            "The history contains the full dialogue, including the user's requests and the assistant's detailed, formatted HTML responses from previous turns.\n"
+            "The answer to the current question is likely already present in this history.\n\n"
+            "--- CURRENT USER QUESTION ---\n"
+            f"{user_question}\n\n"
+            "--- FULL CONVERSATION HISTORY ---\n"
+            f"{history_str}\n\n"
+            "--- INSTRUCTIONS ---\n"
+            "1. Read the 'CURRENT USER QUESTION' to understand the user's goal.\n"
+            "2. Thoroughly review the 'FULL CONVERSATION HISTORY' to find the previous turn where this question was successfully answered.\n"
+            "3. Extract the relevant information from the assistant's previous HTML response.\n"
+            "4. Synthesize a new, clean final answer that directly addresses the current user question.\n"
+            "5. Your response MUST follow the same semantic content and markdown formatting as the original answer found in the history. Do NOT add conversational intros like \"I found this in the history...\". Simply provide the answer as if you were generating it for the first time."
         )
 
-    final_prompt += (
-        "--- TASK ---\n"
-        f"{task_description}\n\n"
-        "--- RELEVANT DATA (Selected from Previous Phases) ---\n"
-        f"{json.dumps(focused_data_for_task, indent=2)}\n\n"
-        "--- KNOWN CONTEXT ---\n"
-        "The following key information has already been established in previous steps. You MUST use this information to populate header fields like 'Table Name' or 'Database Name'.\n"
-        f"{known_context_str}\n\n"
-        "--- SEMANTIC GUIDANCE ---\n"
-        "When the 'TASK' asks for a 'description', 'analysis', or 'summary', you MUST synthesize new content that reflects the *semantic intent* of the request.\n"
-        "For example:\n"
-        "- If the 'TASK' asks for a 'business description of a table', you MUST explain its purpose from an organizational, functional, or analytical viewpoint, and the business significance of its columns. Do NOT simply reiterate technical DDL (Data Definition Language) information, even if it is present in the `RELEVANT DATA`.\n"
-        "- If the 'TASK' asks for a 'summary of errors', you MUST provide a concise overview of the issues, not just a list of error codes.\n"
-        "Always prioritize generating content that matches the *meaning* and *purpose* of the 'TASK', interpreting the raw data to produce the desired semantic output.\n\n"
-        "--- CRITICAL RULES ---\n"
-        "1. **Separate Data from Description:** If the 'TASK' requires you to output header fields (like `***Table Name:***` or `***Database Name:***`) AND a main description, you MUST treat these as separate steps. First, populate the header fields using the 'KNOWN CONTEXT'. Then, write the main description. Do NOT merge context data (like the database name) into a single header field.\n"
-        "2. **Content and Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way. You MUST generate content that genuinely fulfills the semantic goal of the 'TASK'.\n"
-        "3. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
-        "4. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
-        "5. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
-    )
+    else: # Standard mode
+        task_description = args.get("task_description")
+        source_data_keys = args.get("source_data", [])
+        formatting_instructions = args.get("formatting_instructions")
+        full_workflow_state = args.get("data", {})
+        
+        app_logger.info(f"Executing client-side LLM task in 'standard' mode: {task_description}")
+        reason = f"Executing CoreLLMTask: {task_description}"
 
-    if formatting_instructions:
-        final_prompt += f"--- ADDITIONAL FORMATTING INSTRUCTIONS ---\n{formatting_instructions}\n\n"
+        focused_data_for_task = {}
+        if isinstance(full_workflow_state, dict):
+            for key in source_data_keys:
+                if key in full_workflow_state:
+                    focused_data_for_task[key] = full_workflow_state[key]
+        
+        if not focused_data_for_task and source_data_keys:
+            app_logger.warning(f"CoreLLMTask was called for '{task_description}' but no source data was found for keys: {source_data_keys}. Passing all data as a fallback.")
+            focused_data_for_task = full_workflow_state
 
-    final_prompt += "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
+        known_context = {}
+        if isinstance(full_workflow_state, dict):
+            for phase_results in full_workflow_state.values():
+                if isinstance(phase_results, list):
+                    for result in phase_results:
+                        if isinstance(result, dict) and "metadata" in result:
+                            metadata = result.get("metadata", {})
+                            if "database" in metadata and "database_name" not in known_context:
+                                known_context["database_name"] = metadata["database"]
+                            if "table" in metadata and "table_name" not in known_context:
+                                known_context["table_name"] = metadata["table"]
+
+        known_context_str = "\n".join([f"- {key}: {value}" for key, value in known_context.items()]) if known_context else "None"
+
+        final_prompt = "You are a highly capable text processing and synthesis assistant.\n\n"
+
+        if user_question:
+            final_prompt += (
+                "--- PRIMARY GOAL ---\n"
+                f"Your most important task is to directly answer the user's original question: '{user_question}'.\n"
+                "You MUST begin your response with the direct answer. Do not repeat the user's question or use conversational intros like 'Here is...'. "
+                "After providing the direct answer, you may then proceed with a more general summary or analysis of the data.\n\n"
+            )
+
+        final_prompt += (
+            "--- TASK ---\n"
+            f"{task_description}\n\n"
+            "--- RELEVANT DATA (Selected from Previous Phases) ---\n"
+            f"{json.dumps(focused_data_for_task, indent=2)}\n\n"
+            "--- KNOWN CONTEXT ---\n"
+            "The following key information has already been established in previous steps. You MUST use this information to populate header fields like 'Table Name' or 'Database Name'.\n"
+            f"{known_context_str}\n\n"
+            "--- SEMANTIC GUIDANCE ---\n"
+            "When the 'TASK' asks for a 'description', 'analysis', or 'summary', you MUST synthesize new content that reflects the *semantic intent* of the request.\n"
+            "For example:\n"
+            "- If the 'TASK' asks for a 'business description of a table', you MUST explain its purpose from an organizational, functional, or analytical viewpoint, and the business significance of its columns. Do NOT simply reiterate technical DDL (Data Definition Language) information, even if it is present in the `RELEVANT DATA`.\n"
+            "- If the 'TASK' asks for a 'summary of errors', you MUST provide a concise overview of the issues, not just a list of error codes.\n"
+            "Always prioritize generating content that matches the *meaning* and *purpose* of the 'TASK', interpreting the raw data to produce the desired semantic output.\n\n"
+            "--- CRITICAL RULES ---\n"
+            "1. **Separate Data from Description:** If the 'TASK' requires you to output header fields (like `***Table Name:***` or `***Database Name:***`) AND a main description, you MUST treat these as separate steps. First, populate the header fields using the 'KNOWN CONTEXT'. Then, write the main description. Do NOT merge context data (like the database name) into a single header field.\n"
+            "2. **Content and Formatting Precision:** You MUST adhere to any and all formatting instructions contained in the 'TASK' description with absolute precision. Do not deviate, simplify, or change the requested format in any way. You MUST generate content that genuinely fulfills the semantic goal of the 'TASK'.\n"
+            "3. **Key Name Adherence:** If the 'TASK' description provides an example format, you MUST use the exact key names (e.g., `***Description:***`, `***Table Name:***`) shown in the example. Do not invent new key names or use synonyms like 'Table Description'.\n"
+            "4. **Column Placeholder Replacement:** If the 'TASK' involves describing table columns and the formatting guidelines include a placeholder like `***ColumnX:***` or `***[Column Name]:***`, you MUST replace that placeholder with the actual name of the column you are describing (e.g., `***CUST_ID:***`, `***FIRSTNAME:***`). Do not use generic, numbered placeholders like 'Column1', 'Column2', etc.\n"
+            "5. **Layout and Line Breaks:** Each key-value pair or list item specified in the formatting guidelines MUST be on its own separate line. Do not combine multiple items onto a single line.\n\n"
+        )
+
+        if formatting_instructions:
+            final_prompt += f"--- ADDITIONAL FORMATTING INSTRUCTIONS ---\n{formatting_instructions}\n\n"
+
+        final_prompt += "Your response should be the direct result of the task. Do not add any conversational text or extra formatting unless explicitly requested by the task description."
 
     response_text, input_tokens, output_tokens = await llm_handler.call_llm_api(
-        llm_instance=STATE.get('llm'),
+        llm_instance=llm_instance,
         prompt=final_prompt,
-        reason=f"Executing CoreLLMTask: {task_description}",
+        reason=reason,
         system_prompt_override="You are a text processing and synthesis assistant.",
         raise_on_error=True
     )
@@ -590,6 +628,7 @@ async def _invoke_core_llm_task(STATE: dict, command: dict) -> tuple[dict, int, 
         result = {"status": "success", "results": [{"response": response_text}]}
 
     return result, input_tokens, output_tokens
+# --- MODIFICATION END ---
 
 async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
     """
@@ -699,8 +738,14 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> tuple[any, int, int]:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
     
+    # --- MODIFICATION START: Intercept CoreLLMTask to pass mode and history ---
     if tool_name == "CoreLLMTask":
-        return await _invoke_core_llm_task(STATE, command)
+        args = command.get("arguments", {})
+        # Use .pop() to remove our custom parameters so they don't get passed into the LLM prompt
+        mode = args.pop("mode", "standard")
+        session_history = args.pop("session_history", None)
+        return await _invoke_core_llm_task(STATE, command, session_history=session_history, mode=mode)
+    # --- MODIFICATION END ---
 
     if tool_name == "util_getCurrentDate":
         app_logger.info("Executing client-side tool: util_getCurrentDate")
