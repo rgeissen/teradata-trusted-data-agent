@@ -1057,23 +1057,63 @@ class PlanExecutor:
 
     async def _generate_final_summary(self):
         """
-        Generates the final summary. It prioritizes the result of a planner-defined
-        CoreLLMTask and falls back to a standard summary for ad-hoc queries.
+        Generates the final summary. It intelligently handles different plan completion
+        scenarios: dedicated summary tasks, looping summary tasks, and standard
+        ad-hoc queries.
         """
         final_summary_text = ""
         
-        last_action = self.turn_action_history[-1].get("action", {}) if self.turn_action_history else {}
-        last_result = self.turn_action_history[-1].get("result", {}) if self.turn_action_history else {}
+        # Check if a meta-plan was used and if any actions were taken.
+        if self.meta_plan and self.turn_action_history:
+            last_phase = self.meta_plan[-1]
+            last_phase_num = last_phase.get("phase", len(self.meta_plan))
+            phase_result_key = f"result_of_phase_{last_phase_num}"
 
-        if (last_action.get("tool_name") == "CoreLLMTask" and 
-            last_result.get("status") == "success"):
+            # Scenario 1: The last phase was a loop that might contain summarization steps.
+            if last_phase.get("type") == "loop" and phase_result_key in self.workflow_state:
+                app_logger.info(f"Final phase was a loop. Consolidating results from '{phase_result_key}'.")
+                
+                consolidated_texts = []
+                phase_results = self.workflow_state.get(phase_result_key, [])
+                
+                # Flatten the results list in case orchestrators returned a list of lists.
+                items_to_check = []
+                if isinstance(phase_results, list):
+                    for item in phase_results:
+                        if isinstance(item, list):
+                            items_to_check.extend(item)
+                        else:
+                            items_to_check.append(item)
+                
+                for result in items_to_check:
+                    # Check for successful CoreLLMTask results which contain generated text.
+                    if (isinstance(result, dict) and
+                        result.get("status") == "success" and
+                        "CoreLLMTask" in result.get("metadata", {}).get("tool_name", "") and
+                        isinstance(result.get("results"), list) and result["results"]):
+                        
+                        summary_data = result["results"][0]
+                        if isinstance(summary_data, dict) and "response" in summary_data:
+                            consolidated_texts.append(summary_data["response"])
+
+                if consolidated_texts:
+                    # Join with a markdown horizontal rule for clear separation in the UI.
+                    final_summary_text = "\n\n<hr class='border-gray-600 my-4'>\n\n".join(consolidated_texts)
             
-            app_logger.info("Planner-defined summary found. Using its result directly.")
-            summary_data = last_result.get("results", [{}])[0]
-            final_summary_text = summary_data.get("response", "Planner summary task failed to produce text.")
-        
-        else:
-            app_logger.info("No planner-defined summary. Generating standard ad-hoc summary.")
+            # Scenario 2: The last phase was a non-loop. Check if the very last action was a summary task.
+            elif not final_summary_text:
+                last_action = self.turn_action_history[-1].get("action", {})
+                last_result = self.turn_action_history[-1].get("result", {})
+                if (last_action.get("tool_name") == "CoreLLMTask" and 
+                    last_result.get("status") == "success"):
+                    
+                    app_logger.info("Planner-defined single summary task found. Using its result directly.")
+                    summary_data = last_result.get("results", [{}])[0]
+                    final_summary_text = summary_data.get("response", "Planner summary task failed to produce text.")
+
+        # Fallback Scenario: No planner-defined summary was found (or no plan was used), so generate one now.
+        if not final_summary_text:
+            app_logger.info("No planner-defined summary found. Generating standard ad-hoc summary.")
             standard_task_description = (
                 "You are an expert data analyst. Your task is to create a final report for the user based on the provided data."
             )
