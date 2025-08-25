@@ -23,7 +23,6 @@ from trusted_data_agent.agent import orchestrators
 
 app_logger = logging.getLogger("quart.app")
 
-# --- MODIFICATION START: Add definitive error handling ---
 DEFINITIVE_TOOL_ERRORS = {
     "Object .* does not exist": "The requested database object (e.g., table or view) does not exist. Please check the name for typos.",
     "Invalid query": "The generated query was invalid and could not be run against the database.",
@@ -35,7 +34,6 @@ class DefinitiveToolError(Exception):
     def __init__(self, message, friendly_message):
         super().__init__(message)
         self.friendly_message = friendly_message
-# --- MODIFICATION END ---
 
 def get_prompt_text_content(prompt_obj):
     """
@@ -165,7 +163,6 @@ class PlanExecutor:
                     'executable_prompt' in self.meta_plan[0]
                 )
             
-            # --- MODIFICATION START: Add try/except for definitive errors ---
             try:
                 if self.state == self.AgentState.EXECUTING:
                     async for event in self._run_plan(): yield event
@@ -174,7 +171,6 @@ class PlanExecutor:
                 yield self._format_sse({"step": "Unrecoverable Error", "details": e.friendly_message, "type": "error"}, "tool_result")
                 final_answer_override = f"I could not complete the request. Reason: {e.friendly_message}"
                 self.state = self.AgentState.SUMMARIZING
-            # --- MODIFICATION END ---
 
             if self.state == self.AgentState.SUMMARIZING:
                 if final_answer_override:
@@ -230,17 +226,11 @@ class PlanExecutor:
             })
         return json.dumps(optimized_history, indent=2)
 
-    def _create_turn_summary(self) -> str:
-        """
-        Creates a token-efficient, high-signal summary of the current turn's
-        actions for the planner.
-        """
-        return self._create_summary_from_history(self.turn_action_history)
-
     def _update_session_known_entities(self) -> dict:
         """
         Processes the current turn's history to update the session's long-term
-        memory of known entities.
+        memory of known entities. It now uses lists to store multiple discovered
+        values for an entity.
         """
         current_entities = self.session_known_entities.copy()
         all_known_tool_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
@@ -248,6 +238,17 @@ class PlanExecutor:
         normalized_to_canonical_map = {
             arg.lower().replace('_', ''): arg for arg in all_known_tool_args
         }
+
+        def _add_entity(entities_dict, key, value):
+            """Helper to add a value to an entity list, avoiding duplicates."""
+            if key not in entities_dict:
+                entities_dict[key] = []
+            
+            if not isinstance(entities_dict[key], list):
+                entities_dict[key] = [entities_dict[key]]
+
+            if value not in entities_dict[key]:
+                entities_dict[key].append(value)
 
         for entry in self.turn_action_history:
             action = entry.get("action", {})
@@ -257,7 +258,7 @@ class PlanExecutor:
                 args = action.get("arguments", {})
                 for arg_name, arg_value in args.items():
                     if arg_name in all_known_tool_args and arg_value:
-                        current_entities[arg_name] = arg_value
+                        _add_entity(current_entities, arg_name, arg_value)
 
                 result_data = entry.get("result", {})
                 if 'results' in result_data and isinstance(result_data.get('results'), list):
@@ -275,9 +276,23 @@ class PlanExecutor:
                                 canonical_arg_name = normalized_to_canonical_map[normalized_row_key]
                                 
                                 if isinstance(row_value, (str, int, float)):
-                                    current_entities[canonical_arg_name] = row_value
+                                    _add_entity(current_entities, canonical_arg_name, row_value)
         
         return current_entities
+
+    def _get_latest_entities(self) -> dict:
+        """
+        Abstracts the session's known entities, which may contain lists of values,
+        into a dictionary with only the most recent (last) value for each entity.
+        This provides a simple view for internal agent functions.
+        """
+        latest_entities = {}
+        for key, value in self.session_known_entities.items():
+            if isinstance(value, list) and value:
+                latest_entities[key] = value[-1]
+            else:
+                latest_entities[key] = value
+        return latest_entities
 
     async def _generate_meta_plan(self):
         """The universal planner. It generates a meta-plan for ANY request."""
@@ -306,10 +321,11 @@ class PlanExecutor:
             enriched_args = self.prompt_arguments.copy()
             inferred_args = set()
             
+            latest_entities = self._get_latest_entities()
             for arg_name in required_args:
                 if arg_name not in enriched_args or enriched_args.get(arg_name) is None:
-                    if arg_name in self.session_known_entities:
-                        enriched_args[arg_name] = self.session_known_entities[arg_name]
+                    if arg_name in latest_entities:
+                        enriched_args[arg_name] = latest_entities[arg_name]
                         inferred_args.add(arg_name)
 
             if inferred_args:
@@ -360,27 +376,17 @@ class PlanExecutor:
         }
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
+        previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
+        session_entities_str = "{}" 
+
         if self.active_prompt_name:
             previous_turn_summary_str = "[]"
-            session_entities_str = "{}"
-        else:
-            previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
+        elif self.disabled_history:
             session_entities_str = json.dumps(self.session_known_entities, indent=2)
 
         active_prompt_context_section = ""
         if self.active_prompt_name:
             active_prompt_context_section = f"- Active Prompt: You are currently executing the '{self.active_prompt_name}' prompt. Your plan should execute the steps described in the goal, not re-call the same prompt."
-
-        # --- MODIFICATION START: Add consolidated context log ---
-        app_logger.info(
-            f"\n--- Meta-Planner Context ---\n"
-            f"Original User Input: {self.original_user_input}\n"
-            f"Execution Depth: {self.execution_depth}\n"
-            f"Session Known Entities:\n{session_entities_str}\n"
-            f"Previous Turn History Summary:\n{previous_turn_summary_str}\n"
-            f"--------------------------"
-        )
-        # --- MODIFICATION END ---
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
@@ -398,6 +404,17 @@ class PlanExecutor:
             reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}'"
         )
         yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
+
+        app_logger.info(
+            f"\n--- Meta-Planner Turn ---\n"
+            f"** CONTEXT **\n"
+            f"Original User Input: {self.original_user_input}\n"
+            f"Execution Depth: {self.execution_depth}\n"
+            f"Session Known Entities (for prompt):\n{session_entities_str}\n"
+            f"Previous Turn History Summary (for prompt):\n{previous_turn_summary_str}\n"
+            f"** GENERATED PLAN **\n{response_text}\n"
+            f"-------------------------"
+        )
 
         updated_session = session_manager.get_session(self.session_id)
         if updated_session:
@@ -565,11 +582,7 @@ class PlanExecutor:
                 "details": f"Engaging enhanced fast path for tool loop: '{tool_name}'"
             })
             
-            context_args = {}
-            for history_item in self.turn_action_history:
-                action = history_item.get("action", {})
-                if "arguments" in action:
-                    context_args.update(action.get("arguments", {}))
+            context_args = self._get_latest_entities()
             
             synonym_map = {
                 'tablename': ['table_name', 'obj_name', 'object_name'],
@@ -652,7 +665,7 @@ class PlanExecutor:
                     yield event
                 return 
 
-            enriched_args, enrich_events, _ = self._get_required_args_and_enrich(relevant_tools)
+            enriched_args, enrich_events, _ = self._enrich_arguments(relevant_tools)
             
             for event in enrich_events:
                 self.events_to_yield.append(event)
@@ -800,8 +813,14 @@ class PlanExecutor:
             self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
             self._add_to_structured_data(self.last_tool_output)
 
-    def _get_required_args_and_enrich(self, relevant_tools: list[str]) -> tuple[dict, list, bool]:
-        """Helper to centralize getting required args and enriching them."""
+    def _enrich_arguments(self, relevant_tools: list[str], current_args: dict = None) -> tuple[dict, list, bool]:
+        """
+        Scans the session memory to find missing arguments for a tool call.
+        """
+        events_to_yield = []
+        initial_args = current_args.copy() if current_args else {}
+        enriched_args = initial_args.copy()
+        
         all_tools = self.dependencies['STATE'].get('mcp_tools', {})
         required_args_for_phase = set()
         for tool_name in relevant_tools:
@@ -811,8 +830,31 @@ class PlanExecutor:
             for arg_name, arg_details in args_dict.items():
                 if arg_details.get('required', False):
                     required_args_for_phase.add(arg_name)
+
+        args_to_find = {arg for arg in required_args_for_phase if arg not in enriched_args or not enriched_args.get(arg)}
+        if not args_to_find:
+            return enriched_args, [], False
+
+        latest_entities = self._get_latest_entities()
         
-        return self._enrich_arguments_from_history(required_args_for_phase)
+        for arg_name in list(args_to_find):
+            if arg_name in latest_entities:
+                enriched_args[arg_name] = latest_entities[arg_name]
+                args_to_find.remove(arg_name)
+        
+        was_enriched = enriched_args != initial_args
+        if was_enriched:
+            for arg_name, value in enriched_args.items():
+                if arg_name not in initial_args:
+                    app_logger.info(f"Proactively inferred '{arg_name}' from history: '{value}'")
+                    events_to_yield.append(self._format_sse({
+                        "step": "System Correction",
+                        "details": f"System inferred '{arg_name}: {value}' from conversation history.",
+                        "type": "workaround",
+                        "correction_type": "inferred_argument"
+                    }))
+
+        return enriched_args, events_to_yield, was_enriched
 
     async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str], enriched_args: dict) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
@@ -1046,64 +1088,6 @@ class PlanExecutor:
         yield self._format_sse({"final_answer": final_html}, "final_answer")
         self.state = self.AgentState.DONE
 
-    def _enrich_arguments_from_history(self, required_args: set, current_args: dict = None, is_prompt: bool = False) -> tuple[dict, list, bool]:
-        """
-        Scans conversation history to find missing arguments for a tool or prompt call.
-        This is a deterministic way to provide context to the LLM.
-        Returns the enriched args, any UI events, and a boolean indicating if work was done.
-        """
-        events_to_yield = []
-        initial_args = current_args.copy() if current_args else {}
-        enriched_args = initial_args.copy()
-        
-        arg_type = "prompt" if is_prompt else "tool"
-        known_args_for_type = self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get(arg_type, [])
-        
-        args_to_find = {arg for arg in required_args if (arg not in enriched_args or enriched_args.get(arg) is None) and arg in known_args_for_type}
-        if not args_to_find:
-            return enriched_args, [], False
-
-        session_data = session_manager.get_session(self.session_id)
-        if not session_data:
-            return enriched_args, [], False
-
-        for entry in reversed(self.turn_action_history):
-            if not args_to_find: break
-            
-            action_args = entry.get("action", {}).get("arguments", {})
-            for arg_name in list(args_to_find):
-                if arg_name in action_args and action_args[arg_name] is not None:
-                    enriched_args[arg_name] = action_args[arg_name]
-                    args_to_find.remove(arg_name)
-
-            result = entry.get("result", {})
-            if isinstance(result, dict):
-                result_metadata = result.get("metadata", {})
-                if result_metadata:
-                    metadata_to_arg_map = {
-                        "database": "database_name",
-                        "table": "table_name",
-                        "column": "column_name"
-                    }
-                    for meta_key, arg_name in metadata_to_arg_map.items():
-                        if arg_name in args_to_find and meta_key in result_metadata:
-                            enriched_args[arg_name] = result_metadata[meta_key]
-                            args_to_find.remove(arg_name)
-        
-        was_enriched = enriched_args != initial_args
-        if was_enriched:
-            for arg_name, value in enriched_args.items():
-                if arg_name not in initial_args:
-                    app_logger.info(f"Proactively inferred '{arg_name}' from history: '{value}'")
-                    events_to_yield.append(self._format_sse({
-                        "step": "System Correction",
-                        "details": f"System inferred '{arg_name}: {value}' from conversation history.",
-                        "type": "workaround",
-                        "correction_type": "inferred_argument"
-                    }))
-
-        return enriched_args, events_to_yield, was_enriched
-
     async def _get_tool_constraints(self, tool_name: str) -> dict:
         """Uses an LLM to determine if a tool requires numeric or character columns."""
         if tool_name in self.tool_constraints_cache:
@@ -1222,7 +1206,7 @@ class PlanExecutor:
         
         current_args = failed_action.get("arguments", {})
         
-        enriched_args, enrich_events, was_enriched = self._enrich_arguments_from_history(required_args, current_args)
+        enriched_args, enrich_events, was_enriched = self._enrich_arguments(required_args, current_args)
         if was_enriched:
             events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
             events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
@@ -1233,11 +1217,6 @@ class PlanExecutor:
             events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Deterministically corrected missing arguments. Retrying tool."}))
             return corrected_action, events
 
-        history_context, _, was_enriched = self._enrich_arguments_from_history(set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', [])))
-        if was_enriched:
-            events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
-            events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
-
         session_data = session_manager.get_session(self.session_id)
         session_history = session_data.get("session_history", []) if session_data else []
 
@@ -1245,7 +1224,7 @@ class PlanExecutor:
             tool_definition=json.dumps(vars(tool_def), default=str),
             failed_command=json.dumps(failed_action),
             error_message=json.dumps(error_result.get('data', 'No error data.')),
-            history_context=json.dumps(history_context),
+            history_context=json.dumps(self._get_latest_entities()),
             session_history=json.dumps(session_history)
         )
         
