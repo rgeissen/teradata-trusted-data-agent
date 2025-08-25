@@ -768,7 +768,7 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> tuple[any, int, int]:
 
     synonym_map = {
         "database": "database_name", "db": "database_name", 
-        "table": "table_name", "tbl": "table_name", 
+        "table": "table_name", "tbl": "table_name", "tablename": "table_name",
         "column": "column_name", "col": "column_name"
     }
     normalized_args = {synonym_map.get(k.lower(), k): v for k, v in args.items()}

@@ -112,6 +112,14 @@ async def main():
     llm_logger.addHandler(llm_log_handler)
     llm_logger.propagate = False
     
+    # --- NEW: Configure the separate logger for full LLM context history ---
+    llm_history_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversations_history.log"))
+    llm_history_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    llm_history_logger = logging.getLogger("llm_conversation_history")
+    llm_history_logger.setLevel(logging.INFO)
+    llm_history_logger.addHandler(llm_history_log_handler)
+    llm_history_logger.propagate = False
+    
     print("\n--- Starting Hypercorn Server for Quart App ---")
     print("Web client initialized and ready. Navigate to http://127.0.0.1:5000")
     config = Config()

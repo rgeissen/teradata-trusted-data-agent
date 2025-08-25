@@ -402,21 +402,25 @@ async def new_session():
         return jsonify({"error": "Application not configured. Please set MCP and LLM details in Config."}), 400
     
     try:
-        llm_logger = logging.getLogger("llm_conversation")
-        
-        for handler in llm_logger.handlers[:]:
-            if isinstance(handler, logging.FileHandler):
-                handler.close()
-                llm_logger.removeHandler(handler)
-        
-        log_file_path = os.path.join("logs", "llm_conversations.log")
-        new_handler = logging.FileHandler(log_file_path, mode='w')
-        new_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
-        llm_logger.addHandler(new_handler)
-        
-        app_logger.info(f"Safely reset and purged {log_file_path} for new session.")
+        loggers_to_purge = ["llm_conversation", "llm_conversation_history"]
+        for logger_name in loggers_to_purge:
+            logger = logging.getLogger(logger_name)
+            for handler in logger.handlers[:]:
+                if isinstance(handler, logging.FileHandler):
+                    handler.close()
+                    logger.removeHandler(handler)
+            
+            log_file_path = os.path.join("logs", f"{logger_name}.log")
+            # Re-open in write mode to truncate, then add a new handler
+            with open(log_file_path, 'w'):
+                pass
+            new_handler = logging.FileHandler(log_file_path)
+            new_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+            logger.addHandler(new_handler)
+            app_logger.info(f"Safely reset and purged {log_file_path} for new session.")
+
     except Exception as e:
-        app_logger.error(f"Failed to purge llm_conversations.log: {e}", exc_info=True)
+        app_logger.error(f"Failed to purge log files: {e}", exc_info=True)
 
     data = await request.get_json()
     charting_intensity = data.get("charting_intensity", "medium") if APP_CONFIG.CHARTING_ENABLED else "none"
@@ -447,7 +451,7 @@ async def get_models():
                 "aws_region": data.get("aws_region")
             })
         elif provider == 'Ollama':
-            credentials["host"] = data.get("host")
+            credentials["host"] = data.get("ollama_host")
         else:
             credentials["apiKey"] = data.get("apiKey")
 

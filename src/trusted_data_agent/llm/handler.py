@@ -22,6 +22,7 @@ from trusted_data_agent.core.config import (
 )
 
 llm_logger = logging.getLogger("llm_conversation")
+llm_history_logger = logging.getLogger("llm_conversation_history")
 app_logger = logging.getLogger("quart.app")
 
 class OllamaClient:
@@ -142,12 +143,10 @@ def _get_full_system_prompt(session_data: dict, dependencies: dict, system_promp
     
     return final_system_prompt
 
-# --- MODIFICATION START: Accept 'disabled_history' flag and implement logic to skip history ---
 async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, chat_history=None, raise_on_error: bool = False, system_prompt_override: str = None, dependencies: dict = None, reason: str = "No reason provided.", disabled_history: bool = False) -> tuple[str, int, int]:
     if not llm_instance:
         raise RuntimeError("LLM is not initialized.")
     
-    full_log_message = ""
     response_text = ""
     input_tokens, output_tokens = 0, 0
     
@@ -157,27 +156,33 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
     session_data = get_session(session_id) if session_id else None
     system_prompt = _get_full_system_prompt(session_data, dependencies, system_prompt_override)
 
-    history_for_log = []
-    if session_data and not disabled_history:
+    # --- MODIFICATION: Build history for logging from the correct source, regardless of disabled_history flag ---
+    history_for_log_str = "No history available."
+    if session_data: # Log the history if a session exists
+        current_history_list = []
         if APP_CONFIG.CURRENT_PROVIDER == "Google" and hasattr(session_data.get('chat_object'), 'history'):
-             history_for_log = [f"[{msg.role}]: {msg.parts[0].text}" for msg in session_data['chat_object'].history]
+             current_history_list = [f"[{msg.role}]: {msg.parts[0].text}" for msg in session_data['chat_object'].history]
         elif 'chat_object' in session_data:
-             history_for_log = [f"[{msg.get('role')}]: {msg.get('content')}" for msg in session_data.get('chat_object', [])]
+             history_source = chat_history if chat_history is not None else session_data.get('chat_object', [])
+             current_history_list = [f"[{msg.get('role')}]: {msg.get('content')}" for msg in history_source]
+        
+        if current_history_list:
+            history_for_log_str = '\n'.join(current_history_list)
 
     full_log_message = (
         f"--- FULL CONTEXT (Session: {session_id or 'one-off'}) ---\n"
         f"--- REASON FOR CALL ---\n{reason}\n\n"
-        f"--- History (History Disabled: {disabled_history}) ---\n{'\n'.join(history_for_log)}\n\n"
+        f"--- History (History Disabled for LLM Call: {disabled_history}) ---\n{history_for_log_str}\n\n"
         f"--- Current User Prompt (with System Prompt) ---\n"
         f"SYSTEM PROMPT:\n{system_prompt}\n\n"
         f"USER PROMPT:\n{prompt}\n"
     )
+    llm_history_logger.info(full_log_message)
+
 
     for attempt in range(max_retries):
         try:
             if APP_CONFIG.CURRENT_PROVIDER == "Google":
-                # A "session call" is one that uses the stateful chat object.
-                # If history is disabled, we force a stateless, single-turn call instead.
                 is_session_call = session_data is not None and 'chat_object' in session_data and not disabled_history
                 
                 if is_session_call:
@@ -185,7 +190,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                     full_prompt_for_api = f"SYSTEM PROMPT:\n{system_prompt}\n\nUSER PROMPT:\n{prompt}"
                     response = await chat_session.send_message_async(full_prompt_for_api)
                 else:
-                    # For single turns or disabled history, use the stateless method.
                     full_prompt_for_api = f"{system_prompt}\n\n{prompt}"
                     response = await llm_instance.generate_content_async(full_prompt_for_api)
 
@@ -201,7 +205,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 break
 
             elif APP_CONFIG.CURRENT_PROVIDER in ["Anthropic", "OpenAI", "Ollama"]:
-                # If history is disabled, start with an empty list. Otherwise, get it from the session.
                 history_source = []
                 if not disabled_history:
                     history_source = chat_history if chat_history is not None else (session_data.get('chat_object', []) if session_id else [])
@@ -236,7 +239,6 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 break
             
             elif APP_CONFIG.CURRENT_PROVIDER == "Amazon":
-                # If history is disabled, start with an empty list. Otherwise, get it from the session.
                 history = []
                 if not disabled_history:
                     history = (session_data.get('chat_object', []) if session_id else []) or (chat_history or [])
@@ -296,8 +298,7 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 raise e
         except Exception as e:
             app_logger.error(f"Error calling LLM API for provider {APP_CONFIG.CURRENT_PROVIDER}: {e}", exc_info=True)
-            llm_logger.error(full_log_message)
-            llm_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
+            llm_history_logger.error(f"--- ERROR in LLM call ---\n{e}\n" + "-"*50 + "\n")
             raise e
 
     if not response_text and raise_on_error:
@@ -305,15 +306,12 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
 
     response_text = _extract_final_answer_from_json(response_text)
 
-    llm_logger.info(full_log_message)
-    llm_logger.info(f"--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
+    llm_logger.info(f"--- REASON FOR CALL ---\n{reason}\n--- RESPONSE ---\n{response_text}\n" + "-"*50 + "\n")
 
     if session_id:
         update_token_count(session_id, input_tokens, output_tokens)
 
     return response_text, input_tokens, output_tokens
-# --- MODIFICATION END ---
-
 
 def _is_model_certified(model_name: str, certified_list: list[str]) -> bool:
     """
