@@ -320,23 +320,21 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     box-shadow: 0 0 8px #facc15;
     animation: blink 1s infinite;
 }
-/* --- MODIFICATION START: Add styles for new context modes --- */
-.connection-dot.history-disabled-preview {
+.connection-dot.context-last-turn-temp {
     background-color: #facc15; /* yellow-400 */
     box-shadow: 0 0 8px #facc15;
 }
-.connection-dot.history-disabled-locked {
+.connection-dot.context-last-turn-locked {
     background-color: var(--teradata-orange);
     box-shadow: 0 0 8px var(--teradata-orange);
 }
-/* --- MODIFICATION END --- */
 
 #send-icon {
     transition: transform 0.2s ease-in-out;
-    transform: rotate(90deg); /* Default to East */
+    transform: rotate(-90deg); /* Default to West (Last Turn) */
 }
 #send-icon.flipped {
-    transform: rotate(-90deg); /* West for full context */
+    transform: rotate(90deg); /* East for full context (New Default) */
 }
 
 .input-hint {
@@ -372,7 +370,6 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     font-weight: bold;
     color: #9ca3af; /* gray-400 */
 }
-/* --- MODIFICATION START: Add styles for the custom tooltip --- */
 .hint-icon .tooltip {
     visibility: hidden;
     opacity: 0;
@@ -408,4 +405,3 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     visibility: visible;
     opacity: 1;
 }
-/* --- MODIFICATION END --- */

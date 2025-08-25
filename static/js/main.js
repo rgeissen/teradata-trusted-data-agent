@@ -134,10 +134,8 @@ let mcpIndicatorTimeout = null;
 let llmIndicatorTimeout = null;
 let contextIndicatorTimeout = null;
 
-// --- MODIFICATION START: Invert state variables for new context logic ---
-let isAltPressed = false; // For temporary (hold) switch to full context
-let isFullContextLocked = false; // For permanent toggle of full context mode
-// --- MODIFICATION END ---
+let isTempLastTurnMode = false; // For temporary (hold) switch to last turn context
+let isLastTurnModeLocked = false; // For permanent toggle of last turn context mode
 
 let defaultPromptsCache = {};
 
@@ -528,10 +526,8 @@ async function startStream(endpoint, body) {
     isInFastPath = false;
     setThinkingIndicator(false);
 
-    // --- MODIFICATION START: Calculate disabled_history based on new logic ---
-    const useFullContext = isFullContextLocked || isAltPressed;
-    body.disabled_history = !useFullContext;
-    // --- MODIFICATION END ---
+    const useLastTurnMode = isLastTurnModeLocked || isTempLastTurnMode;
+    body.disabled_history = useLastTurnMode;
 
     contextStatusDot.classList.remove('history-disabled-preview');
 
@@ -1906,27 +1902,24 @@ function updateHintAndIndicatorState() {
     const hintTextSpan = inputHint.querySelector('span:first-child');
     const hintTooltipSpan = inputHint.querySelector('.tooltip');
     
-    const useFullContext = isFullContextLocked || isAltPressed;
-
-    if (isFullContextLocked) {
-        // Full context is locked on
-        hintTextSpan.innerHTML = `<strong>Full Session Context:</strong> <span class="text-orange-400 font-semibold">On</span>`;
-        hintTooltipSpan.innerHTML = `Full session context is locked on. Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to switch back to "Last Turn" context.`;
-        contextStatusDot.className = 'connection-dot history-disabled-locked'; // Orange color
-        sendIcon.classList.add('flipped');
-    } else if (isAltPressed) {
-        // Full context is temporarily on
-        hintTextSpan.innerHTML = `<strong>Context:</strong> <span class="text-yellow-400 font-semibold">Session History</span>`;
-        hintTooltipSpan.innerHTML = `Temporarily using full session context for this query.`;
-        contextStatusDot.className = 'connection-dot history-disabled-preview'; // Yellow color
-        sendIcon.classList.add('flipped');
-    }
-    else {
-        // Default contextless mode
-        hintTextSpan.innerHTML = `<strong>Context:</strong> <span class="text-gray-400 font-semibold">Last Turn</span>`;
-        hintTooltipSpan.innerHTML = `Default context is the last turn. Hold <kbd>Alt</kbd> for a single query with full session context, or press <kbd>Shift</kbd> + <kbd>Alt</kbd> to lock session context on.`;
-        contextStatusDot.className = 'connection-dot idle'; // Green color
+    if (isLastTurnModeLocked) {
+        // "Last Turn" context is locked on
+        hintTextSpan.innerHTML = `<strong>Last Turn Context:</strong> <span class="text-orange-400 font-semibold">Locked</span>`;
+        hintTooltipSpan.innerHTML = `'Last Turn' context is locked on. Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to switch back to the default 'Full Session Context'.`;
+        contextStatusDot.className = 'connection-dot context-last-turn-locked'; // Orange color
         sendIcon.classList.remove('flipped');
+    } else if (isTempLastTurnMode) {
+        // "Last Turn" context is temporarily on
+        hintTextSpan.innerHTML = `<strong>Context:</strong> <span class="text-yellow-400 font-semibold">Last Turn</span>`;
+        hintTooltipSpan.innerHTML = `Temporarily using 'Last Turn' context for this query.`;
+        contextStatusDot.className = 'connection-dot context-last-turn-temp'; // Yellow color
+        sendIcon.classList.remove('flipped');
+    } else {
+        // Default "Full Context" mode
+        hintTextSpan.innerHTML = `<strong>Full Session Context:</strong> <span class="text-green-400 font-semibold">On</span>`;
+        hintTooltipSpan.innerHTML = `Full session context is the default. Hold <kbd>Alt</kbd> to temporarily use 'Last Turn' context. Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to lock 'Last Turn' context on.`;
+        contextStatusDot.className = 'connection-dot idle'; // Green color
+        sendIcon.classList.add('flipped');
     }
 }
 // --- MODIFICATION END ---
@@ -1982,20 +1975,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     configForm.addEventListener('input', updateConfigButtonState);
     
-    // --- MODIFICATION START: Update event listeners for new key logic ---
     document.addEventListener('keydown', (e) => {
         // Permanent Toggle: Shift + Alt
         if (e.key === 'Alt' && e.shiftKey) {
             e.preventDefault();
-            isFullContextLocked = !isFullContextLocked;
+            isLastTurnModeLocked = !isLastTurnModeLocked;
             updateHintAndIndicatorState();
             return;
         }
 
         // Temporary Switch (Hold): Alt
-        if (e.key === 'Alt' && !isAltPressed) {
+        if (e.key === 'Alt' && !isTempLastTurnMode) {
             e.preventDefault(); 
-            isAltPressed = true;
+            isTempLastTurnMode = true;
             updateHintAndIndicatorState();
         }
     });
@@ -2003,11 +1995,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.addEventListener('keyup', (e) => {
         if (e.key === 'Alt') {
             e.preventDefault();
-            isAltPressed = false;
+            isTempLastTurnMode = false;
             updateHintAndIndicatorState();
         }
     });
-    // --- MODIFICATION END ---
     
     // Initial UI state update on load
     updateHintAndIndicatorState();

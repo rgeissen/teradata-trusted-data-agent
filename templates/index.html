@@ -140,15 +140,15 @@
                             <button type="submit" id="submit-button"
                                 class="p-3 bg-[#F15F22] rounded-lg hover:bg-[#D9501A] disabled:bg-gray-600 flex items-center justify-center w-12 h-12 transition-all duration-200 transform hover:scale-110"
                                 disabled>
-                                <svg id="send-icon" class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                                <svg id="send-icon" class="w-6 h-6 text-white flipped" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                                 <svg id="loading-spinner" class="w-6 h-6 text-white animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             </button>
                         </form>
                         <div id="input-hint" class="input-hint">
-                            <span><strong>Context:</strong> <span class="text-gray-400 font-semibold">Last Turn</span></span>
+                            <span><strong>Full Session Context:</strong> <span class="text-green-400 font-semibold">On</span></span>
                             <div class="hint-icon">
                                 ?
-                                <span class="tooltip">Default context is the last turn. Hold <kbd>Alt</kbd> for a single query with full session context, or press <kbd>Shift</kbd> + <kbd>Alt</kbd> to lock session context on.</span>
+                                <span class="tooltip">Full session context is the default. Hold <kbd>Alt</kbd> to temporarily use 'Last Turn' context. Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to lock 'Last Turn' context on.</span>
                             </div>
                         </div>
                         </div>
