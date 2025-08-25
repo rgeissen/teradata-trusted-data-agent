@@ -654,7 +654,6 @@ class PlanExecutor:
                 "phase_details": phase
             })
 
-        # --- MODIFICATION START: Implement the "Fast Path" ---
         tool_name = relevant_tools[0] if len(relevant_tools) == 1 else None
         if tool_name:
             all_tools = self.dependencies['STATE'].get('mcp_tools', {})
@@ -671,8 +670,12 @@ class PlanExecutor:
                     fast_path_action = {"tool_name": tool_name, "arguments": strategic_args}
                     async for event in self._execute_action_with_orchestrators(fast_path_action, phase):
                         yield event
+                    
+                    yield self._format_sse(
+                        {"target": "context", "state": "processing_complete"}, 
+                        "context_state_update"
+                    )
                     return
-        # --- MODIFICATION END ---
 
         phase_attempts = 0
         max_phase_attempts = 5

@@ -593,9 +593,13 @@ async function startStream(endpoint, body) {
                         }
                     } else if (eventName === 'context_state_update') {
                         const { target, state } = eventData;
-                        if (target === 'context' && state === 'history_disabled_processing') {
-                            contextStatusDot.classList.remove('idle', 'history-disabled-preview');
-                            contextStatusDot.classList.add('busy'); 
+                        if (target === 'context') {
+                            if (state === 'history_disabled_processing') {
+                                contextStatusDot.classList.remove('idle', 'history-disabled-preview');
+                                contextStatusDot.classList.add('busy'); 
+                            } else if (state === 'processing_complete') {
+                                isInFastPath = false;
+                            }
                         }
                     } else if (eventName === 'token_update') {
                         updateTokenDisplay(eventData);
