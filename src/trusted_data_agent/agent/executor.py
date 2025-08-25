@@ -380,10 +380,7 @@ class PlanExecutor:
 
         previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
         
-        # --- MODIFICATION START: Use the full session entity history for the planner ---
-        # The planner now receives the complete list of all known entities, not just the last seen one.
         session_entities_str = json.dumps(self.session_known_entities, indent=2)
-        # --- MODIFICATION END ---
 
         active_prompt_context_section = ""
         if self.active_prompt_name:

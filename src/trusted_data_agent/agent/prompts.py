@@ -68,6 +68,8 @@ To select the correct capability, you MUST follow this two-step process, governe
 1.  **Prioritize Pre-defined Analysis/Reports (Prompts):** If the user's request is for an **analysis, description, or summary** that is a strong semantic match for an available `prompt`, you **MUST** select that `prompt_name`. Prompts are the preferred method for generating these pre-defined analytical outputs.
 2.  **Default to Direct Actions (Tools):** If no analytical prompt is a direct match, or if the user's request is a direct command (e.g., "list...", "count...", "show me..."), you **MUST** treat the request as a direct action. Select the most specific `tool_name` that fulfills this action.
 
+**CRITICAL RULE (Planner Efficiency):** You **MUST NOT** create a multi-phase plan using tools if the user's goal can be fully achieved by a single, available prompt. If a prompt exists that matches the user's request for an analysis or report, you **MUST** call that prompt directly. Do not create a plan that manually replicates the function of an existing prompt.
+
 # Few-Shot Examples
 Here are examples of the correct thinking process:
 
@@ -85,7 +87,7 @@ Here are examples of the correct thinking process:
 - **Thought Process:**
     1. The user's request is for a "business purpose" description, which is a pre-defined analysis. I will check for a matching prompt first.
     2. The `base_databaseBusinessDesc` prompt is described as being for this exact purpose. It is a strong semantic match.
-    3. According to my critical rule, I **MUST** select this prompt.
+    3. According to my critical rule, I **MUST** select this prompt. I am forbidden from creating a multi-step plan to get the DDL and then summarize it.
 - **Correct Response:** `{"prompt_name": "base_databaseBusinessDesc", "arguments": {"database_name": "DEMO_Customer360_db"}}`
 
 # Best Practices
@@ -344,7 +346,7 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
 [
   {{
     "phase": 1,
-    "goal": "First, get a list of all databases. Then, loop over each database to get its tables, collecting all table names into a single flat list for the next phase.",
+    "goal": "First, get a list of all tables. Then, loop over each database to get its tables, collecting all table names into a single flat list for the next phase.",
     "type": "loop",
     "loop_over": "result_of_phase_0",
     "relevant_tools": ["base_listTables"]
