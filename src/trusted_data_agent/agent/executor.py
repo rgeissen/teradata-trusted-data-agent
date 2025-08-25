@@ -719,7 +719,7 @@ class PlanExecutor:
                     yield self._format_sse({
                         "step": "Plan Optimization", 
                         "type": "plan_optimization",
-                        "details": f"Executing direct action for '{tool_name}' via fast path."
+                        "details": f"FASTPATH initiated for '{tool_name}'."
                     })
                     fast_path_action = {"tool_name": tool_name, "arguments": strategic_args}
                     async for event in self._execute_action_with_orchestrators(fast_path_action, phase):
@@ -1268,7 +1268,7 @@ class PlanExecutor:
                 }
             }
             
-            yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing a standardized, markdown-formatted summary for the user."})
+            yield self._format_sse({"step": "Calling LLM to write final report", "details": "Synthesizing markdown-formatted summary."})
             
             yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
             summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)

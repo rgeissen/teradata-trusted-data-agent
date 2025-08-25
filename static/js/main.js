@@ -381,6 +381,14 @@ function updateStatusWindow(eventData, isFinal = false) {
         return;
     }
 
+    // --- DEBUGGING START ---
+    if (step.includes("Strategic Meta-Plan Generated")) {
+        console.log("DEBUG: Received 'Strategic Meta-Plan Generated' event.");
+        console.log("DEBUG: Details object:", details);
+        console.log("DEBUG: Type of details:", typeof details);
+    }
+    // --- DEBUGGING END ---
+
     const lastStep = document.getElementById(`status-step-${currentStatusId}`);
     if (lastStep) {
         lastStep.classList.remove('active');
@@ -415,17 +423,14 @@ function updateStatusWindow(eventData, isFinal = false) {
             if (details.full_text.length > 150) {
                 const detailsEl = document.createElement('details');
                 detailsEl.className = 'text-xs';
-
                 const summaryEl = document.createElement('summary');
                 summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
                 summaryEl.textContent = details.summary;
                 detailsEl.appendChild(summaryEl);
-
                 const pre = document.createElement('pre');
                 pre.className = 'mt-2 p-2 bg-gray-900/70 rounded-md text-gray-300 overflow-x-auto whitespace-pre-wrap';
                 pre.textContent = details.full_text;
                 detailsEl.appendChild(pre);
-
                 stepEl.appendChild(detailsEl);
             } else {
                 const p = document.createElement('p');
@@ -434,15 +439,71 @@ function updateStatusWindow(eventData, isFinal = false) {
                 stepEl.appendChild(p);
             }
         } else {
-            const pre = document.createElement('pre');
-            pre.className = 'p-2 bg-gray-900/70 rounded-md text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap';
+            let detailsString = '';
             try {
-                const parsed = typeof details === 'string' ? JSON.parse(details) : details;
-                pre.textContent = JSON.stringify(parsed, null, 2);
+                detailsString = JSON.stringify(details, null, 2);
             } catch (e) {
-                pre.textContent = details;
+                detailsString = String(details);
             }
-            stepEl.appendChild(pre);
+            
+            const characterThreshold = 100;
+
+            // --- DEBUGGING START ---
+            if (step.includes("Strategic Meta-Plan Generated")) {
+                console.log(`DEBUG: Plan string length is ${detailsString.length}. Threshold is ${characterThreshold}.`);
+            }
+            // --- DEBUGGING END ---
+
+            if (detailsString.length > characterThreshold) {
+                // --- DEBUGGING START ---
+                if (step.includes("Strategic Meta-Plan Generated")) {
+                    console.log("DEBUG: Length exceeds threshold. Creating collapsible element.");
+                }
+                // --- DEBUGGING END ---
+
+                const detailsEl = document.createElement('details');
+                detailsEl.className = 'text-xs';
+
+                const summaryEl = document.createElement('summary');
+                summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
+
+                let summaryText = `${step} Details - Click to expand`;
+                if (step.includes('Tool Execution Result') || step.includes('Tool Execution Intent')) {
+                    let itemCount = 0;
+                    if (typeof details === 'object' && details !== null) {
+                        if (details.metadata) {
+                            const countKey = Object.keys(details.metadata).find(k => k.toLowerCase().includes('count') || k.toLowerCase().includes('num'));
+                            if (countKey) itemCount = details.metadata[countKey];
+                        }
+                        if (itemCount === 0 && details.results && Array.isArray(details.results)) {
+                            itemCount = details.results.length;
+                        }
+                    }
+                    summaryText = itemCount > 0 ? `Tool Result (${itemCount} items) - Click to expand` : 'Tool Result - Click to expand';
+                } else if (step.includes("Assistant's Thought Process")) {
+                    summaryText = `Final Answer Summary (${detailsString.length} chars) - Click to expand`;
+                } else if (step.includes("Strategic Meta-Plan Generated")) {
+                    let phaseCount = 0;
+                    if (Array.isArray(details)) {
+                        phaseCount = details.length;
+                    }
+                    summaryText = phaseCount > 0 ? `Generated Plan (${phaseCount} phases) - Click to expand` : `Generated Plan - Click to expand`;
+                }
+                
+                summaryEl.textContent = summaryText;
+                detailsEl.appendChild(summaryEl);
+
+                const pre = document.createElement('pre');
+                pre.className = 'mt-2 p-2 bg-gray-900/70 rounded-md text-gray-300 overflow-x-auto whitespace-pre-wrap';
+                pre.textContent = detailsString;
+                detailsEl.appendChild(pre);
+                stepEl.appendChild(detailsEl);
+            } else {
+                const pre = document.createElement('pre');
+                pre.className = 'p-2 bg-gray-900/70 rounded-md text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap';
+                pre.textContent = detailsString;
+                stepEl.appendChild(pre);
+            }
         }
     }
 
@@ -1901,7 +1962,6 @@ chatModalForm.addEventListener('submit', async (e) => {
     }
 });
 
-// --- MODIFICATION START: Rewrite UI update logic for new context modes ---
 function updateHintAndIndicatorState() {
     const hintTextSpan = inputHint.querySelector('span:first-child');
     const hintTooltipSpan = inputHint.querySelector('.tooltip');
@@ -1926,7 +1986,6 @@ function updateHintAndIndicatorState() {
         sendIcon.classList.add('flipped');
     }
 }
-// --- MODIFICATION END ---
 
 
 document.addEventListener('DOMContentLoaded', async () => {
