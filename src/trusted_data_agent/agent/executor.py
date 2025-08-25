@@ -125,13 +125,15 @@ class PlanExecutor:
             msg += f"event: {event}\n"
         return f"{msg}\n"
 
-    async def _call_llm_and_update_tokens(self, prompt: str, reason: str, system_prompt_override: str = None, raise_on_error: bool = False) -> tuple[str, int, int]:
+    async def _call_llm_and_update_tokens(self, prompt: str, reason: str, system_prompt_override: str = None, raise_on_error: bool = False, disabled_history: bool = False) -> tuple[str, int, int]:
         """A centralized wrapper for calling the LLM that handles token updates."""
+        final_disabled_history = disabled_history or self.disabled_history
+        
         response_text, statement_input_tokens, statement_output_tokens = await llm_handler.call_llm_api(
             self.dependencies['STATE']['llm'], prompt, self.session_id,
             dependencies=self.dependencies, reason=reason,
             system_prompt_override=system_prompt_override, raise_on_error=raise_on_error,
-            disabled_history=self.disabled_history
+            disabled_history=final_disabled_history
         )
         self.llm_debug_history.append({"reason": reason, "response": response_text})
         app_logger.debug(f"LLM RESPONSE (DEBUG): Reason='{reason}', Response='{response_text}'")
@@ -377,12 +379,12 @@ class PlanExecutor:
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
         previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
-        session_entities_str = "{}" 
 
-        if self.active_prompt_name:
-            previous_turn_summary_str = "[]"
-        elif self.disabled_history:
+        if self.disabled_history:
             session_entities_str = json.dumps(self.session_known_entities, indent=2)
+        else:
+            latest_entities = self._get_latest_entities()
+            session_entities_str = json.dumps(latest_entities, indent=2)
 
         active_prompt_context_section = ""
         if self.active_prompt_name:
@@ -477,7 +479,7 @@ class PlanExecutor:
                 prompt_arguments=prompt_args,
                 execution_depth=self.execution_depth + 1,
                 disabled_history=self.disabled_history,
-                previous_turn_data=[] 
+                previous_turn_data=self.turn_action_history
             )
             
             async for event in sub_executor.run():
@@ -665,7 +667,7 @@ class PlanExecutor:
                     yield event
                 return 
 
-            enriched_args, enrich_events, _ = self._enrich_arguments(relevant_tools)
+            enriched_args, enrich_events, _ = self._enrich_arguments_from_history(relevant_tools)
             
             for event in enrich_events:
                 self.events_to_yield.append(event)
@@ -813,9 +815,10 @@ class PlanExecutor:
             self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
             self._add_to_structured_data(self.last_tool_output)
 
-    def _enrich_arguments(self, relevant_tools: list[str], current_args: dict = None) -> tuple[dict, list, bool]:
+    def _enrich_arguments_from_history(self, relevant_tools: list[str], current_args: dict = None) -> tuple[dict, list, bool]:
         """
-        Scans the session memory to find missing arguments for a tool call.
+        Scans the current turn's action history to find missing arguments for a tool call.
+        This sandboxes the tactical planner's context to the current turn.
         """
         events_to_yield = []
         initial_args = current_args.copy() if current_args else {}
@@ -835,21 +838,37 @@ class PlanExecutor:
         if not args_to_find:
             return enriched_args, [], False
 
-        latest_entities = self._get_latest_entities()
-        
-        for arg_name in list(args_to_find):
-            if arg_name in latest_entities:
-                enriched_args[arg_name] = latest_entities[arg_name]
-                args_to_find.remove(arg_name)
+        for entry in reversed(self.turn_action_history):
+            if not args_to_find: break
+            
+            action_args = entry.get("action", {}).get("arguments", {})
+            for arg_name in list(args_to_find):
+                if arg_name in action_args and action_args[arg_name] is not None:
+                    enriched_args[arg_name] = action_args[arg_name]
+                    args_to_find.remove(arg_name)
+
+            result = entry.get("result", {})
+            if isinstance(result, dict):
+                result_metadata = result.get("metadata", {})
+                if result_metadata:
+                    metadata_to_arg_map = {
+                        "database": "database_name",
+                        "table": "table_name",
+                        "column": "column_name"
+                    }
+                    for meta_key, arg_name in metadata_to_arg_map.items():
+                        if arg_name in args_to_find and meta_key in result_metadata:
+                            enriched_args[arg_name] = result_metadata[meta_key]
+                            args_to_find.remove(arg_name)
         
         was_enriched = enriched_args != initial_args
         if was_enriched:
             for arg_name, value in enriched_args.items():
                 if arg_name not in initial_args:
-                    app_logger.info(f"Proactively inferred '{arg_name}' from history: '{value}'")
+                    app_logger.info(f"Proactively inferred '{arg_name}' from turn history: '{value}'")
                     events_to_yield.append(self._format_sse({
                         "step": "System Correction",
-                        "details": f"System inferred '{arg_name}: {value}' from conversation history.",
+                        "details": f"System inferred '{arg_name}: {value}' from the current turn's actions.",
                         "type": "workaround",
                         "correction_type": "inferred_argument"
                     }))
@@ -914,7 +933,8 @@ class PlanExecutor:
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt="Determine the next action based on the instructions and state provided in the system prompt.",
             reason=f"Deciding next tactical action for phase: {current_phase_goal}",
-            system_prompt_override=tactical_system_prompt
+            system_prompt_override=tactical_system_prompt,
+            disabled_history=True
         )
         
         self.last_failed_action_info = "None"
@@ -1206,7 +1226,7 @@ class PlanExecutor:
         
         current_args = failed_action.get("arguments", {})
         
-        enriched_args, enrich_events, was_enriched = self._enrich_arguments(required_args, current_args)
+        enriched_args, enrich_events, was_enriched = self._enrich_arguments_from_history(required_args, current_args)
         if was_enriched:
             events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
             events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
