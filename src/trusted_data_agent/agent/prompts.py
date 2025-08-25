@@ -299,6 +299,73 @@ Example format:
 ```
 """
 
+TACTICAL_SELF_CORRECTION_PROMPT_COLUMN_ERROR = """
+You are an expert troubleshooter for a database agent. A tool call has failed with a very specific, known error, and you must decide the correct next step.
+
+--- CONTEXT ---
+- Original User Question: {user_question}
+- Failed Tool: `{tool_name}`
+- Provided Arguments: {failed_arguments}
+- **Confirmed Ground Truth**: The tool failed because the column `{invalid_column_name}` **does not exist** in the table. This is a fact.
+
+--- CRITICAL RECOVERY DIRECTIVES ---
+1.  **Your primary rule is: DO NOT GUESS ANOTHER COLUMN NAME.** Substituting a semantically similar column (e.g., using an 'address' column for a 'zip_code' request) is a forbidden action. You must work only with the facts.
+
+2.  **Re-evaluate the Original Goal**: Look at the "Original User Question". Given that the `{invalid_column_name}` column does not exist, is the user's goal still achievable?
+
+3.  **Consider Alternative Tools**: If the goal might still be achievable, review the full list of available tools. Is there a different tool that can satisfy the user's request? Perhaps a tool that lists the available columns so the user can be asked for a correction?
+
+4.  **Conclude and Inform**: If you determine that the user's request cannot be fulfilled with the available tools and columns, your only option is to conclude the task and inform the user clearly.
+
+--- AVAILABLE CAPABILITIES ---
+{tools_context}
+{prompts_context}
+
+--- REQUIRED RESPONSE FORMAT ---
+Your response MUST be one of the following two formats:
+
+1.  **New Tool Call (JSON format)**: If you identify a different, valid tool to use, your response MUST be a single JSON object for that new tool call.
+    Example: `{{"tool_name": "base_columnDescription", "arguments": {{"database_name": "...", "table_name": "..."}}}}`
+
+2.  **Final Answer (Plain Text format)**: If you conclude the request cannot be fulfilled, your response MUST begin with the exact prefix `FINAL_ANSWER:`, followed by a concise explanation.
+    Example: `FINAL_ANSWER: I cannot find the number of distinct zip codes because a 'zip code' column does not exist in the specified table.`
+"""
+
+# --- MODIFICATION START: Add specialized recovery prompt for "Table Not Found" errors ---
+TACTICAL_SELF_CORRECTION_PROMPT_TABLE_ERROR = """
+You are an expert troubleshooter for a database agent. A tool call has failed with a very specific, known error, and you must decide the correct next step.
+
+--- CONTEXT ---
+- Original User Question: {user_question}
+- Failed Tool: `{tool_name}`
+- Provided Arguments: {failed_arguments}
+- **Confirmed Ground Truth**: The tool failed because the table `{invalid_table_name}` **does not exist** in the database `{database_name}`. This is a fact.
+
+--- CRITICAL RECOVERY DIRECTIVES ---
+1.  **Your primary rule is: DO NOT GUESS ANOTHER TABLE NAME.** You must work only with the facts.
+
+2.  **Re-evaluate the Original Goal**: Look at the "Original User Question". Given that the `{invalid_table_name}` table does not exist, is the user's goal still achievable?
+
+3.  **Consider Alternative Tools**: The best recovery action is often to determine what tables *are* available. You should consider using the `base_listTables` tool for the database `{database_name}` to provide the user with a list of valid options.
+
+4.  **Conclude and Inform**: If listing tables is not appropriate or if you cannot determine a path forward, your only option is to conclude the task and inform the user that the requested table does not exist.
+
+--- AVAILABLE CAPABILITIES ---
+{tools_context}
+{prompts_context}
+
+--- REQUIRED RESPONSE FORMAT ---
+Your response MUST be one of the following two formats:
+
+1.  **New Tool Call (JSON format)**: If you identify a different, valid tool to use (like `base_listTables`), your response MUST be a single JSON object for that new tool call.
+    Example: `{{"tool_name": "base_listTables", "arguments": {{"database_name": "..."}}}}`
+
+2.  **Final Answer (Plain Text format)**: If you conclude the request cannot be fulfilled, your response MUST begin with the exact prefix `FINAL_ANSWER:`, followed by a concise explanation.
+    Example: `FINAL_ANSWER: I cannot complete the request because the table 'Customers' does not exist in the specified database.`
+"""
+# --- MODIFICATION END ---
+
+
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 

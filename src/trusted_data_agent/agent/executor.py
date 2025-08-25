@@ -20,16 +20,25 @@ from trusted_data_agent.agent.prompts import (
     ERROR_RECOVERY_PROMPT,
     WORKFLOW_META_PLANNING_PROMPT,
     WORKFLOW_TACTICAL_PROMPT,
-    TACTICAL_SELF_CORRECTION_PROMPT
+    TACTICAL_SELF_CORRECTION_PROMPT,
+    TACTICAL_SELF_CORRECTION_PROMPT_COLUMN_ERROR,
+    TACTICAL_SELF_CORRECTION_PROMPT_TABLE_ERROR
 )
 from trusted_data_agent.agent import orchestrators
 
 app_logger = logging.getLogger("quart.app")
 
+# --- MODIFICATION START: Remove the overly broad "Object does not exist" rule ---
 DEFINITIVE_TOOL_ERRORS = {
-    "Object .* does not exist": "The requested database object (e.g., table or view) does not exist. Please check the name for typos.",
     "Invalid query": "The generated query was invalid and could not be run against the database.",
     "3523": "The user does not have the necessary permissions for the requested object." # Example of a specific Teradata error code
+}
+# --- MODIFICATION END ---
+
+RECOVERABLE_TOOL_ERRORS = {
+    # This regex now captures the full object path (e.g., db.table) for better context
+    "table_not_found": r"Object '([\w\.]+)' does not exist",
+    "column_not_found": r"Column '(\w+)' does not exist"
 }
 
 class DefinitiveToolError(Exception):
@@ -77,9 +86,7 @@ def unwrap_exception(e: BaseException) -> BaseException:
 class PlanExecutor:
     AgentState = AgentState
 
-    # --- MODIFICATION START: Update __init__ to accept force_history_disable ---
     def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None, execution_depth: int = 0, disabled_history: bool = False, previous_turn_data: list = None, force_history_disable: bool = False):
-    # --- MODIFICATION END ---
         self.session_id = session_id
         self.original_user_input = original_user_input
         self.dependencies = dependencies
@@ -118,9 +125,7 @@ class PlanExecutor:
         self.execution_depth = execution_depth
         self.MAX_EXECUTION_DEPTH = 5
         
-        # --- MODIFICATION START: Honor the force_history_disable flag ---
         self.disabled_history = disabled_history or force_history_disable
-        # --- MODIFICATION END ---
         self.previous_turn_data = previous_turn_data or []
         self.is_delegation_only_plan = False
         self.is_synthesis_from_history = False
@@ -159,7 +164,6 @@ class PlanExecutor:
              self.structured_collected_data[context_key].append(tool_result)
         app_logger.info(f"Added tool result to structured data under key: '{context_key}'.")
 
-    # --- MODIFICATION START: Overhaul the run method for re-planning logic ---
     async def run(self):
         """The main, unified execution loop for the agent."""
         final_answer_override = None
@@ -189,7 +193,6 @@ class PlanExecutor:
                             })
                             break # Proceed with this plan
                         else:
-                            # If we've already tried re-planning, break the loop to prevent infinite cycles
                             if should_replan:
                                 app_logger.error("Re-planning without history still resulted in a synthesis-only plan. Executing as is.")
                                 break
@@ -250,7 +253,6 @@ class PlanExecutor:
                 session_manager.update_session_known_session_entities(self.session_id, final_known_entities)
                 session_manager.update_last_turn_data(self.session_id, self.turn_action_history)
                 app_logger.debug(f"Saved final known entities and last turn data to session {self.session_id}")
-    # --- MODIFICATION END ---
 
     def _create_summary_from_history(self, history: list) -> str:
         """
@@ -346,9 +348,7 @@ class PlanExecutor:
                 latest_entities[key] = value
         return latest_entities
 
-    # --- MODIFICATION START: Update _generate_meta_plan to accept force_disable_history ---
     async def _generate_meta_plan(self, force_disable_history: bool = False):
-    # --- MODIFICATION END ---
         """The universal planner. It generates a meta-plan for ANY request."""
         prompt_obj = None
         explicit_parameters_section = ""
@@ -449,13 +449,11 @@ class PlanExecutor:
         )
         
         yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
-        # --- MODIFICATION START: Pass disable flag to LLM call ---
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=planning_prompt, 
             reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}'",
             disabled_history=force_disable_history
         )
-        # --- MODIFICATION END ---
         yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
 
         app_logger.info(
@@ -848,7 +846,6 @@ class PlanExecutor:
         tool_name = action.get("tool_name")
         max_retries = 3
         
-        # --- MODIFICATION START: Inject context for full_context mode ---
         if tool_name == "CoreLLMTask" and self.is_synthesis_from_history:
             app_logger.info("Preparing CoreLLMTask for 'full_context' execution.")
             session_data = session_manager.get_session(self.session_id)
@@ -856,9 +853,7 @@ class PlanExecutor:
             
             action.setdefault("arguments", {})["mode"] = "full_context"
             action.setdefault("arguments", {})["session_history"] = session_history
-            # Pass the original user question to the task for grounding
             action["arguments"]["user_question"] = self.original_user_input
-        # --- MODIFICATION END ---
         
         for attempt in range(max_retries):
             if 'notification' in action:
@@ -899,6 +894,7 @@ class PlanExecutor:
                 yield self._format_sse({"details": tool_result, "tool_name": tool_name}, "tool_error")
                 
                 error_data_str = str(tool_result.get('data', ''))
+                
                 for error_pattern, friendly_message in DEFINITIVE_TOOL_ERRORS.items():
                     if re.search(error_pattern, error_data_str, re.IGNORECASE):
                         raise DefinitiveToolError(error_data_str, friendly_message)
@@ -911,6 +907,9 @@ class PlanExecutor:
                         yield event
                     
                     if corrected_action:
+                        if "FINAL_ANSWER:" in corrected_action:
+                            self.last_tool_output = {"status": "success", "results": [{"response": corrected_action}]}
+                            break
                         action = corrected_action
                         continue
                     else:
@@ -1199,20 +1198,17 @@ class PlanExecutor:
         """
         final_summary_text = ""
         
-        # Check if a meta-plan was used and if any actions were taken.
         if self.meta_plan and self.turn_action_history:
             last_phase = self.meta_plan[-1]
             last_phase_num = last_phase.get("phase", len(self.meta_plan))
             phase_result_key = f"result_of_phase_{last_phase_num}"
 
-            # Scenario 1: The last phase was a loop that might contain summarization steps.
             if last_phase.get("type") == "loop" and phase_result_key in self.workflow_state:
                 app_logger.info(f"Final phase was a loop. Consolidating results from '{phase_result_key}'.")
                 
                 consolidated_texts = []
                 phase_results = self.workflow_state.get(phase_result_key, [])
                 
-                # Flatten the results list in case orchestrators returned a list of lists.
                 items_to_check = []
                 if isinstance(phase_results, list):
                     for item in phase_results:
@@ -1222,7 +1218,6 @@ class PlanExecutor:
                             items_to_check.append(item)
                 
                 for result in items_to_check:
-                    # Check for successful CoreLLMTask results which contain generated text.
                     if (isinstance(result, dict) and
                         result.get("status") == "success" and
                         "CoreLLMTask" in result.get("metadata", {}).get("tool_name", "") and
@@ -1233,10 +1228,8 @@ class PlanExecutor:
                             consolidated_texts.append(summary_data["response"])
 
                 if consolidated_texts:
-                    # Join with a markdown horizontal rule for clear separation in the UI.
                     final_summary_text = "\n\n<hr class='border-gray-600 my-4'>\n\n".join(consolidated_texts)
             
-            # Scenario 2: The last phase was a non-loop. Check if the very last action was a summary task.
             elif not final_summary_text:
                 last_action_entry = self.turn_action_history[-1] if self.turn_action_history else {}
                 last_action = last_action_entry.get("action", {})
@@ -1249,7 +1242,6 @@ class PlanExecutor:
                     summary_data = last_result.get("results", [{}])[0]
                     final_summary_text = summary_data.get("response", "Planner summary task failed to produce text.")
 
-        # Fallback Scenario: No planner-defined summary was found (or no plan was used), so generate one now.
         if not final_summary_text:
             app_logger.info("No planner-defined summary found. Generating standard ad-hoc summary.")
             standard_task_description = (
@@ -1414,45 +1406,86 @@ class PlanExecutor:
 
     async def _attempt_tool_self_correction(self, failed_action: dict, error_result: dict) -> tuple[dict | None, list]:
         """
-        Attempts to correct a failed tool call, first deterministically, then with an LLM.
+        Attempts to correct a failed tool call using a tiered, pattern-based approach.
+        It first checks for specific, recoverable errors and uses specialized prompts
+        before falling back to a generic correction attempt.
         """
         events = []
         tool_name = failed_action.get("tool_name")
-        tool_def = self.dependencies['STATE'].get('mcp_tools', {}).get(tool_name)
-        if not tool_def:
-            return None, events
+        error_data_str = str(error_result.get('data', ''))
+        correction_prompt = None
+        system_prompt_override = None
+        reason = ""
 
-        required_args = {name for name, details in (tool_def.args.items() if hasattr(tool_def, 'args') and isinstance(tool_def.args, dict) else {}) if details.get('required')}
-        
-        current_args = failed_action.get("arguments", {})
-        
-        enriched_args, enrich_events, was_enriched = self._enrich_arguments_from_history(required_args, current_args)
-        if was_enriched:
-            events.append(self._format_sse({"target": "context", "state": "busy"}, "status_indicator_update"))
-            events.append(self._format_sse({"target": "context", "state": "idle"}, "status_indicator_update"))
-        events.extend(enrich_events)
-        
-        if enriched_args != current_args and all(arg in enriched_args for arg in required_args):
-            corrected_action = {**failed_action, "arguments": enriched_args}
-            events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Deterministically corrected missing arguments. Retrying tool."}))
-            return corrected_action, events
+        # Tier 1: Check for "Table Not Found" error.
+        table_error_match = re.search(RECOVERABLE_TOOL_ERRORS["table_not_found"], error_data_str, re.IGNORECASE)
+        if table_error_match:
+            invalid_table = table_error_match.group(1)
+            invalid_table_name_only = invalid_table.split('.')[-1]
+            failed_args = failed_action.get("arguments", {})
+            db_name = failed_args.get("database_name", "the specified database")
+            
+            app_logger.warning(f"Detected recoverable 'table_not_found' error for table: {invalid_table}")
+            
+            correction_prompt = TACTICAL_SELF_CORRECTION_PROMPT_TABLE_ERROR.format(
+                user_question=self.original_user_input,
+                tool_name=tool_name,
+                failed_arguments=json.dumps(failed_args),
+                invalid_table_name=invalid_table_name_only,
+                database_name=db_name,
+                tools_context=self.dependencies['STATE'].get('tools_context', ''),
+                prompts_context=self.dependencies['STATE'].get('prompts_context', '')
+            )
+            reason = f"Fact-based recovery for non-existent table '{invalid_table_name_only}'"
+            system_prompt_override = "You are an expert troubleshooter. Follow the recovery directives precisely."
 
-        session_data = session_manager.get_session(self.session_id)
-        session_history = session_data.get("session_history", []) if session_data else []
-
-        correction_prompt = TACTICAL_SELF_CORRECTION_PROMPT.format(
-            tool_definition=json.dumps(vars(tool_def), default=str),
-            failed_command=json.dumps(failed_action),
-            error_message=json.dumps(error_result.get('data', 'No error data.')),
-            history_context=json.dumps(self._get_latest_entities()),
-            session_history=json.dumps(session_history)
-        )
+        # Tier 2: Check for "Column Not Found" error if no table error was found.
+        if not correction_prompt:
+            column_error_match = re.search(RECOVERABLE_TOOL_ERRORS["column_not_found"], error_data_str, re.IGNORECASE)
+            if column_error_match:
+                invalid_column = column_error_match.group(1)
+                app_logger.warning(f"Detected recoverable 'column_not_found' error for column: {invalid_column}")
+                
+                correction_prompt = TACTICAL_SELF_CORRECTION_PROMPT_COLUMN_ERROR.format(
+                    user_question=self.original_user_input,
+                    tool_name=tool_name,
+                    failed_arguments=json.dumps(failed_action.get("arguments", {})),
+                    invalid_column_name=invalid_column,
+                    tools_context=self.dependencies['STATE'].get('tools_context', ''),
+                    prompts_context=self.dependencies['STATE'].get('prompts_context', '')
+                )
+                reason = f"Fact-based recovery for non-existent column '{invalid_column}'"
+                system_prompt_override = "You are an expert troubleshooter. Follow the recovery directives precisely."
         
+        # Tier 3 (Fallback): Generic self-correction for all other unknown errors.
+        if not correction_prompt:
+            tool_def = self.dependencies['STATE'].get('mcp_tools', {}).get(tool_name)
+            if not tool_def: return None, events
+
+            enriched_args, enrich_events, _ = self._enrich_arguments_from_history(
+                {name for name, details in (tool_def.args.items() if hasattr(tool_def, 'args') and isinstance(tool_def.args, dict) else {}) if details.get('required')},
+                failed_action.get("arguments", {})
+            )
+            events.extend(enrich_events)
+
+            session_data = session_manager.get_session(self.session_id)
+            session_history = session_data.get("session_history", []) if session_data else []
+
+            correction_prompt = TACTICAL_SELF_CORRECTION_PROMPT.format(
+                tool_definition=json.dumps(vars(tool_def), default=str),
+                failed_command=json.dumps(failed_action),
+                error_message=json.dumps(error_result.get('data', 'No error data.')),
+                history_context=json.dumps(self._get_latest_entities()),
+                session_history=json.dumps(session_history)
+            )
+            reason = f"Generic self-correction for failed tool call: {tool_name}"
+            system_prompt_override = "You are a JSON-only responding assistant."
+
         events.append(self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update"))
-        corrected_args_str, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
+        response_str, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=correction_prompt,
-            reason=f"Self-correcting failed tool call for {tool_name}",
-            system_prompt_override="You are a JSON-only responding assistant.",
+            reason=reason,
+            system_prompt_override=system_prompt_override,
             raise_on_error=False
         )
         events.append(self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update"))
@@ -1466,20 +1499,31 @@ class PlanExecutor:
                 "total_output": updated_session.get("output_tokens", 0)
             }, "token_update"))
         
+        if "FINAL_ANSWER:" in response_str:
+            app_logger.info("Self-correction resulted in a FINAL_ANSWER. Halting retries.")
+            final_answer_text = response_str.split("FINAL_ANSWER:", 1)[1].strip()
+            return final_answer_text, events
+
         try:
-            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", corrected_args_str, re.DOTALL)
-            if not json_match: raise json.JSONDecodeError("No JSON object found", corrected_args_str, 0)
+            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_str, re.DOTALL)
+            if not json_match: raise json.JSONDecodeError("No JSON object found", response_str, 0)
             
             json_str = json_match.group(1) or json_match.group(2)
-            if not json_str: raise json.JSONDecodeError("Extracted JSON is empty", corrected_args_str, 0)
+            if not json_str: raise json.JSONDecodeError("Extracted JSON is empty", response_str, 0)
             
             corrected_data = json.loads(json_str.strip())
+            
+            if "tool_name" in corrected_data and "arguments" in corrected_data:
+                corrected_action = corrected_data
+                events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"LLM proposed a new action. Retrying with tool '{corrected_action['tool_name']}'."}))
+                return corrected_action, events
             
             new_args = corrected_data.get("arguments", corrected_data)
             if isinstance(new_args, dict):
                 corrected_action = {**failed_action, "arguments": new_args}
                 events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"LLM proposed a fix. Retrying tool with new arguments: {json.dumps(new_args)}"}))
                 return corrected_action, events
+
         except (json.JSONDecodeError, TypeError):
             events.append(self._format_sse({"step": "System Self-Correction", "type": "error", "details": "LLM failed to provide a valid JSON correction."}))
             return None, events
