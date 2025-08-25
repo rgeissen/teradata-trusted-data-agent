@@ -379,12 +379,11 @@ class PlanExecutor:
         yield self._format_sse({"step": "Calling LLM for Planning", "details": details_payload})
 
         previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
-
-        if self.disabled_history:
-            session_entities_str = json.dumps(self.session_known_entities, indent=2)
-        else:
-            latest_entities = self._get_latest_entities()
-            session_entities_str = json.dumps(latest_entities, indent=2)
+        
+        # --- MODIFICATION START: Use the full session entity history for the planner ---
+        # The planner now receives the complete list of all known entities, not just the last seen one.
+        session_entities_str = json.dumps(self.session_known_entities, indent=2)
+        # --- MODIFICATION END ---
 
         active_prompt_context_section = ""
         if self.active_prompt_name:
@@ -649,6 +648,7 @@ class PlanExecutor:
         phase_goal = phase.get("goal", "No goal defined.")
         phase_num = phase.get("phase", self.current_phase_index + 1)
         relevant_tools = phase.get("relevant_tools", [])
+        strategic_args = phase.get("arguments", {})
 
         if not is_loop_iteration:
             yield self._format_sse({
@@ -656,6 +656,26 @@ class PlanExecutor:
                 "details": f"Phase {phase_num}/{len(self.meta_plan)}: {phase_goal}",
                 "phase_details": phase
             })
+
+        # --- MODIFICATION START: Implement the "Fast Path" ---
+        tool_name = relevant_tools[0] if len(relevant_tools) == 1 else None
+        if tool_name:
+            all_tools = self.dependencies['STATE'].get('mcp_tools', {})
+            tool_def = all_tools.get(tool_name)
+            if tool_def:
+                required_args = {name for name, details in (tool_def.args.items() if hasattr(tool_def, 'args') and isinstance(tool_def.args, dict) else {}) if details.get('required')}
+                
+                if required_args.issubset(strategic_args.keys()):
+                    yield self._format_sse({
+                        "step": "Plan Optimization", 
+                        "type": "plan_optimization",
+                        "details": f"Executing direct action for '{tool_name}' via fast path."
+                    })
+                    fast_path_action = {"tool_name": tool_name, "arguments": strategic_args}
+                    async for event in self._execute_action_with_orchestrators(fast_path_action, phase):
+                        yield event
+                    return
+        # --- MODIFICATION END ---
 
         phase_attempts = 0
         max_phase_attempts = 5
@@ -674,7 +694,7 @@ class PlanExecutor:
 
             yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
             next_action, input_tokens, output_tokens = await self._get_next_tactical_action(
-                phase_goal, relevant_tools, enriched_args
+                phase_goal, relevant_tools, enriched_args, strategic_args
             )
             yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
             
@@ -875,7 +895,7 @@ class PlanExecutor:
 
         return enriched_args, events_to_yield, was_enriched
 
-    async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str], enriched_args: dict) -> tuple[dict | str, int, int]:
+    async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str], enriched_args: dict, strategic_args: dict) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
         
         permitted_tools_with_details = ""
@@ -919,9 +939,14 @@ class PlanExecutor:
                     f"- Your task is to process this single item next: {json.dumps(next_item)}\n"
                 )
 
+        strategic_arguments_section = "None provided."
+        if strategic_args:
+            strategic_arguments_section = json.dumps(strategic_args, indent=2)
+
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
+            strategic_arguments_section=strategic_arguments_section,
             permitted_tools_with_details=permitted_tools_with_details,
             last_attempt_info=self.last_failed_action_info,
             turn_action_history=json.dumps(self.turn_action_history, indent=2),
