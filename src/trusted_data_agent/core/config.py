@@ -14,6 +14,11 @@ class AppConfig:
     CURRENT_MODEL_PROVIDER_IN_PROFILE = None
     LLM_API_MAX_RETRIES = 5
     LLM_API_BASE_DELAY = 2 # The base delay in seconds for exponential backoff
+    # --- MODIFICATION START: Add developer flag for history synthesis ---
+    # When True, allows the agent to answer questions by synthesizing from conversation history
+    # without re-running tools. When False, it will force a re-plan if this scenario is detected.
+    ALLOW_SYNTHESIS_FROM_HISTORY = False
+    # --- MODIFICATION END ---
     #INITIALLY_DISABLED_PROMPTS = ["base_databaseBusinessDesc"]
     INITIALLY_DISABLED_PROMPTS = ["cust_promptExample","qlty_databaseQuality","dba_tableArchive","dba_databaseLineage", "dba_tableDropImpact", "dba_databaseHealthAssessment", "dba_userActivityAnalysis", "dba_systemVoice", "base_databaseBusinessDesc", "sales_prompt", "test_evsTools", "test_secTools", "test_dbaTools", "test_ragTools", "test_qltyTools", "test_fsTools", "test_baseTools", "rag_guidelines" ]
     # --- NEW: Add a list of tools to be disabled at startup ---

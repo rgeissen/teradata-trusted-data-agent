@@ -13,6 +13,9 @@ from trusted_data_agent.agent.formatter import OutputFormatter
 from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
+# --- MODIFICATION START: Import APP_CONFIG ---
+from trusted_data_agent.core.config import APP_CONFIG
+# --- MODIFICATION END ---
 from trusted_data_agent.agent.prompts import (
     ERROR_RECOVERY_PROMPT,
     WORKFLOW_META_PLANNING_PROMPT,
@@ -74,7 +77,9 @@ def unwrap_exception(e: BaseException) -> BaseException:
 class PlanExecutor:
     AgentState = AgentState
 
-    def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None, execution_depth: int = 0, disabled_history: bool = False, previous_turn_data: list = None):
+    # --- MODIFICATION START: Update __init__ to accept force_history_disable ---
+    def __init__(self, session_id: str, original_user_input: str, dependencies: dict, active_prompt_name: str = None, prompt_arguments: dict = None, execution_depth: int = 0, disabled_history: bool = False, previous_turn_data: list = None, force_history_disable: bool = False):
+    # --- MODIFICATION END ---
         self.session_id = session_id
         self.original_user_input = original_user_input
         self.dependencies = dependencies
@@ -113,12 +118,12 @@ class PlanExecutor:
         self.execution_depth = execution_depth
         self.MAX_EXECUTION_DEPTH = 5
         
-        self.disabled_history = disabled_history
+        # --- MODIFICATION START: Honor the force_history_disable flag ---
+        self.disabled_history = disabled_history or force_history_disable
+        # --- MODIFICATION END ---
         self.previous_turn_data = previous_turn_data or []
         self.is_delegation_only_plan = False
-        # --- MODIFICATION START: Add flag for synthesis from history mode ---
         self.is_synthesis_from_history = False
-        # --- MODIFICATION END ---
 
 
     @staticmethod
@@ -154,35 +159,59 @@ class PlanExecutor:
              self.structured_collected_data[context_key].append(tool_result)
         app_logger.info(f"Added tool result to structured data under key: '{context_key}'.")
 
+    # --- MODIFICATION START: Overhaul the run method for re-planning logic ---
     async def run(self):
         """The main, unified execution loop for the agent."""
         final_answer_override = None
         try:
             if self.state == self.AgentState.PLANNING:
-                async for event in self._generate_meta_plan(): yield event
+                should_replan = False
+                planning_is_disabled_history = self.disabled_history
+
+                while True: # Loop to allow for a single re-plan if necessary
+                    async for event in self._generate_meta_plan(force_disable_history=planning_is_disabled_history):
+                        yield event
+
+                    is_synthesis_plan = (
+                        self.meta_plan and
+                        len(self.meta_plan) == 1 and
+                        self.meta_plan[0].get('relevant_tools') == ["CoreLLMTask"]
+                    )
+
+                    if is_synthesis_plan:
+                        if APP_CONFIG.ALLOW_SYNTHESIS_FROM_HISTORY:
+                            self.is_synthesis_from_history = True
+                            app_logger.info("Detected a 'synthesis from history' plan. CoreLLMTask will run in full_context mode.")
+                            yield self._format_sse({
+                                "step": "Plan Optimization",
+                                "type": "plan_optimization",
+                                "details": "Agent determined the answer exists in history. Bypassing data collection and attempting direct synthesis."
+                            })
+                            break # Proceed with this plan
+                        else:
+                            # If we've already tried re-planning, break the loop to prevent infinite cycles
+                            if should_replan:
+                                app_logger.error("Re-planning without history still resulted in a synthesis-only plan. Executing as is.")
+                                break
+                            
+                            app_logger.warning("Planner suggested synthesis from history, but the feature is disabled. Forcing re-plan without history.")
+                            yield self._format_sse({
+                                "step": "System Correction",
+                                "type": "workaround",
+                                "details": "Agent is re-evaluating the plan without conversational history to ensure all necessary data is gathered."
+                            })
+                            should_replan = True
+                            planning_is_disabled_history = True
+                            continue # Re-run the planning loop with history disabled
+                    else:
+                        break # This is a normal plan, proceed
+
                 self.state = self.AgentState.EXECUTING
-                
                 self.is_delegation_only_plan = (
                     self.meta_plan and
                     len(self.meta_plan) == 1 and
                     'executable_prompt' in self.meta_plan[0]
                 )
-
-            # --- MODIFICATION START: Handle "Synthesis from History" Edge Case ---
-            self.is_synthesis_from_history = (
-                self.meta_plan and
-                len(self.meta_plan) == 1 and
-                self.meta_plan[0].get('relevant_tools') == ["CoreLLMTask"]
-            )
-
-            if self.is_synthesis_from_history:
-                app_logger.info("Detected a 'synthesis from history' plan. CoreLLMTask will run in full_context mode.")
-                yield self._format_sse({
-                    "step": "Plan Optimization",
-                    "type": "plan_optimization",
-                    "details": "Agent determined the answer exists in history. Bypassing data collection and attempting direct synthesis."
-                })
-            # --- MODIFICATION END ---
             
             try:
                 if self.state == self.AgentState.EXECUTING:
@@ -216,10 +245,12 @@ class PlanExecutor:
             self.state = self.AgentState.ERROR
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
         finally:
-            final_known_entities = self._update_session_known_entities()
-            session_manager.update_session_known_session_entities(self.session_id, final_known_entities)
-            session_manager.update_last_turn_data(self.session_id, self.turn_action_history)
-            app_logger.debug(f"Saved final known entities and last turn data to session {self.session_id}")
+            if not self.disabled_history:
+                final_known_entities = self._update_session_known_entities()
+                session_manager.update_session_known_session_entities(self.session_id, final_known_entities)
+                session_manager.update_last_turn_data(self.session_id, self.turn_action_history)
+                app_logger.debug(f"Saved final known entities and last turn data to session {self.session_id}")
+    # --- MODIFICATION END ---
 
     def _create_summary_from_history(self, history: list) -> str:
         """
@@ -315,7 +346,9 @@ class PlanExecutor:
                 latest_entities[key] = value
         return latest_entities
 
-    async def _generate_meta_plan(self):
+    # --- MODIFICATION START: Update _generate_meta_plan to accept force_disable_history ---
+    async def _generate_meta_plan(self, force_disable_history: bool = False):
+    # --- MODIFICATION END ---
         """The universal planner. It generates a meta-plan for ANY request."""
         prompt_obj = None
         explicit_parameters_section = ""
@@ -416,10 +449,13 @@ class PlanExecutor:
         )
         
         yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
+        # --- MODIFICATION START: Pass disable flag to LLM call ---
         response_text, input_tokens, output_tokens = await self._call_llm_and_update_tokens(
             prompt=planning_prompt, 
-            reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}'"
+            reason=f"Generating a strategic meta-plan for the goal: '{self.workflow_goal_prompt[:100]}'",
+            disabled_history=force_disable_history
         )
+        # --- MODIFICATION END ---
         yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
 
         app_logger.info(
