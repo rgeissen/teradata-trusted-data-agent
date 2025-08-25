@@ -646,6 +646,7 @@ class PlanExecutor:
         phase_num = phase.get("phase", self.current_phase_index + 1)
         relevant_tools = phase.get("relevant_tools", [])
         strategic_args = phase.get("arguments", {})
+        executable_prompt = phase.get("executable_prompt")
 
         if not is_loop_iteration:
             yield self._format_sse({
@@ -694,7 +695,7 @@ class PlanExecutor:
 
             yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
             next_action, input_tokens, output_tokens = await self._get_next_tactical_action(
-                phase_goal, relevant_tools, enriched_args, strategic_args
+                phase_goal, relevant_tools, enriched_args, strategic_args, executable_prompt
             )
             yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
             
@@ -737,8 +738,35 @@ class PlanExecutor:
         These orchestrators act as a safety net for common planning mistakes.
         """
         tool_name = action.get("tool_name")
-        if not tool_name:
-            raise ValueError("Action from tactical LLM is missing a 'tool_name'.")
+        prompt_name = action.get("prompt_name")
+
+        if not tool_name and not prompt_name:
+            raise ValueError("Action from tactical LLM is missing a 'tool_name' or 'prompt_name'.")
+
+        if prompt_name:
+            yield self._format_sse({
+                "step": "Prompt Execution Granted",
+                "details": f"Executing prompt '{prompt_name}' as a sub-task.",
+                "type": "workaround"
+            })
+            sub_executor = PlanExecutor(
+                session_id=self.session_id,
+                original_user_input=f"Executing prompt: {prompt_name}",
+                dependencies=self.dependencies,
+                active_prompt_name=prompt_name,
+                prompt_arguments=action.get("arguments", {}),
+                execution_depth=self.execution_depth + 1,
+                disabled_history=self.disabled_history,
+                previous_turn_data=self.turn_action_history
+            )
+            async for event in sub_executor.run():
+                yield event
+            
+            self.structured_collected_data.update(sub_executor.structured_collected_data)
+            self.workflow_state.update(sub_executor.workflow_state)
+            self.turn_action_history.extend(sub_executor.turn_action_history)
+            self.last_tool_output = {"status": "success"} # Mark as success for the loop
+            return
 
         is_range_candidate, date_param_name, tool_supports_range = self._is_date_query_candidate(action)
         if is_range_candidate and not tool_supports_range:
@@ -895,7 +923,7 @@ class PlanExecutor:
 
         return enriched_args, events_to_yield, was_enriched
 
-    async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str], enriched_args: dict, strategic_args: dict) -> tuple[dict | str, int, int]:
+    async def _get_next_tactical_action(self, current_phase_goal: str, relevant_tools: list[str], enriched_args: dict, strategic_args: dict, executable_prompt: str = None) -> tuple[dict | str, int, int]:
         """Makes a tactical LLM call to decide the single next best action for the current phase."""
         
         permitted_tools_with_details = ""
@@ -918,6 +946,27 @@ class PlanExecutor:
                     tool_str += f"\n    - `{arg_name}` ({arg_type}, {req_str}): {arg_desc}"
             permitted_tools_with_details += tool_str + "\n"
         
+        permitted_prompts_with_details = "None"
+        if executable_prompt:
+            all_prompts = self.dependencies['STATE'].get('structured_prompts', {})
+            prompt_info = None
+            for category, prompts in all_prompts.items():
+                for p in prompts:
+                    if p['name'] == executable_prompt:
+                        prompt_info = p
+                        break
+                if prompt_info: break
+            
+            if prompt_info:
+                prompt_str = f"\n- Prompt: `{prompt_info['name']}`\n  - Description: {prompt_info.get('description', 'No description.')}"
+                if prompt_info.get('arguments'):
+                    prompt_str += "\n  - Arguments:"
+                    for arg in prompt_info['arguments']:
+                        req_str = "required" if arg.get('required') else "optional"
+                        prompt_str += f"\n    - `{arg['name']}` ({arg.get('type', 'any')}, {req_str}): {arg.get('description', 'No description.')}"
+                permitted_prompts_with_details = prompt_str + "\n"
+
+
         context_enrichment_section = ""
         if enriched_args:
             context_items = [f"- `{name}`: `{value}`" for name, value in enriched_args.items()]
@@ -948,6 +997,7 @@ class PlanExecutor:
             current_phase_goal=current_phase_goal,
             strategic_arguments_section=strategic_arguments_section,
             permitted_tools_with_details=permitted_tools_with_details,
+            permitted_prompts_with_details=permitted_prompts_with_details,
             last_attempt_info=self.last_failed_action_info,
             turn_action_history=json.dumps(self.turn_action_history, indent=2),
             all_collected_data=json.dumps(self.workflow_state, indent=2),
@@ -978,9 +1028,10 @@ class PlanExecutor:
             
             action_details = raw_action
             tool_name_synonyms = ["tool_name", "name", "tool", "action_name"]
+            prompt_name_synonyms = ["prompt_name", "prompt"]
             arg_synonyms = ["arguments", "args", "tool_input", "action_input", "parameters"]
             
-            possible_wrapper_keys = ["action", "tool_call", "tool"]
+            possible_wrapper_keys = ["action", "tool_call", "tool", "prompt_call", "prompt"]
             for key in possible_wrapper_keys:
                 if key in action_details and isinstance(action_details[key], dict):
                     action_details = action_details[key]
@@ -992,6 +1043,12 @@ class PlanExecutor:
                     found_tool_name = action_details.pop(key)
                     break
             
+            found_prompt_name = None
+            for key in prompt_name_synonyms:
+                if key in action_details:
+                    found_prompt_name = action_details.pop(key)
+                    break
+
             found_args = None
             for key in arg_synonyms:
                 if key in action_details and isinstance(action_details[key], dict):
@@ -1003,19 +1060,28 @@ class PlanExecutor:
 
             normalized_action = {
                 "tool_name": found_tool_name,
+                "prompt_name": found_prompt_name,
                 "arguments": found_args if isinstance(found_args, dict) else {}
             }
 
-            if not normalized_action.get("tool_name") and len(relevant_tools) == 1:
-                normalized_action["tool_name"] = relevant_tools[0]
-                self.events_to_yield.append(self._format_sse({
-                    "step": "System Correction", "type": "workaround",
-                    "correction_type": "inferred_tool_name",
-                    "details": f"LLM omitted tool_name. System inferred '{relevant_tools[0]}'."
-                }))
+            if not normalized_action.get("tool_name") and not normalized_action.get("prompt_name"):
+                if len(relevant_tools) == 1:
+                    normalized_action["tool_name"] = relevant_tools[0]
+                    self.events_to_yield.append(self._format_sse({
+                        "step": "System Correction", "type": "workaround",
+                        "correction_type": "inferred_tool_name",
+                        "details": f"LLM omitted tool_name. System inferred '{relevant_tools[0]}'."
+                    }))
+                elif executable_prompt:
+                    normalized_action["prompt_name"] = executable_prompt
+                    self.events_to_yield.append(self._format_sse({
+                        "step": "System Correction", "type": "workaround",
+                        "correction_type": "inferred_prompt_name",
+                        "details": f"LLM omitted prompt_name. System inferred '{executable_prompt}'."
+                    }))
             
-            if not normalized_action.get("tool_name"):
-                 raise ValueError("Could not determine tool_name from LLM response.")
+            if not normalized_action.get("tool_name") and not normalized_action.get("prompt_name"):
+                 raise ValueError("Could not determine tool_name or prompt_name from LLM response.")
 
             return normalized_action, input_tokens, output_tokens
         except (json.JSONDecodeError, ValueError) as e:
@@ -1105,8 +1171,10 @@ class PlanExecutor:
             
             # Scenario 2: The last phase was a non-loop. Check if the very last action was a summary task.
             elif not final_summary_text:
-                last_action = self.turn_action_history[-1].get("action", {})
-                last_result = self.turn_action_history[-1].get("result", {})
+                last_action_entry = self.turn_action_history[-1] if self.turn_action_history else {}
+                last_action = last_action_entry.get("action", {})
+                last_result = last_action_entry.get("result", {})
+                
                 if (last_action.get("tool_name") == "CoreLLMTask" and 
                     last_result.get("status") == "success"):
                     
