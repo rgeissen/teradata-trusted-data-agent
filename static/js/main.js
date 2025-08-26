@@ -375,6 +375,103 @@ function toggleLoading(isLoading) {
     loadingSpinner.classList.toggle('hidden', !isLoading);
 }
 
+function _renderPlanningDetails(details) {
+    if (!details.summary || !details.full_text) return null;
+
+    let fullTextHtml = '';
+    const text = details.full_text;
+    const characterThreshold = 150;
+
+    if (text.length > characterThreshold) {
+        fullTextHtml = `
+            <details class="text-xs">
+                <summary class="cursor-pointer text-gray-400 hover:text-white">Full Text (${text.length} chars) - Click to expand</summary>
+                <div class="mt-2 p-2 status-text-block whitespace-pre-wrap">${text}</div>
+            </details>
+        `;
+    } else {
+        fullTextHtml = `<div class="status-text-block whitespace-pre-wrap">${text}</div>`;
+    }
+
+    return `
+        <div class="status-kv-grid">
+            <div class="status-kv-key">Summary</div>
+            <div class="status-kv-value">${details.summary}</div>
+            <div class="status-kv-key">Full Text</div>
+            <div class="status-kv-value">${fullTextHtml}</div>
+        </div>
+    `;
+}
+
+// --- MODIFICATION START: Update renderers for collapsible args and new layout ---
+function _renderMetaPlanDetails(details) {
+    if (!Array.isArray(details)) return null;
+
+    let html = `<details class="text-xs">
+                    <summary class="cursor-pointer text-gray-400 hover:text-white">Generated Plan (${details.length} phases) - Click to expand</summary>
+                    <div class="space-y-3 mt-2">`;
+
+    details.forEach(phase => {
+        let argsHtml = '';
+        if (phase.arguments) {
+            const argsString = JSON.stringify(phase.arguments, null, 2);
+            argsHtml = `
+                <div class="status-kv-item">
+                    <div class="status-kv-key">Args</div>
+                    <div class="status-kv-value">
+                        <details class="text-xs">
+                            <summary class="cursor-pointer text-gray-400 hover:text-white">View Arguments</summary>
+                            <div class="mt-2 p-2 status-text-block whitespace-pre-wrap">${argsString}</div>
+                        </details>
+                    </div>
+                </div>
+            `;
+        }
+
+        html += `<div class="status-phase-card">
+                    <div class="font-bold text-teradata-orange mb-2">Phase ${phase.phase}</div>
+                    <div class="status-kv-item"><div class="status-kv-key">Goal</div><div class="status-kv-value">${phase.goal}</div></div>`;
+        if (phase.relevant_tools) {
+            html += `<div class="status-kv-item"><div class="status-kv-key">Tools</div><div class="status-kv-value"><code class="status-code">${phase.relevant_tools.join(', ')}</code></div></div>`;
+        }
+        if (phase.executable_prompt) {
+            html += `<div class="status-kv-item"><div class="status-kv-key">Prompt</div><div class="status-kv-value"><code class="status-code">${phase.executable_prompt}</code></div></div>`;
+        }
+        html += `${argsHtml}</div>`;
+    });
+    html += '</div></details>';
+    return html;
+}
+
+function _renderToolIntentDetails(details) {
+    if (!details.tool_name && !details.prompt_name) return null;
+    
+    const name = details.tool_name || details.prompt_name;
+    const type = details.tool_name ? 'Tool' : 'Prompt';
+    
+    let argsHtml = '';
+    if (details.arguments) {
+        const argsString = JSON.stringify(details.arguments, null, 2);
+        argsHtml = `
+            <div class="status-kv-item">
+                <div class="status-kv-key">Args</div>
+                <div class="status-kv-value">
+                    <details class="text-xs">
+                        <summary class="cursor-pointer text-gray-400 hover:text-white">View Arguments</summary>
+                        <div class="mt-2 p-2 status-text-block whitespace-pre-wrap">${argsString}</div>
+                    </details>
+                </div>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="status-kv-item"><div class="status-kv-key">${type}</div><div class="status-kv-value"><code class="status-code">${name}</code></div></div>
+        ${argsHtml}
+    `;
+}
+// --- MODIFICATION END ---
+
 function updateStatusWindow(eventData, isFinal = false) {
     const { step, details, type } = eventData;
     if (!step) {
@@ -411,15 +508,44 @@ function updateStatusWindow(eventData, isFinal = false) {
     stepEl.appendChild(metricsEl);
 
     if (details) {
-        // --- MODIFICATION START: Content-aware rendering logic ---
-        if (typeof details === 'string') {
-            // If the detail is a simple string, render it as a paragraph.
-            const p = document.createElement('p');
-            p.className = 'text-xs text-gray-400';
-            p.textContent = details;
-            stepEl.appendChild(p);
+        let customRenderedHtml = null;
+        if (typeof details === 'object' && details !== null) {
+            if (step === "Calling LLM for Planning") {
+                customRenderedHtml = _renderPlanningDetails(details);
+            } else if (step === "Strategic Meta-Plan Generated") {
+                customRenderedHtml = _renderMetaPlanDetails(details);
+            } else if (step === "Tool Execution Intent") {
+                customRenderedHtml = _renderToolIntentDetails(details);
+            }
+        }
+
+        if (customRenderedHtml) {
+            const detailsContainer = document.createElement('div');
+            detailsContainer.innerHTML = customRenderedHtml;
+            stepEl.appendChild(detailsContainer);
+        } else if (typeof details === 'string') {
+            const characterThreshold = 300;
+            if (step === "LLM has generated the final answer" && details.length > characterThreshold) {
+                const detailsEl = document.createElement('details');
+                detailsEl.className = 'text-xs';
+
+                const summaryEl = document.createElement('summary');
+                summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
+                summaryEl.textContent = `Final Answer Summary (${details.length} chars) - Click to expand`;
+                detailsEl.appendChild(summaryEl);
+
+                const pre = document.createElement('pre');
+                pre.className = 'mt-2 p-2 bg-gray-900/70 rounded-md text-gray-300 overflow-x-auto whitespace-pre-wrap';
+                pre.textContent = details;
+                detailsEl.appendChild(pre);
+                stepEl.appendChild(detailsEl);
+            } else {
+                const p = document.createElement('p');
+                p.className = 'text-xs text-gray-400';
+                p.textContent = details;
+                stepEl.appendChild(p);
+            }
         } else if (typeof details === 'object' && details !== null) {
-            // For objects (like tool results, plans, etc.), format them as JSON.
             let detailsString = '';
             try {
                 detailsString = JSON.stringify(details, null, 2);
@@ -430,15 +556,14 @@ function updateStatusWindow(eventData, isFinal = false) {
             const characterThreshold = 300;
 
             if (detailsString.length > characterThreshold) {
-                // If the formatted JSON is long, make it collapsible.
                 const detailsEl = document.createElement('details');
                 detailsEl.className = 'text-xs';
 
                 const summaryEl = document.createElement('summary');
                 summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
 
-                let summaryText = `${step} Details - Click to expand`;
-                if (step.includes('Tool Execution Result') || step.includes('Tool Execution Intent')) {
+                let summaryText = `Details - Click to expand`;
+                if (step.includes('Tool Execution Result')) {
                     let itemCount = 0;
                     if (details.metadata) {
                         const countKey = Object.keys(details.metadata).find(k => k.toLowerCase().includes('count') || k.toLowerCase().includes('num'));
@@ -448,14 +573,6 @@ function updateStatusWindow(eventData, isFinal = false) {
                         itemCount = details.results.length;
                     }
                     summaryText = itemCount > 0 ? `Tool Result (${itemCount} items) - Click to expand` : 'Tool Result - Click to expand';
-                } else if (step.includes("Assistant's Thought Process")) {
-                    summaryText = `Final Answer Summary (${detailsString.length} chars) - Click to expand`;
-                } else if (step.includes("Strategic Meta-Plan Generated")) {
-                    let phaseCount = 0;
-                    if (Array.isArray(details)) {
-                        phaseCount = details.length;
-                    }
-                    summaryText = phaseCount > 0 ? `Generated Plan (${phaseCount} phases) - Click to expand` : `Generated Plan - Click to expand`;
                 }
                 
                 summaryEl.textContent = summaryText;
@@ -467,14 +584,12 @@ function updateStatusWindow(eventData, isFinal = false) {
                 detailsEl.appendChild(pre);
                 stepEl.appendChild(detailsEl);
             } else {
-                // If the formatted JSON is short, display it directly.
                 const pre = document.createElement('pre');
                 pre.className = 'p-2 bg-gray-900/70 rounded-md text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap';
                 pre.textContent = detailsString;
                 stepEl.appendChild(pre);
             }
         }
-        // --- MODIFICATION END ---
     }
 
     statusWindowContent.appendChild(stepEl);
@@ -653,7 +768,7 @@ async function startStream(endpoint, body) {
                             sessionItem.querySelector('span').textContent = name;
                         }
                     } else if (eventName === 'llm_thought') {
-                        updateStatusWindow({ step: "Assistant's Thought Process", ...eventData });
+                        updateStatusWindow({ step: "LLM has generated the final answer", ...eventData });
                     } else if (eventName === 'prompt_selected') {
                         updateStatusWindow(eventData);
                         if (eventData.prompt_name) {
