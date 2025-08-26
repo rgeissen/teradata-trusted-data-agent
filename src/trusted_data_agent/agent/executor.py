@@ -257,31 +257,55 @@ class PlanExecutor:
                 session_manager.update_last_turn_data(self.session_id, self.turn_action_history)
                 app_logger.debug(f"Saved final known entities and last turn data to session {self.session_id}")
 
+    # --- MODIFICATION START: Add a new method for distilling data for LLM context ---
+    def _distill_data_for_llm_context(self, data: any) -> any:
+        """
+        Recursively distills large data structures into metadata summaries to protect the LLM context window.
+        """
+        if isinstance(data, dict):
+            # Check if this dictionary looks like a tool result with a 'results' list
+            if 'results' in data and isinstance(data['results'], list):
+                results_list = data['results']
+                # Heuristic for "large" data: more than 5 rows or serialized size > 2KB
+                is_large = len(results_list) > 5 or len(json.dumps(results_list)) > 2048
+
+                if is_large and all(isinstance(item, dict) for item in results_list):
+                    distilled_result = {
+                        "status": data.get("status", "success"),
+                        "metadata": {
+                            "row_count": len(results_list),
+                            "columns": list(results_list[0].keys()) if results_list else [],
+                            **data.get("metadata", {})
+                        },
+                        "comment": "Full data is too large for context. This is a summary."
+                    }
+                    return distilled_result
+            
+            # If not a large tool result, recursively distill its values
+            return {key: self._distill_data_for_llm_context(value) for key, value in data.items()}
+        
+        elif isinstance(data, list):
+            # Recursively distill items in a list
+            return [self._distill_data_for_llm_context(item) for item in data]
+        
+        # Return primitive types as is
+        return data
+
     def _create_summary_from_history(self, history: list) -> str:
         """
         Creates a token-efficient, high-signal summary of a history list for the planner.
+        This now uses the data distillation method to keep the context lean.
         """
-        optimized_history = []
-        for entry in history:
-            action = entry.get("action", {})
-            result = entry.get("result", {})
-            
-            result_summary = {}
-            if isinstance(result, dict):
-                result_summary['status'] = result.get('status')
-                metadata = result.get("metadata", {})
-                if 'row_count' in metadata:
-                    result_summary['row_count'] = metadata['row_count']
-                if 'columns' in metadata:
-                    result_summary['columns'] = [col.get('name') for col in metadata.get('columns', [])]
-                if 'error' in result:
-                     result_summary['error'] = result.get('error')
-            
-            optimized_history.append({
-                "action": action,
-                "result_summary": result_summary
-            })
-        return json.dumps(optimized_history, indent=2)
+        # Create a deep copy to avoid modifying the original history data
+        history_copy = copy.deepcopy(history)
+        
+        # Distill the 'result' part of each history entry
+        for entry in history_copy:
+            if 'result' in entry:
+                entry['result'] = self._distill_data_for_llm_context(entry['result'])
+                
+        return json.dumps(history_copy, indent=2)
+    # --- MODIFICATION END ---
 
     def _update_session_known_entities(self) -> dict:
         """
@@ -989,7 +1013,9 @@ class PlanExecutor:
                 del action['notification']
 
             if tool_name == "CoreLLMTask" and not self.is_synthesis_from_history:
-                action.setdefault("arguments", {})["data"] = copy.deepcopy(self.workflow_state)
+                # --- MODIFICATION: Distill the workflow state before passing it to the CoreLLMTask ---
+                distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
+                action.setdefault("arguments", {})["data"] = distilled_workflow_state
             
             if not is_fast_path:
                 yield self._format_sse({"step": "Tool Execution Intent", "details": action}, "tool_result")
@@ -1204,6 +1230,10 @@ class PlanExecutor:
         if strategic_args:
             strategic_arguments_section = json.dumps(strategic_args, indent=2)
 
+        # --- MODIFICATION: Distill the workflow state and history for the tactical prompt ---
+        distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
+        distilled_turn_history = self._distill_data_for_llm_context(copy.deepcopy(self.turn_action_history))
+
         tactical_system_prompt = WORKFLOW_TACTICAL_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             current_phase_goal=current_phase_goal,
@@ -1211,8 +1241,8 @@ class PlanExecutor:
             permitted_tools_with_details=permitted_tools_with_details,
             permitted_prompts_with_details=permitted_prompts_with_details,
             last_attempt_info=self.last_failed_action_info,
-            turn_action_history=json.dumps(self.turn_action_history, indent=2),
-            all_collected_data=json.dumps(self.workflow_state, indent=2),
+            turn_action_history=json.dumps(distilled_turn_history, indent=2),
+            all_collected_data=json.dumps(distilled_workflow_state, indent=2),
             loop_context_section=loop_context_section,
             context_enrichment_section=context_enrichment_section
         )
@@ -1404,6 +1434,9 @@ class PlanExecutor:
                 "2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.\n\n"
                 "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context."
             )
+            
+            # --- MODIFICATION: Distill the workflow state before passing it to the final summary task ---
+            distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
 
             core_llm_command = {
                 "tool_name": "CoreLLMTask",
@@ -1411,8 +1444,8 @@ class PlanExecutor:
                     "task_description": standard_task_description,
                     "formatting_instructions": standard_formatting_instructions,
                     "user_question": self.original_user_input,
-                    "source_data": list(self.workflow_state.keys()),
-                    "data": copy.deepcopy(self.workflow_state)
+                    "source_data": list(distilled_workflow_state.keys()),
+                    "data": distilled_workflow_state
                 }
             }
             
@@ -1422,9 +1455,11 @@ class PlanExecutor:
             summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
             yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
 
+            # --- MODIFICATION START: Add the missing token update event for the final summary ---
             updated_session = session_manager.get_session(self.session_id)
             if updated_session:
                 yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
+            # --- MODIFICATION END ---
 
             if (summary_result and summary_result.get("status") == "success" and
                 "response" in (summary_result.get("results", [{}])[0] or {})):
@@ -1500,12 +1535,15 @@ class PlanExecutor:
                 failed_tool_name = action.get("action", {}).get("tool_name", failed_tool_name)
                 self.globally_skipped_tools.add(failed_tool_name)
                 break
+        
+        # --- MODIFICATION: Distill the workflow state before passing it to the recovery prompt ---
+        distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
 
         recovery_prompt = ERROR_RECOVERY_PROMPT.format(
             user_question=self.original_user_input,
             error_message=last_error,
             failed_tool_name=failed_tool_name,
-            all_collected_data=json.dumps(self.workflow_state, indent=2),
+            all_collected_data=json.dumps(distilled_workflow_state, indent=2),
             workflow_goal_and_plan=f"The agent was trying to achieve this goal: '{failed_phase_goal}'"
         )
         
