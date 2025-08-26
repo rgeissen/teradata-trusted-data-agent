@@ -125,6 +125,7 @@ class PlanExecutor:
         self.previous_turn_data = previous_turn_data or []
         self.is_delegation_only_plan = False
         self.is_synthesis_from_history = False
+        self.is_conversational_plan = False
 
 
     @staticmethod
@@ -172,6 +173,11 @@ class PlanExecutor:
                     async for event in self._generate_meta_plan(force_disable_history=planning_is_disabled_history):
                         yield event
 
+                    if self.is_conversational_plan:
+                        app_logger.info("Detected a conversational plan. Bypassing execution.")
+                        self.state = self.AgentState.SUMMARIZING
+                        break # Exit the planning loop and proceed to summarization
+
                     is_synthesis_plan = (
                         self.meta_plan and
                         len(self.meta_plan) == 1 and
@@ -204,13 +210,14 @@ class PlanExecutor:
                             continue # Re-run the planning loop with history disabled
                     else:
                         break # This is a normal plan, proceed
-
-                self.state = self.AgentState.EXECUTING
-                self.is_delegation_only_plan = (
-                    self.meta_plan and
-                    len(self.meta_plan) == 1 and
-                    'executable_prompt' in self.meta_plan[0]
-                )
+                
+                if not self.is_conversational_plan:
+                    self.state = self.AgentState.EXECUTING
+                    self.is_delegation_only_plan = (
+                        self.meta_plan and
+                        len(self.meta_plan) == 1 and
+                        'executable_prompt' in self.meta_plan[0]
+                    )
             
             try:
                 if self.state == self.AgentState.EXECUTING:
@@ -304,7 +311,7 @@ class PlanExecutor:
             action = entry.get("action", {})
             result = entry.get("result", {})
 
-            if result.get('status') == 'success':
+            if isinstance(result, dict) and result.get('status') == 'success':
                 args = action.get("arguments", {})
                 for arg_name, arg_value in args.items():
                     if arg_name in all_known_tool_args and arg_value:
@@ -440,11 +447,9 @@ class PlanExecutor:
             data_gathering_rule_str = (
                 "**CRITICAL RULE (Grounding):** Your primary objective is to answer the user's `GOAL` using data from the available tools. You **MUST** prioritize using a data-gathering tool if the `Workflow History` does not contain a direct and complete answer to the user's `GOAL`."
             )
-            # --- MODIFICATION START: Strengthen the "Answer from History" rule to prevent format errors ---
             answer_from_history_rule_str = (
                 "2.  **CRITICAL RULE (Answer from History):** If the `Workflow History` or `Known Entities` contain enough information to fully answer the user's `GOAL`, your response **MUST be a single JSON object** for a one-phase plan. This plan **MUST** call the `CoreLLMTask` tool. You **MUST** write the complete, final answer text inside the `synthesized_answer` argument within that tool call. **You are acting as a planner; DO NOT use the `FINAL_ANSWER:` format.**"
             )
-            # --- MODIFICATION END ---
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
@@ -489,6 +494,12 @@ class PlanExecutor:
                     json_str = match.group(1).strip()
 
             plan_object = json.loads(json_str)
+            
+            if isinstance(plan_object, dict) and plan_object.get("plan_type") == "conversational":
+                self.is_conversational_plan = True
+                self.temp_data_holder = plan_object.get("response", "I'm sorry, I don't have a response for that.")
+                yield self._format_sse({"step": "Conversational Response Identified", "details": self.temp_data_holder})
+                return
 
             if isinstance(plan_object, dict) and ("tool_name" in plan_object or "prompt_name" in plan_object):
                 yield self._format_sse({
@@ -653,7 +664,10 @@ class PlanExecutor:
                 "details": f"Engaging enhanced fast path for tool loop: '{tool_name}'"
             })
             
-            context_args = self._get_latest_entities()
+            # --- MODIFICATION START: Correctly merge arguments for the fast path ---
+            session_context_args = self._get_latest_entities()
+            phase_context_args = phase.get("arguments", {})
+            # --- MODIFICATION END ---
             
             synonym_map = {
                 'tablename': ['table_name', 'obj_name', 'object_name'],
@@ -666,13 +680,15 @@ class PlanExecutor:
             for i, item in enumerate(self.current_loop_items):
                 yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
                 
-                merged_args = context_args.copy()
+                # --- MODIFICATION START: Apply layered argument merging ---
+                merged_args = {**session_context_args, **phase_context_args}
                 if isinstance(item, dict):
                     for key, value in item.items():
                         normalized_key = key.lower().replace('_', '')
                         target_keys = synonym_map.get(normalized_key, [key])
                         for target_key in target_keys:
                             merged_args[target_key] = value
+                # --- MODIFICATION END ---
 
                 command = {"tool_name": tool_name, "arguments": merged_args}
                 async for event in self._execute_tool(command, phase, is_fast_path=True):
@@ -929,7 +945,6 @@ class PlanExecutor:
         tool_name = action.get("tool_name")
         arguments = action.get("arguments", {})
         
-        # --- MODIFICATION START: Add bypass logic for synthesized answers ---
         if tool_name == "CoreLLMTask" and "synthesized_answer" in arguments:
             app_logger.info("Bypassing CoreLLMTask execution. Using synthesized answer from planner.")
             self.last_tool_output = {
@@ -944,7 +959,6 @@ class PlanExecutor:
                 self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
                 self._add_to_structured_data(self.last_tool_output)
             return
-        # --- MODIFICATION END ---
         
         max_retries = 3
         
@@ -1303,7 +1317,9 @@ class PlanExecutor:
         """
         final_summary_text = ""
         
-        if self.meta_plan and self.turn_action_history:
+        if self.is_conversational_plan:
+            final_summary_text = self.temp_data_holder or "I'm sorry, I don't have a response for that."
+        elif self.meta_plan and self.turn_action_history:
             last_phase = self.meta_plan[-1]
             last_phase_num = last_phase.get("phase", len(self.meta_plan))
             phase_result_key = f"result_of_phase_{last_phase_num}"
@@ -1340,8 +1356,8 @@ class PlanExecutor:
                 last_action = last_action_entry.get("action", {})
                 last_result = last_action_entry.get("result", {})
                 
-                if (last_action.get("tool_name") == "CoreLLMTask" and 
-                    last_result.get("status") == "success"):
+                if (isinstance(last_action, dict) and last_action.get("tool_name") == "CoreLLMTask" and 
+                    isinstance(last_result, dict) and last_result.get("status") == "success"):
                     
                     app_logger.info("Planner-defined single summary task found. Using its result directly.")
                     summary_data = last_result.get("results", [{}])[0]
@@ -1504,7 +1520,7 @@ class PlanExecutor:
             
             self.meta_plan = new_plan
             self.current_phase_index = 0
-            self.turn_action_history.append({"action": "RECOVERY_REPLAN", "result": "success"})
+            self.turn_action_history.append({"action": "RECOVERY_REPLAN", "result": {"status": "success"}})
 
         except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(f"LLM-based recovery failed. The LLM did not return a valid new plan. Response: {response_text}. Error: {e}")
