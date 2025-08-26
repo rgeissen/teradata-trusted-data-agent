@@ -366,6 +366,7 @@ Your response MUST be one of the following two formats:
 # --- MODIFICATION END ---
 
 
+# --- MODIFICATION START: Update the "Answer from History" rule to include the synthesized answer ---
 WORKFLOW_META_PLANNING_PROMPT = """
 You are an expert strategic planning assistant. Your task is to analyze a user's request or a complex workflow goal and decompose it into a high-level, phased meta-plan. This plan will serve as a state machine executor.
 
@@ -379,7 +380,9 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
 - Current Execution Depth: {execution_depth} (Max is 5)
 {active_prompt_context_section}
 --- INSTRUCTIONS ---
+{data_gathering_priority_rule}
 1.  **Analyze the Goal and Context**: Carefully read the "GOAL" and review the "CONTEXT" section to understand the user's full intent and what has already been established.
+{answer_from_history_rule}
 2.  **CRITICAL RULE (Contextual Prioritization):** You **MUST** prioritize entities from the user's current `GOAL` over conflicting information in `Known Entities`. The `Known Entities` memory is only for supplementing the `GOAL` (e.g., filling in a missing `database_name`), not for overriding it.
 
     **Example of Correct Prioritization:**
@@ -431,6 +434,7 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
 
 Your response MUST be a single, valid JSON list of phase objects. Do NOT add any extra text, conversation, or markdown.
 """
+# --- MODIFICATION END ---
 
 # --- MODIFICATION: Add placeholder for permitted prompts and update instructions ---
 WORKFLOW_TACTICAL_PROMPT = """

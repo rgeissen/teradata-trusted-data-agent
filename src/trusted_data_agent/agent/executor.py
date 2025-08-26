@@ -13,9 +13,7 @@ from trusted_data_agent.agent.formatter import OutputFormatter
 from trusted_data_agent.core import session_manager
 from trusted_data_agent.mcp import adapter as mcp_adapter
 from trusted_data_agent.llm import handler as llm_handler
-# --- MODIFICATION START: Import APP_CONFIG ---
 from trusted_data_agent.core.config import APP_CONFIG
-# --- MODIFICATION END ---
 from trusted_data_agent.agent.prompts import (
     ERROR_RECOVERY_PROMPT,
     WORKFLOW_META_PLANNING_PROMPT,
@@ -28,12 +26,10 @@ from trusted_data_agent.agent import orchestrators
 
 app_logger = logging.getLogger("quart.app")
 
-# --- MODIFICATION START: Remove the overly broad "Object does not exist" rule ---
 DEFINITIVE_TOOL_ERRORS = {
     "Invalid query": "The generated query was invalid and could not be run against the database.",
     "3523": "The user does not have the necessary permissions for the requested object." # Example of a specific Teradata error code
 }
-# --- MODIFICATION END ---
 
 RECOVERABLE_TOOL_ERRORS = {
     # This regex now captures the full object path (e.g., db.table) for better context
@@ -438,6 +434,18 @@ class PlanExecutor:
         if self.active_prompt_name:
             active_prompt_context_section = f"- Active Prompt: You are currently executing the '{self.active_prompt_name}' prompt. Your plan should execute the steps described in the goal, not re-call the same prompt."
 
+        data_gathering_rule_str = ""
+        answer_from_history_rule_str = ""
+        if APP_CONFIG.ALLOW_SYNTHESIS_FROM_HISTORY:
+            data_gathering_rule_str = (
+                "**CRITICAL RULE (Grounding):** Your primary objective is to answer the user's `GOAL` using data from the available tools. You **MUST** prioritize using a data-gathering tool if the `Workflow History` does not contain a direct and complete answer to the user's `GOAL`."
+            )
+            # --- MODIFICATION START: Strengthen the "Answer from History" rule to prevent format errors ---
+            answer_from_history_rule_str = (
+                "2.  **CRITICAL RULE (Answer from History):** If the `Workflow History` or `Known Entities` contain enough information to fully answer the user's `GOAL`, your response **MUST be a single JSON object** for a one-phase plan. This plan **MUST** call the `CoreLLMTask` tool. You **MUST** write the complete, final answer text inside the `synthesized_answer` argument within that tool call. **You are acting as a planner; DO NOT use the `FINAL_ANSWER:` format.**"
+            )
+            # --- MODIFICATION END ---
+
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
             workflow_goal=self.workflow_goal_prompt,
             explicit_parameters_section=explicit_parameters_section,
@@ -445,7 +453,9 @@ class PlanExecutor:
             turn_action_history=previous_turn_summary_str,
             session_known_entities=session_entities_str,
             execution_depth=self.execution_depth,
-            active_prompt_context_section=active_prompt_context_section
+            active_prompt_context_section=active_prompt_context_section,
+            data_gathering_priority_rule=data_gathering_rule_str,
+            answer_from_history_rule=answer_from_history_rule_str
         )
         
         yield self._format_sse({"target": "llm", "state": "busy"}, "status_indicator_update")
@@ -608,7 +618,6 @@ class PlanExecutor:
         loop_over_key = phase.get("loop_over")
         relevant_tools = phase.get("relevant_tools", [])
 
-        # --- MODIFICATION START: Emit structured phase start event ---
         yield self._format_sse({
             "step": f"Starting Plan Phase {phase_num}/{len(self.meta_plan)}",
             "type": "phase_start",
@@ -619,19 +628,16 @@ class PlanExecutor:
                 "phase_details": phase
             }
         })
-        # --- MODIFICATION END ---
 
         self.current_loop_items = self._extract_loop_items(loop_over_key)
         
         if not self.current_loop_items:
             yield self._format_sse({"step": "Skipping Empty Loop", "details": f"No items found from '{loop_over_key}' to loop over."})
-            # --- MODIFICATION START: Emit phase end event even for skipped loops ---
             yield self._format_sse({
                 "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
                 "type": "phase_end",
                 "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "skipped"}
             })
-            # --- MODIFICATION END ---
             return
 
         is_fast_path_candidate = (
@@ -705,13 +711,11 @@ class PlanExecutor:
             self.current_loop_items = []
             self.processed_loop_items = []
 
-        # --- MODIFICATION START: Emit structured phase end event ---
         yield self._format_sse({
             "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
             "type": "phase_end",
             "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
         })
-        # --- MODIFICATION END ---
 
     async def _execute_standard_phase(self, phase: dict, is_loop_iteration: bool = False):
         """Executes a single, non-looping phase or a single iteration of a complex loop."""
@@ -722,7 +726,6 @@ class PlanExecutor:
         executable_prompt = phase.get("executable_prompt")
 
         if not is_loop_iteration:
-            # --- MODIFICATION START: Emit structured phase start event ---
             yield self._format_sse({
                 "step": f"Starting Plan Phase {phase_num}/{len(self.meta_plan)}",
                 "type": "phase_start",
@@ -733,7 +736,6 @@ class PlanExecutor:
                     "phase_details": phase
                 }
             })
-            # --- MODIFICATION END ---
 
         tool_name = relevant_tools[0] if len(relevant_tools) == 1 else None
         if tool_name:
@@ -756,14 +758,12 @@ class PlanExecutor:
                         {"target": "context", "state": "processing_complete"}, 
                         "context_state_update"
                     )
-                    # --- MODIFICATION START: Emit phase end event after fast path ---
                     if not is_loop_iteration:
                         yield self._format_sse({
                             "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
                             "type": "phase_end",
                             "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
                         })
-                    # --- MODIFICATION END ---
                     return
 
         phase_attempts = 0
@@ -820,14 +820,12 @@ class PlanExecutor:
             else:
                 app_logger.warning(f"Action failed. Attempt {phase_attempts}/{max_phase_attempts} for phase.")
         
-        # --- MODIFICATION START: Emit phase end event for standard phases ---
         if not is_loop_iteration:
             yield self._format_sse({
                 "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
                 "type": "phase_end",
                 "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
             })
-        # --- MODIFICATION END ---
 
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
         """
@@ -885,7 +883,6 @@ class PlanExecutor:
         async for event in self._execute_tool(action, phase):
             yield event
 
-    # --- MODIFICATION START: New method to resolve argument placeholders ---
     def _resolve_arguments(self, arguments: dict) -> dict:
         """
         Scans tool arguments for placeholders (e.g., 'result_of_phase_1') and
@@ -926,17 +923,33 @@ class PlanExecutor:
                 resolved_args[key] = value
         
         return resolved_args
-    # --- MODIFICATION END ---
 
     async def _execute_tool(self, action: dict, phase: dict, is_fast_path: bool = False):
         """Executes a single tool call with a built-in retry and recovery mechanism."""
         tool_name = action.get("tool_name")
+        arguments = action.get("arguments", {})
+        
+        # --- MODIFICATION START: Add bypass logic for synthesized answers ---
+        if tool_name == "CoreLLMTask" and "synthesized_answer" in arguments:
+            app_logger.info("Bypassing CoreLLMTask execution. Using synthesized answer from planner.")
+            self.last_tool_output = {
+                "status": "success",
+                "results": [{"response": arguments["synthesized_answer"]}]
+            }
+            if not is_fast_path:
+                yield self._format_sse({"step": "Tool Execution Result", "details": self.last_tool_output, "tool_name": tool_name}, "tool_result")
+                self.turn_action_history.append({"action": action, "result": self.last_tool_output})
+                phase_num = phase.get("phase", self.current_phase_index + 1)
+                phase_result_key = f"result_of_phase_{phase_num}"
+                self.workflow_state.setdefault(phase_result_key, []).append(self.last_tool_output)
+                self._add_to_structured_data(self.last_tool_output)
+            return
+        # --- MODIFICATION END ---
+        
         max_retries = 3
         
-        # --- MODIFICATION START: Resolve arguments before execution ---
         if 'arguments' in action:
-            action['arguments'] = self._resolve_arguments(action['arguments'])
-        # --- MODIFICATION END ---
+            action['arguments'] = self._resolve_arguments(arguments)
 
         if tool_name == "CoreLLMTask" and self.is_synthesis_from_history:
             app_logger.info("Preparing CoreLLMTask for 'full_context' execution.")

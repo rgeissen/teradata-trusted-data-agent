@@ -198,13 +198,16 @@ async def simple_chat():
         app_logger.error(f"Error in simple_chat: {e}", exc_info=True)
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
+# --- MODIFICATION START: Add ALLOW_SYNTHESIS_FROM_HISTORY to the config endpoint ---
 @api_bp.route("/app-config")
 async def get_app_config():
     """Returns the startup configuration flags."""
     return jsonify({
         "all_models_unlocked": APP_CONFIG.ALL_MODELS_UNLOCKED,
-        "charting_enabled": APP_CONFIG.CHARTING_ENABLED
+        "charting_enabled": APP_CONFIG.CHARTING_ENABLED,
+        "allow_synthesis_from_history": APP_CONFIG.ALLOW_SYNTHESIS_FROM_HISTORY
     })
+# --- MODIFICATION END ---
 
 @api_bp.route("/api/prompts-version")
 async def get_prompts_version():

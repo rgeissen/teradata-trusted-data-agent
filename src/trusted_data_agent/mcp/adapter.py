@@ -60,6 +60,7 @@ UTIL_TOOL_DEFINITIONS = [
     }
 ]
 
+# --- MODIFICATION START: Add new 'synthesized_answer' argument ---
 CORE_LLM_TASK_DEFINITION = {
     "name": "CoreLLMTask",
     "description": "Performs internal, LLM-driven tasks that are not direct calls to the Teradata database. This tool is used for text synthesis, summarization, and formatting based on a specific 'task_description' provided by the LLM itself.",
@@ -73,9 +74,15 @@ CORE_LLM_TASK_DEFINITION = {
             "type": "list[string]",
             "description": "A list of keys (e.g., 'result_of_phase_1') identifying which data from the workflow history is relevant for this task. This is critical for providing the correct context.",
             "required": True
+        },
+        "synthesized_answer": {
+            "type": "string",
+            "description": "The final, synthesized natural language answer, provided directly by the planner when it can confidently answer from history.",
+            "required": False
         }
     }
 }
+# --- MODIFICATION END ---
 
 
 def _extract_and_clean_description(description: str | None) -> tuple[str, str]:
@@ -117,7 +124,6 @@ def _extract_prompt_type_from_description(description: str | None) -> tuple[str,
         
     return cleaned_description, prompt_type
 
-# --- MODIFICATION START: New helper functions to parse raw tool data ---
 def _get_arg_descriptions_from_string(description: str) -> tuple[str, dict]:
     """
     Parses the "Arguments" or "Args" section of a description string to extract
@@ -133,7 +139,6 @@ def _get_arg_descriptions_from_string(description: str) -> tuple[str, dict]:
     cleaned_description = description[:args_section_match.start()].strip()
     args_section_text = description[args_section_match.end():]
     
-    # Simple regex for 'name - description' or 'name: description' formats
     pattern = re.compile(r'^\s*(?P<name>\w+)\s*[-:]\s*(?P<desc>.+)')
     descriptions = {}
     
@@ -152,12 +157,10 @@ def _get_type_from_schema(schema: dict) -> str:
     if "type" in schema:
         return schema["type"]
     if "anyOf" in schema and isinstance(schema["anyOf"], list):
-        # Find the first non-null type
         for type_option in schema["anyOf"]:
             if isinstance(type_option, dict) and type_option.get("type") != "null":
                 return type_option.get("type", "any")
     return "any"
-# --- MODIFICATION END ---
 
 
 async def load_and_categorize_mcp_resources(STATE: dict):
@@ -169,12 +172,11 @@ async def load_and_categorize_mcp_resources(STATE: dict):
     async with mcp_client.session("teradata_mcp_server") as temp_session:
         app_logger.info("--- Loading and classifying MCP tools and prompts... ---")
 
-        # --- MODIFICATION START: Process raw tool data instead of using adapter ---
         list_tools_result = await temp_session.list_tools()
         raw_tools = list_tools_result.tools if hasattr(list_tools_result, 'tools') else []
         
         processed_tools = []
-        class SimpleTool: # Helper class to create a consistent object structure
+        class SimpleTool:
             def __init__(self, **kwargs):
                 self.__dict__.update(kwargs)
 
@@ -184,7 +186,6 @@ async def load_and_categorize_mcp_resources(STATE: dict):
             processed_args = []
             cleaned_description = tool_desc
 
-            # Primary strategy: Use the rich inputSchema
             if hasattr(raw_tool, 'inputSchema') and raw_tool.inputSchema and 'properties' in raw_tool.inputSchema:
                 cleaned_description, arg_desc_map = _get_arg_descriptions_from_string(tool_desc)
                 schema = raw_tool.inputSchema
@@ -197,19 +198,16 @@ async def load_and_categorize_mcp_resources(STATE: dict):
                         "required": arg_name in required_args,
                         "description": arg_desc_map.get(arg_name, arg_schema.get('title', 'No description.'))
                     })
-            # Fallback strategy: Parse the description string if no schema is present
             else:
                  cleaned_description, processed_args = _parse_arguments_from_mcp_tool_parameter_description(tool_desc)
             
-            # Create a consistent tool object for the rest of the application
             processed_tools.append(SimpleTool(
                 name=tool_name,
                 description=cleaned_description,
-                args={arg['name']: arg for arg in processed_args} # Keep .args structure for context builder
+                args={arg['name']: arg for arg in processed_args}
             ))
 
         loaded_tools = processed_tools
-        # --- MODIFICATION END ---
         
         loaded_prompts = []
         try:
@@ -219,7 +217,6 @@ async def load_and_categorize_mcp_resources(STATE: dict):
         except Exception as e:
             app_logger.error(f"CRITICAL ERROR while loading prompts: {e}", exc_info=True)
         
-        # Add client-side utility tools
         viz_tool_obj = SimpleTool(**VIZ_TOOL_DEFINITION)
         loaded_tools.append(viz_tool_obj)
         for util_tool_def in UTIL_TOOL_DEFINITIONS:
@@ -309,10 +306,9 @@ async def load_and_categorize_mcp_resources(STATE: dict):
                 tool_context_parts.append(f"--- Category: {category} ---")
                 for tool_info in enabled_tools_in_category:
                     tool_obj = STATE['mcp_tools'][tool_info['name']]
-                    tool_str = f"- `{tool_obj.name}` (tool): {tool_obj.description}" # Use cleaned description
+                    tool_str = f"- `{tool_obj.name}` (tool): {tool_obj.description}"
                     args_dict = tool_obj.args if isinstance(tool_obj.args, dict) else {}
 
-                    # This block now uses the rich .args dict we built
                     if args_dict:
                         tool_str += "\n  - Arguments:"
                         for arg_name, arg_details in args_dict.items():
@@ -491,7 +487,6 @@ def _build_g2plot_spec(args: dict, data: list[dict]) -> dict:
 
     return {"type": g2plot_type, "options": options}
 
-# --- MODIFICATION START: Refactor CoreLLMTask to support two modes ---
 async def _invoke_core_llm_task(STATE: dict, command: dict, session_history: list = None, mode: str = "standard") -> tuple[dict, int, int]:
     """
     Executes a task handled by the LLM itself and returns the result along with token counts.
@@ -514,7 +509,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict, session_history: lis
             for entry in session_history:
                 role = entry.get('role', 'unknown')
                 content = entry.get('content', '')
-                # We add a separator to prevent the LLM from getting confused by the raw HTML content
                 history_str_parts.append(f"--- Role: {role.capitalize()} ---\n{content}\n--- End Entry ---")
         history_str = "\n".join(history_str_parts)
 
@@ -628,7 +622,6 @@ async def _invoke_core_llm_task(STATE: dict, command: dict, session_history: lis
         result = {"status": "success", "results": [{"response": response_text}]}
 
     return result, input_tokens, output_tokens
-# --- MODIFICATION END ---
 
 async def _invoke_util_calculate_date_range(STATE: dict, command: dict) -> dict:
     """
@@ -738,14 +731,11 @@ async def invoke_mcp_tool(STATE: dict, command: dict) -> tuple[any, int, int]:
     mcp_client = STATE.get('mcp_client')
     tool_name = command.get("tool_name")
     
-    # --- MODIFICATION START: Intercept CoreLLMTask to pass mode and history ---
     if tool_name == "CoreLLMTask":
         args = command.get("arguments", {})
-        # Use .pop() to remove our custom parameters so they don't get passed into the LLM prompt
         mode = args.pop("mode", "standard")
         session_history = args.pop("session_history", None)
         return await _invoke_core_llm_task(STATE, command, session_history=session_history, mode=mode)
-    # --- MODIFICATION END ---
 
     if tool_name == "util_getCurrentDate":
         app_logger.info("Executing client-side tool: util_getCurrentDate")

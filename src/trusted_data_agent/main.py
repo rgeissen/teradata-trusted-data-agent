@@ -14,7 +14,8 @@ from hypercorn.config import Config
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 from trusted_data_agent.core.config import APP_CONFIG
-from trusted_data_agent.api.routes import api_bp, set_dependencies
+# This import is moved inside the factory to prevent circular dependency
+# from trusted_data_agent.api.routes import api_bp, set_dependencies
 
 APP_STATE = {
     "llm": None, "mcp_client": None, "server_configs": {},
@@ -43,15 +44,16 @@ def create_app():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
     template_folder = os.path.join(project_root, 'templates')
-    static_folder = os.path.join(project_root, 'static') # Add this line
+    static_folder = os.path.join(project_root, 'static')
     
-    app = Quart(__name__, template_folder=template_folder, static_folder=static_folder) # Add static_folder here
+    app = Quart(__name__, template_folder=template_folder, static_folder=static_folder)
     app = cors(app, allow_origin="*")
 
+    # Import and register the blueprint here to avoid circular import
+    from trusted_data_agent.api.routes import api_bp, set_dependencies
     set_dependencies(APP_STATE)
     app.register_blueprint(api_bp)
 
-    # --- MODIFICATION START: Add Content Security Policy headers ---
     @app.after_request
     async def add_security_headers(response):
         """
@@ -70,7 +72,6 @@ def create_app():
         ]
         response.headers['Content-Security-Policy'] = "; ".join(csp_policy)
         return response
-    # --- MODIFICATION END ---
     
     return app
 
@@ -84,7 +85,6 @@ async def main():
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     
-    # Apply the custom filter to the handler
     handler.addFilter(SseConnectionFilter())
     
     root_logger = logging.getLogger()
@@ -92,19 +92,14 @@ async def main():
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.INFO)
 
-    # The app's logger will propagate to the root, so we just set its level.
     app.logger.setLevel(logging.INFO)
 
-    # --- MODIFICATION START: Silence noisy third-party libraries ---
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("mcp.client.streamable_http").setLevel(logging.WARNING)
-    # --- MODIFICATION END ---
     
-    # Prevent Hypercorn's loggers from propagating to the root logger
     logging.getLogger("hypercorn.access").propagate = False
     logging.getLogger("hypercorn.error").propagate = False
 
-    # Configure the separate logger for LLM conversations
     llm_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversation.log"))
     llm_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
     llm_logger = logging.getLogger("llm_conversation")
@@ -112,7 +107,6 @@ async def main():
     llm_logger.addHandler(llm_log_handler)
     llm_logger.propagate = False
     
-    # --- NEW: Configure the separate logger for full LLM context history ---
     llm_history_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversation_history.log"))
     llm_history_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
     llm_history_logger = logging.getLogger("llm_conversation_history")
@@ -137,7 +131,6 @@ if __name__ == "__main__":
         APP_CONFIG.ALL_MODELS_UNLOCKED = True
         print("\n--- DEV MODE: All models will be selectable. ---")
     
-    # Charting is now enabled by default in config.py
     print("\n--- CHARTING ENABLED: Charting configuration is active. ---")
 
     try:
