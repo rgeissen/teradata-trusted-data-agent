@@ -381,14 +381,6 @@ function updateStatusWindow(eventData, isFinal = false) {
         return;
     }
 
-    // --- DEBUGGING START ---
-    if (step.includes("Strategic Meta-Plan Generated")) {
-        console.log("DEBUG: Received 'Strategic Meta-Plan Generated' event.");
-        console.log("DEBUG: Details object:", details);
-        console.log("DEBUG: Type of details:", typeof details);
-    }
-    // --- DEBUGGING END ---
-
     const lastStep = document.getElementById(`status-step-${currentStatusId}`);
     if (lastStep) {
         lastStep.classList.remove('active');
@@ -419,26 +411,15 @@ function updateStatusWindow(eventData, isFinal = false) {
     stepEl.appendChild(metricsEl);
 
     if (details) {
-        if (typeof details === 'object' && details !== null && 'summary' in details && 'full_text' in details) {
-            if (details.full_text.length > 150) {
-                const detailsEl = document.createElement('details');
-                detailsEl.className = 'text-xs';
-                const summaryEl = document.createElement('summary');
-                summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
-                summaryEl.textContent = details.summary;
-                detailsEl.appendChild(summaryEl);
-                const pre = document.createElement('pre');
-                pre.className = 'mt-2 p-2 bg-gray-900/70 rounded-md text-gray-300 overflow-x-auto whitespace-pre-wrap';
-                pre.textContent = details.full_text;
-                detailsEl.appendChild(pre);
-                stepEl.appendChild(detailsEl);
-            } else {
-                const p = document.createElement('p');
-                p.className = 'text-xs text-gray-400';
-                p.textContent = details.full_text;
-                stepEl.appendChild(p);
-            }
-        } else {
+        // --- MODIFICATION START: Content-aware rendering logic ---
+        if (typeof details === 'string') {
+            // If the detail is a simple string, render it as a paragraph.
+            const p = document.createElement('p');
+            p.className = 'text-xs text-gray-400';
+            p.textContent = details;
+            stepEl.appendChild(p);
+        } else if (typeof details === 'object' && details !== null) {
+            // For objects (like tool results, plans, etc.), format them as JSON.
             let detailsString = '';
             try {
                 detailsString = JSON.stringify(details, null, 2);
@@ -446,21 +427,10 @@ function updateStatusWindow(eventData, isFinal = false) {
                 detailsString = String(details);
             }
             
-            const characterThreshold = 100;
-
-            // --- DEBUGGING START ---
-            if (step.includes("Strategic Meta-Plan Generated")) {
-                console.log(`DEBUG: Plan string length is ${detailsString.length}. Threshold is ${characterThreshold}.`);
-            }
-            // --- DEBUGGING END ---
+            const characterThreshold = 300;
 
             if (detailsString.length > characterThreshold) {
-                // --- DEBUGGING START ---
-                if (step.includes("Strategic Meta-Plan Generated")) {
-                    console.log("DEBUG: Length exceeds threshold. Creating collapsible element.");
-                }
-                // --- DEBUGGING END ---
-
+                // If the formatted JSON is long, make it collapsible.
                 const detailsEl = document.createElement('details');
                 detailsEl.className = 'text-xs';
 
@@ -470,14 +440,12 @@ function updateStatusWindow(eventData, isFinal = false) {
                 let summaryText = `${step} Details - Click to expand`;
                 if (step.includes('Tool Execution Result') || step.includes('Tool Execution Intent')) {
                     let itemCount = 0;
-                    if (typeof details === 'object' && details !== null) {
-                        if (details.metadata) {
-                            const countKey = Object.keys(details.metadata).find(k => k.toLowerCase().includes('count') || k.toLowerCase().includes('num'));
-                            if (countKey) itemCount = details.metadata[countKey];
-                        }
-                        if (itemCount === 0 && details.results && Array.isArray(details.results)) {
-                            itemCount = details.results.length;
-                        }
+                    if (details.metadata) {
+                        const countKey = Object.keys(details.metadata).find(k => k.toLowerCase().includes('count') || k.toLowerCase().includes('num'));
+                        if (countKey) itemCount = details.metadata[countKey];
+                    }
+                    if (itemCount === 0 && details.results && Array.isArray(details.results)) {
+                        itemCount = details.results.length;
                     }
                     summaryText = itemCount > 0 ? `Tool Result (${itemCount} items) - Click to expand` : 'Tool Result - Click to expand';
                 } else if (step.includes("Assistant's Thought Process")) {
@@ -499,12 +467,14 @@ function updateStatusWindow(eventData, isFinal = false) {
                 detailsEl.appendChild(pre);
                 stepEl.appendChild(detailsEl);
             } else {
+                // If the formatted JSON is short, display it directly.
                 const pre = document.createElement('pre');
                 pre.className = 'p-2 bg-gray-900/70 rounded-md text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap';
                 pre.textContent = detailsString;
                 stepEl.appendChild(pre);
             }
         }
+        // --- MODIFICATION END ---
     }
 
     statusWindowContent.appendChild(stepEl);
