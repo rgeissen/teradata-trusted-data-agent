@@ -608,16 +608,30 @@ class PlanExecutor:
         loop_over_key = phase.get("loop_over")
         relevant_tools = phase.get("relevant_tools", [])
 
+        # --- MODIFICATION START: Emit structured phase start event ---
         yield self._format_sse({
-            "step": "Starting Looping Phase",
-            "details": f"Phase {phase_num}/{len(self.meta_plan)}: {phase_goal}",
-            "phase_details": phase
+            "step": f"Starting Plan Phase {phase_num}/{len(self.meta_plan)}",
+            "type": "phase_start",
+            "details": {
+                "phase_num": phase_num,
+                "total_phases": len(self.meta_plan),
+                "goal": phase_goal,
+                "phase_details": phase
+            }
         })
+        # --- MODIFICATION END ---
 
         self.current_loop_items = self._extract_loop_items(loop_over_key)
         
         if not self.current_loop_items:
             yield self._format_sse({"step": "Skipping Empty Loop", "details": f"No items found from '{loop_over_key}' to loop over."})
+            # --- MODIFICATION START: Emit phase end event even for skipped loops ---
+            yield self._format_sse({
+                "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
+                "type": "phase_end",
+                "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "skipped"}
+            })
+            # --- MODIFICATION END ---
             return
 
         is_fast_path_candidate = (
@@ -691,7 +705,13 @@ class PlanExecutor:
             self.current_loop_items = []
             self.processed_loop_items = []
 
-        yield self._format_sse({"step": f"Looping Phase {phase_num} Complete", "details": "All items have been processed."})
+        # --- MODIFICATION START: Emit structured phase end event ---
+        yield self._format_sse({
+            "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
+            "type": "phase_end",
+            "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
+        })
+        # --- MODIFICATION END ---
 
     async def _execute_standard_phase(self, phase: dict, is_loop_iteration: bool = False):
         """Executes a single, non-looping phase or a single iteration of a complex loop."""
@@ -702,11 +722,18 @@ class PlanExecutor:
         executable_prompt = phase.get("executable_prompt")
 
         if not is_loop_iteration:
+            # --- MODIFICATION START: Emit structured phase start event ---
             yield self._format_sse({
-                "step": "Starting Plan Phase",
-                "details": f"Phase {phase_num}/{len(self.meta_plan)}: {phase_goal}",
-                "phase_details": phase
+                "step": f"Starting Plan Phase {phase_num}/{len(self.meta_plan)}",
+                "type": "phase_start",
+                "details": {
+                    "phase_num": phase_num,
+                    "total_phases": len(self.meta_plan),
+                    "goal": phase_goal,
+                    "phase_details": phase
+                }
             })
+            # --- MODIFICATION END ---
 
         tool_name = relevant_tools[0] if len(relevant_tools) == 1 else None
         if tool_name:
@@ -729,6 +756,14 @@ class PlanExecutor:
                         {"target": "context", "state": "processing_complete"}, 
                         "context_state_update"
                     )
+                    # --- MODIFICATION START: Emit phase end event after fast path ---
+                    if not is_loop_iteration:
+                        yield self._format_sse({
+                            "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
+                            "type": "phase_end",
+                            "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
+                        })
+                    # --- MODIFICATION END ---
                     return
 
         phase_attempts = 0
@@ -784,6 +819,15 @@ class PlanExecutor:
                 break
             else:
                 app_logger.warning(f"Action failed. Attempt {phase_attempts}/{max_phase_attempts} for phase.")
+        
+        # --- MODIFICATION START: Emit phase end event for standard phases ---
+        if not is_loop_iteration:
+            yield self._format_sse({
+                "step": f"Ending Plan Phase {phase_num}/{len(self.meta_plan)}",
+                "type": "phase_end",
+                "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
+            })
+        # --- MODIFICATION END ---
 
     async def _execute_action_with_orchestrators(self, action: dict, phase: dict):
         """

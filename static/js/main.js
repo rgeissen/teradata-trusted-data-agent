@@ -97,9 +97,9 @@ const confirmModalCancel = document.getElementById('confirm-modal-cancel');
 const systemPromptPopupOverlay = document.getElementById('system-prompt-popup-overlay');
 const systemPromptPopupContent = document.getElementById('system-prompt-popup-content');
 const systemPromptPopupTitle = document.getElementById('system-prompt-popup-title');
-const systemPromptPopupText = document.getElementById('system-prompt-popup-text');
+const systemPromptPopupBody = document.getElementById('system-prompt-popup-body');
 const systemPromptPopupClose = document.getElementById('system-prompt-popup-close');
-const disabledCapabilitiesContainer = document.getElementById('disabled-capabilities-container');
+const systemPromptPopupViewFull = document.getElementById('system-prompt-popup-view-full');
 
 const chatModalButton = document.getElementById('chat-modal-button');
 const chatModalOverlay = document.getElementById('chat-modal-overlay');
@@ -123,9 +123,11 @@ let currentSessionId = null;
 let resourceData = { tools: {}, prompts: {}, resources: {}, charts: {} };
 let currentlySelectedResource = null;
 let eventSource = null;
+// --- MODIFICATION START: Add timer and handler variables ---
 let systemPromptPopupTimer = null;
 let countdownValue = 5;
 let mouseMoveHandler = null;
+// --- MODIFICATION END ---
 let pristineConfig = {};
 let isMouseOverStatus = false;
 let isInFastPath = false;
@@ -138,6 +140,7 @@ let isTempLastTurnMode = false; // For temporary (hold) switch to last turn cont
 let isLastTurnModeLocked = false; // For permanent toggle of last turn context mode
 
 let defaultPromptsCache = {};
+let currentPhaseContainerEl = null;
 
 const thinkingIndicator = document.getElementById('thinking-indicator');
 const promptNameDisplay = document.getElementById('prompt-name-display');
@@ -403,7 +406,6 @@ function _renderPlanningDetails(details) {
     `;
 }
 
-// --- MODIFICATION START: Update renderers for collapsible args and new layout ---
 function _renderMetaPlanDetails(details) {
     if (!Array.isArray(details)) return null;
 
@@ -470,16 +472,67 @@ function _renderToolIntentDetails(details) {
         ${argsHtml}
     `;
 }
-// --- MODIFICATION END ---
 
 function updateStatusWindow(eventData, isFinal = false) {
     const { step, details, type } = eventData;
-    if (!step) {
+    if (!step && type !== 'phase_start' && type !== 'phase_end') {
         return;
     }
 
+    // Handle Phase Start
+    if (type === 'phase_start') {
+        const { phase_num, total_phases, goal } = details;
+        const phaseContainer = document.createElement('details');
+        phaseContainer.className = 'status-phase-container';
+        phaseContainer.open = true;
+
+        const phaseHeader = document.createElement('summary');
+        phaseHeader.className = 'status-phase-header phase-start';
+        phaseHeader.innerHTML = `
+            <span class="font-bold">Starting Plan Phase ${phase_num}/${total_phases}</span>
+            <span class="text-gray-400 text-xs truncate ml-2">${goal}</span>
+        `;
+        phaseContainer.appendChild(phaseHeader);
+
+        const phaseContent = document.createElement('div');
+        phaseContent.className = 'status-phase-content';
+        phaseContainer.appendChild(phaseContent);
+
+        statusWindowContent.appendChild(phaseContainer);
+        currentPhaseContainerEl = phaseContent; // Set the current container for subsequent steps
+        
+        if (!isMouseOverStatus) {
+            statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
+        }
+        return;
+    }
+
+    // Handle Phase End
+    if (type === 'phase_end') {
+        if (currentPhaseContainerEl) {
+            const { phase_num, total_phases, status } = details;
+            const phaseFooter = document.createElement('div');
+            phaseFooter.className = 'status-phase-header phase-end';
+            phaseFooter.innerHTML = `<span class="font-bold">Ending Plan Phase ${phase_num}/${total_phases}</span>`;
+            
+            if (status === 'skipped') {
+                phaseFooter.classList.add('skipped');
+            }
+
+            currentPhaseContainerEl.parentElement.appendChild(phaseFooter);
+            currentPhaseContainerEl = null; // Reset the container
+        }
+        if (!isMouseOverStatus) {
+            statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
+        }
+        return;
+    }
+
+    // Handle all other steps
+    const parentContainer = currentPhaseContainerEl || statusWindowContent;
+
     const lastStep = document.getElementById(`status-step-${currentStatusId}`);
-    if (lastStep) {
+    if (lastStep && parentContainer.contains(lastStep)) {
         lastStep.classList.remove('active');
         lastStep.classList.add('completed');
         if (isInFastPath) {
@@ -592,7 +645,7 @@ function updateStatusWindow(eventData, isFinal = false) {
         }
     }
 
-    statusWindowContent.appendChild(stepEl);
+    parentContainer.appendChild(stepEl);
 
     if (type === 'workaround') {
         stepEl.classList.add('workaround');
@@ -671,6 +724,7 @@ async function startStream(endpoint, body) {
     currentStatusId = 0;
     isInFastPath = false;
     setThinkingIndicator(false);
+    currentPhaseContainerEl = null;
 
     const useLastTurnMode = isLastTurnModeLocked || isTempLastTurnMode;
     body.disabled_history = useLastTurnMode;
@@ -1474,6 +1528,73 @@ configModalClose.addEventListener('click', () => {
     }
 });
 
+function getSystemPromptSummaryHTML() {
+    return `
+        <div class="space-y-4 text-gray-300 text-sm p-2">
+            <h4 class="font-bold text-lg text-white">Agent Operating Principles</h4>
+            <p>The agent's primary goal is to answer your requests by using its available capabilities:</p>
+            <ul class="list-disc list-outside space-y-2 pl-5">
+                <li><strong>Prompts:</strong> For pre-defined analyses, descriptions, or summaries.</li>
+                <li><strong>Tools:</strong> For direct actions like "list tables" or "count users".</li>
+            </ul>
+            <div class="p-3 bg-gray-900/50 rounded-lg">
+                <p class="font-semibold text-white">Decision-Making Process:</p>
+                <p class="text-xs text-gray-400 mt-1">The agent follows a strict hierarchy. It will <strong class="text-white">always prioritize using a pre-defined prompt</strong> if it matches your request for an analysis. Otherwise, it will use the most appropriate tool to perform a direct action.</p>
+            </div>
+            <div id="disabled-capabilities-container-splash" class="pt-4 border-t border-white/20">
+                <!-- Disabled capabilities will be injected here -->
+            </div>
+        </div>
+    `;
+}
+
+function buildDisabledCapabilitiesListHTML() {
+    const disabledTools = [];
+    if (resourceData.tools) {
+        Object.values(resourceData.tools).flat().forEach(tool => {
+            if (tool.disabled) disabledTools.push(tool.name);
+        });
+    }
+
+    const disabledPrompts = [];
+    if (resourceData.prompts) {
+        Object.values(resourceData.prompts).flat().forEach(prompt => {
+            if (prompt.disabled) disabledPrompts.push(prompt.name);
+        });
+    }
+
+    if (disabledTools.length === 0 && disabledPrompts.length === 0) {
+        return '';
+    }
+
+    let html = `
+        <div class="border-t border-white/10 pt-4 mt-4">
+            <h4 class="text-md font-bold text-yellow-300 mb-2">Capabilities under consideration</h4>
+            <p class="text-xs text-gray-400 mb-3">The following are currently disabled. You can re-enable them in the 'Capabilities' panel.</p>
+            <div class="flex gap-x-8">
+    `;
+
+    if (disabledTools.length > 0) {
+        html += '<div><h5 class="font-semibold text-sm text-white mb-1">Tools</h5><ul class="list-disc list-inside text-xs text-gray-300 space-y-1">';
+        disabledTools.forEach(name => {
+            html += `<li><code class="text-teradata-orange text-xs">${name}</code></li>`;
+        });
+        html += '</ul></div>';
+    }
+
+    if (disabledPrompts.length > 0) {
+        html += '<div><h5 class="font-semibold text-sm text-white mb-1">Prompts</h5><ul class="list-disc list-inside text-xs text-gray-300 space-y-1">';
+        disabledPrompts.forEach(name => {
+            html += `<li><code class="text-teradata-orange text-xs">${name}</code></li>`;
+        });
+        html += '</ul></div>';
+    }
+
+    html += '</div></div>';
+    return html;
+}
+
+// --- MODIFICATION START: Add timer logic to splash screen functions ---
 function startPopupCountdown() {
     if (systemPromptPopupTimer) {
         clearInterval(systemPromptPopupTimer);
@@ -1507,67 +1628,12 @@ function stopPopupCountdown() {
     }
 }
 
-function buildDisabledCapabilitiesList() {
-    const disabledTools = [];
-    if (resourceData.tools) {
-        Object.values(resourceData.tools).flat().forEach(tool => {
-            if (tool.disabled) disabledTools.push(tool.name);
-        });
-    }
-
-    const disabledPrompts = [];
-    if (resourceData.prompts) {
-        Object.values(resourceData.prompts).flat().forEach(prompt => {
-            if (prompt.disabled) disabledPrompts.push(prompt.name);
-        });
-    }
-
-    if (disabledTools.length === 0 && disabledPrompts.length === 0) {
-        disabledCapabilitiesContainer.style.display = 'none';
-        return '';
-    }
-
-    disabledCapabilitiesContainer.style.display = 'block';
-
-    let html = `
-        <div class="border-b border-white/10 pb-4 mb-4">
-            <h4 class="text-md font-bold text-yellow-300 mb-2">Inactive Capabilities</h4>
-            <p class="text-xs text-gray-400 mb-3">The following are currently disabled for the agent (due to a necessary refinement on the MCP server). You can enable them for testing in the Capabilities Panel.</p>
-            <div class="flex gap-x-8">
-    `;
-
-    if (disabledTools.length > 0) {
-        html += '<div><h5 class="font-semibold text-sm text-white mb-1">Tools</h5><ul class="list-disc list-inside text-xs text-gray-300 space-y-1">';
-        disabledTools.forEach(name => {
-            html += `<li><code class="text-teradata-orange text-xs">${name}</code></li>`;
-        });
-        html += '</ul></div>';
-    }
-
-    if (disabledPrompts.length > 0) {
-        html += '<div><h5 class="font-semibold text-sm text-white mb-1">Prompts</h5><ul class="list-disc list-inside text-xs text-gray-300 space-y-1">';
-        disabledPrompts.forEach(name => {
-            html += `<li><code class="text-teradata-orange text-xs">${name}</code></li>`;
-        });
-        html += '</ul></div>';
-    }
-
-    html += '</div></div>';
-    return html;
-}
-
 function openSystemPromptPopup() {
-    const promptText = getSystemPromptForModel(currentProvider, currentModel);
-    const isCustom = isPromptCustomForModel(currentProvider, currentModel);
-
-    if (isCustom) {
-        systemPromptPopupTitle.innerHTML = `Custom System Prompt for: <code class="text-teradata-orange font-normal">${currentProvider} / ${getNormalizedModelId(currentModel)}</code>`;
-    } else {
-        systemPromptPopupTitle.innerHTML = `Default System Prompt Selected for: <code class="text-teradata-orange font-normal">${currentProvider}</code>`;
+    systemPromptPopupBody.innerHTML = getSystemPromptSummaryHTML();
+    const disabledListContainer = document.getElementById('disabled-capabilities-container-splash');
+    if (disabledListContainer) {
+        disabledListContainer.innerHTML = buildDisabledCapabilitiesListHTML();
     }
-
-    disabledCapabilitiesContainer.innerHTML = buildDisabledCapabilitiesList();
-    systemPromptPopupText.textContent = promptText || "Could not load system prompt.";
 
     systemPromptPopupOverlay.classList.remove('hidden', 'opacity-0');
     systemPromptPopupContent.classList.remove('scale-95', 'opacity-0');
@@ -1594,15 +1660,19 @@ function closeSystemPromptPopup() {
         systemPromptPopupOverlay.classList.add('hidden');
     }, 300);
 }
+// --- MODIFICATION END ---
 
 systemPromptPopupClose.addEventListener('click', closeSystemPromptPopup);
+systemPromptPopupViewFull.addEventListener('click', () => {
+    closeSystemPromptPopup();
+    openPromptEditor();
+});
 systemPromptPopupOverlay.addEventListener('click', (e) => {
     if (e.target === systemPromptPopupOverlay) closeSystemPromptPopup();
 });
 
 configForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-
     await checkAndUpdateDefaultPrompts();
 
     const selectedModel = llmModelSelect.value;
@@ -1664,11 +1734,13 @@ configForm.addEventListener('submit', async (e) => {
             chatModalButton.disabled = false;
             promptEditorButton.disabled = false;
 
-            await loadResources('tools');
-            await loadResources('prompts');
-            await loadResources('resources');
-
             userInput.placeholder = "Ask about databases, tables, users...";
+            
+            await Promise.all([
+                loadResources('tools'),
+                loadResources('prompts'),
+                loadResources('resources')
+            ]);
 
             await startNewSession();
 

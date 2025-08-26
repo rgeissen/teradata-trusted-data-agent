@@ -134,8 +134,8 @@ details.resource-selected > summary {
     background-color: rgba(248, 113, 113, 0.1);
 }
 .status-step.plan-optimization {
-    border-left-color: #3b82f6; /* blue-500 */
-    background-color: rgba(59, 130, 246, 0.1);
+    border-left-color: #06b6d4; /* cyan-500 */
+    background-color: rgba(6, 182, 212, 0.1);
 }
 
 .response-card {
@@ -450,5 +450,54 @@ select:disabled, input:disabled, button:disabled, fieldset:disabled {
     border-radius: 0.25rem;
     color: #d1d5db; /* gray-300 */
     font-size: 0.8rem;
+}
+
+/* --- MODIFICATION START: Styles for phase containers --- */
+.status-phase-container {
+    background-color: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+}
+.status-phase-container > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    transition: background-color 0.2s;
+}
+.status-phase-container > summary::-webkit-details-marker {
+    display: none;
+}
+.status-phase-container > summary:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+.status-phase-header {
+    font-size: 0.875rem;
+    color: #d1d5db; /* gray-300 */
+}
+.status-phase-header.phase-start {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.status-phase-header.phase-end {
+    padding: 0.75rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(0,0,0,0.1);
+    border-bottom-left-radius: 0.5rem;
+    border-bottom-right-radius: 0.5rem;
+}
+.status-phase-header.phase-end.skipped {
+    background-color: rgba(250, 204, 21, 0.1);
+    color: #facc15;
+}
+.status-phase-content {
+    padding: 0.5rem 1rem 1rem 1rem;
+    border-left: 2px solid var(--teradata-orange);
+    margin-left: 1rem;
+    padding-left: 1rem;
+}
+.status-phase-content .status-step {
+    margin-left: -1rem; /* Align with the container edge */
 }
 /* --- MODIFICATION END --- */
