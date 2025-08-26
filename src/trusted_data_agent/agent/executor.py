@@ -717,9 +717,18 @@ class PlanExecutor:
                 except Exception as e:
                     error_message = f"Error processing item {item}: {e}"
                     app_logger.error(error_message, exc_info=True)
-                    error_result = {"status": "error", "item": item, "error_message": str(e)}
+                    # --- MODIFICATION START: Enhance Loop Item Failure event ---
+                    error_result = {
+                        "status": "error", 
+                        "item": item, 
+                        "error_message": {
+                            "summary": f"An error occurred while processing the item.",
+                            "details": str(e)
+                        }
+                    }
                     self._add_to_structured_data(error_result)
                     yield self._format_sse({"step": "Loop Item Failed", "details": error_result, "type": "error"}, "tool_result")
+                    # --- MODIFICATION END ---
 
                 self.processed_loop_items.append(item)
 
@@ -1019,7 +1028,13 @@ class PlanExecutor:
                         raise DefinitiveToolError(error_data_str, friendly_message)
                 
                 if attempt < max_retries - 1:
-                    yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"Tool failed. Attempting self-correction ({attempt + 1}/{max_retries - 1})."})
+                    # --- MODIFICATION START: Enhance Self-Correction event details ---
+                    correction_details = {
+                        "summary": f"Tool failed. Attempting self-correction ({attempt + 1}/{max_retries - 1}).",
+                        "details": tool_result
+                    }
+                    yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": correction_details})
+                    # --- MODIFICATION END ---
                     
                     corrected_action, correction_events = await self._attempt_tool_self_correction(action, tool_result)
                     for event in correction_events:
@@ -1032,10 +1047,22 @@ class PlanExecutor:
                         action = corrected_action
                         continue
                     else:
-                        yield self._format_sse({"step": "System Self-Correction Failed", "type": "error", "details": "Unable to find a correction. Aborting retries for this action."})
+                        # --- MODIFICATION START: Enhance Self-Correction Failed event ---
+                        correction_failed_details = {
+                            "summary": "Unable to find a correction. Aborting retries for this action.",
+                            "details": tool_result
+                        }
+                        yield self._format_sse({"step": "System Self-Correction Failed", "type": "error", "details": correction_failed_details})
+                        # --- MODIFICATION END ---
                         break
                 else:
-                    yield self._format_sse({"step": "Persistent Failure", "type": "error", "details": f"Tool '{tool_name}' failed after {max_retries} attempts."})
+                    # --- MODIFICATION START: Enhance Persistent Failure event ---
+                    persistent_failure_details = {
+                        "summary": f"Tool '{tool_name}' failed after {max_retries} attempts.",
+                        "details": tool_result
+                    }
+                    yield self._format_sse({"step": "Persistent Failure", "type": "error", "details": persistent_failure_details})
+                    # --- MODIFICATION END ---
             else:
                 if not is_fast_path:
                     yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
@@ -1636,17 +1663,35 @@ class PlanExecutor:
             
             if "tool_name" in corrected_data and "arguments" in corrected_data:
                 corrected_action = corrected_data
-                events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"LLM proposed a new action. Retrying with tool '{corrected_action['tool_name']}'."}))
+                # --- MODIFICATION START: Enhance Self-Correction event details ---
+                correction_details = {
+                    "summary": f"LLM proposed a new action. Retrying with tool '{corrected_action['tool_name']}'.",
+                    "details": corrected_action
+                }
+                events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": correction_details}))
+                # --- MODIFICATION END ---
                 return corrected_action, events
             
             new_args = corrected_data.get("arguments", corrected_data)
             if isinstance(new_args, dict):
                 corrected_action = {**failed_action, "arguments": new_args}
-                events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": f"LLM proposed a fix. Retrying tool with new arguments: {json.dumps(new_args)}"}))
+                # --- MODIFICATION START: Enhance Self-Correction event details ---
+                correction_details = {
+                    "summary": f"LLM proposed a fix. Retrying tool with new arguments.",
+                    "details": new_args
+                }
+                events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": correction_details}))
+                # --- MODIFICATION END ---
                 return corrected_action, events
 
         except (json.JSONDecodeError, TypeError):
-            events.append(self._format_sse({"step": "System Self-Correction", "type": "error", "details": "LLM failed to provide a valid JSON correction."}))
+            # --- MODIFICATION START: Enhance Self-Correction Failed event ---
+            correction_failed_details = {
+                "summary": "LLM failed to provide a valid JSON correction.",
+                "details": response_str
+            }
+            events.append(self._format_sse({"step": "System Self-Correction", "type": "error", "details": correction_failed_details}))
+            # --- MODIFICATION END ---
             return None, events
             
         return None, events

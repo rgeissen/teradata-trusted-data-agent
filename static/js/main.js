@@ -123,11 +123,9 @@ let currentSessionId = null;
 let resourceData = { tools: {}, prompts: {}, resources: {}, charts: {} };
 let currentlySelectedResource = null;
 let eventSource = null;
-// --- MODIFICATION START: Add timer and handler variables ---
 let systemPromptPopupTimer = null;
 let countdownValue = 5;
 let mouseMoveHandler = null;
-// --- MODIFICATION END ---
 let pristineConfig = {};
 let isMouseOverStatus = false;
 let isInFastPath = false;
@@ -136,8 +134,8 @@ let mcpIndicatorTimeout = null;
 let llmIndicatorTimeout = null;
 let contextIndicatorTimeout = null;
 
-let isTempLastTurnMode = false; // For temporary (hold) switch to last turn context
-let isLastTurnModeLocked = false; // For permanent toggle of last turn context mode
+let isTempLastTurnMode = false; 
+let isLastTurnModeLocked = false; 
 
 let defaultPromptsCache = {};
 let currentPhaseContainerEl = null;
@@ -388,7 +386,7 @@ function _renderPlanningDetails(details) {
     if (text.length > characterThreshold) {
         fullTextHtml = `
             <details class="text-xs">
-                <summary class="cursor-pointer text-gray-400 hover:text-white">Full Text (${text.length} chars) - Click to expand</summary>
+                <summary class="cursor-pointer text-gray-400 hover:text-white">Full Text (${text.length} chars)</summary>
                 <div class="mt-2 p-2 status-text-block whitespace-pre-wrap">${text}</div>
             </details>
         `;
@@ -410,7 +408,7 @@ function _renderMetaPlanDetails(details) {
     if (!Array.isArray(details)) return null;
 
     let html = `<details class="text-xs">
-                    <summary class="cursor-pointer text-gray-400 hover:text-white">Generated Plan (${details.length} phases) - Click to expand</summary>
+                    <summary class="cursor-pointer text-gray-400 hover:text-white">Generated Plan (${details.length} phases)</summary>
                     <div class="space-y-3 mt-2">`;
 
     details.forEach(phase => {
@@ -431,7 +429,7 @@ function _renderMetaPlanDetails(details) {
         }
 
         html += `<div class="status-phase-card">
-                    <div class="font-bold text-teradata-orange mb-2">Phase ${phase.phase}</div>
+                    <div class="font-bold text-gray-300 mb-2">Phase ${phase.phase}</div>
                     <div class="status-kv-item"><div class="status-kv-key">Goal</div><div class="status-kv-value">${phase.goal}</div></div>`;
         if (phase.relevant_tools) {
             html += `<div class="status-kv-item"><div class="status-kv-key">Tools</div><div class="status-kv-value"><code class="status-code">${phase.relevant_tools.join(', ')}</code></div></div>`;
@@ -479,17 +477,22 @@ function updateStatusWindow(eventData, isFinal = false) {
         return;
     }
 
-    // Handle Phase Start
     if (type === 'phase_start') {
         const { phase_num, total_phases, goal } = details;
+
+        const lastStep = Array.from(statusWindowContent.querySelectorAll(':scope > .status-step')).pop();
+        if (lastStep && lastStep.classList.contains('active')) {
+            lastStep.classList.remove('active');
+            lastStep.classList.add('completed');
+        }
+
         const phaseContainer = document.createElement('details');
         phaseContainer.className = 'status-phase-container';
-        phaseContainer.open = true;
-
+        
         const phaseHeader = document.createElement('summary');
         phaseHeader.className = 'status-phase-header phase-start';
         phaseHeader.innerHTML = `
-            <span class="font-bold">Starting Plan Phase ${phase_num}/${total_phases}</span>
+            <span class="font-bold flex-shrink-0">Starting Plan Phase ${phase_num}/${total_phases}</span>
             <span class="text-gray-400 text-xs truncate ml-2">${goal}</span>
         `;
         phaseContainer.appendChild(phaseHeader);
@@ -499,7 +502,7 @@ function updateStatusWindow(eventData, isFinal = false) {
         phaseContainer.appendChild(phaseContent);
 
         statusWindowContent.appendChild(phaseContainer);
-        currentPhaseContainerEl = phaseContent; // Set the current container for subsequent steps
+        currentPhaseContainerEl = phaseContainer;
         
         if (!isMouseOverStatus) {
             statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
@@ -507,29 +510,33 @@ function updateStatusWindow(eventData, isFinal = false) {
         return;
     }
 
-    // Handle Phase End
     if (type === 'phase_end') {
         if (currentPhaseContainerEl) {
             const { phase_num, total_phases, status } = details;
             const phaseFooter = document.createElement('div');
             phaseFooter.className = 'status-phase-header phase-end';
-            phaseFooter.innerHTML = `<span class="font-bold">Ending Plan Phase ${phase_num}/${total_phases}</span>`;
+            phaseFooter.innerHTML = `<span class="font-bold">Plan Phase ${phase_num}/${total_phases} Completed</span>`;
             
             if (status === 'skipped') {
                 phaseFooter.classList.add('skipped');
+                phaseFooter.innerHTML = `<span class="font-bold">Plan Phase ${phase_num}/${total_phases} Skipped</span>`;
+            } else {
+                currentPhaseContainerEl.classList.add('completed');
             }
 
-            currentPhaseContainerEl.parentElement.appendChild(phaseFooter);
-            currentPhaseContainerEl = null; // Reset the container
+            currentPhaseContainerEl.appendChild(phaseFooter);
+            currentPhaseContainerEl = null;
         }
+        // --- MODIFICATION START: Reset fast path state on phase end ---
+        isInFastPath = false;
+        // --- MODIFICATION END ---
         if (!isMouseOverStatus) {
             statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
         }
         return;
     }
 
-    // Handle all other steps
-    const parentContainer = currentPhaseContainerEl || statusWindowContent;
+    const parentContainer = currentPhaseContainerEl ? currentPhaseContainerEl.querySelector('.status-phase-content') : statusWindowContent;
 
     const lastStep = document.getElementById(`status-step-${currentStatusId}`);
     if (lastStep && parentContainer.contains(lastStep)) {
@@ -542,8 +549,6 @@ function updateStatusWindow(eventData, isFinal = false) {
 
     if (type === 'plan_optimization') {
         isInFastPath = true;
-    } else if (step.includes("Looping Phase") && step.includes("Complete")) {
-        isInFastPath = false;
     }
 
     currentStatusId++;
@@ -562,6 +567,8 @@ function updateStatusWindow(eventData, isFinal = false) {
 
     if (details) {
         let customRenderedHtml = null;
+        let detailsString = '';
+
         if (typeof details === 'object' && details !== null) {
             if (step === "Calling LLM for Planning") {
                 customRenderedHtml = _renderPlanningDetails(details);
@@ -569,66 +576,35 @@ function updateStatusWindow(eventData, isFinal = false) {
                 customRenderedHtml = _renderMetaPlanDetails(details);
             } else if (step === "Tool Execution Intent") {
                 customRenderedHtml = _renderToolIntentDetails(details);
+            } else {
+                detailsString = JSON.stringify(details, null, 2);
             }
+        } else {
+            detailsString = String(details);
         }
 
         if (customRenderedHtml) {
             const detailsContainer = document.createElement('div');
             detailsContainer.innerHTML = customRenderedHtml;
             stepEl.appendChild(detailsContainer);
-        } else if (typeof details === 'string') {
+        } else if (detailsString) {
             const characterThreshold = 300;
-            if (step === "LLM has generated the final answer" && details.length > characterThreshold) {
-                const detailsEl = document.createElement('details');
-                detailsEl.className = 'text-xs';
-
-                const summaryEl = document.createElement('summary');
-                summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
-                summaryEl.textContent = `Final Answer Summary (${details.length} chars) - Click to expand`;
-                detailsEl.appendChild(summaryEl);
-
-                const pre = document.createElement('pre');
-                pre.className = 'mt-2 p-2 bg-gray-900/70 rounded-md text-gray-300 overflow-x-auto whitespace-pre-wrap';
-                pre.textContent = details;
-                detailsEl.appendChild(pre);
-                stepEl.appendChild(detailsEl);
-            } else {
-                const p = document.createElement('p');
-                p.className = 'text-xs text-gray-400';
-                p.textContent = details;
-                stepEl.appendChild(p);
-            }
-        } else if (typeof details === 'object' && details !== null) {
-            let detailsString = '';
-            try {
-                detailsString = JSON.stringify(details, null, 2);
-            } catch (e) {
-                detailsString = String(details);
-            }
-            
-            const characterThreshold = 300;
-
             if (detailsString.length > characterThreshold) {
                 const detailsEl = document.createElement('details');
                 detailsEl.className = 'text-xs';
 
                 const summaryEl = document.createElement('summary');
                 summaryEl.className = 'cursor-pointer text-gray-400 hover:text-white';
-
-                let summaryText = `Details - Click to expand`;
-                if (step.includes('Tool Execution Result')) {
-                    let itemCount = 0;
-                    if (details.metadata) {
-                        const countKey = Object.keys(details.metadata).find(k => k.toLowerCase().includes('count') || k.toLowerCase().includes('num'));
-                        if (countKey) itemCount = details.metadata[countKey];
-                    }
-                    if (itemCount === 0 && details.results && Array.isArray(details.results)) {
-                        itemCount = details.results.length;
-                    }
-                    summaryText = itemCount > 0 ? `Tool Result (${itemCount} items) - Click to expand` : 'Tool Result - Click to expand';
+                
+                let summaryText = `Details (${detailsString.length} chars)`;
+                if (step.includes('Tool Execution Result') && typeof details === 'object' && details.results) {
+                    const itemCount = Array.isArray(details.results) ? details.results.length : 0;
+                    summaryText = `Tool Result (${itemCount} items)`;
+                } else if (step.includes('Final Answer')) {
+                    summaryText = `Final Answer Summary`;
                 }
                 
-                summaryEl.textContent = summaryText;
+                summaryEl.textContent = `${summaryText} - Click to expand`;
                 detailsEl.appendChild(summaryEl);
 
                 const pre = document.createElement('pre');
@@ -1594,7 +1570,6 @@ function buildDisabledCapabilitiesListHTML() {
     return html;
 }
 
-// --- MODIFICATION START: Add timer logic to splash screen functions ---
 function startPopupCountdown() {
     if (systemPromptPopupTimer) {
         clearInterval(systemPromptPopupTimer);
@@ -1660,7 +1635,6 @@ function closeSystemPromptPopup() {
         systemPromptPopupOverlay.classList.add('hidden');
     }, 300);
 }
-// --- MODIFICATION END ---
 
 systemPromptPopupClose.addEventListener('click', closeSystemPromptPopup);
 systemPromptPopupViewFull.addEventListener('click', () => {
@@ -2124,22 +2098,19 @@ function updateHintAndIndicatorState() {
     const hintTooltipSpan = inputHint.querySelector('.tooltip');
     
     if (isLastTurnModeLocked) {
-        // "Last Turn" context is locked on
         hintTextSpan.innerHTML = `<strong>Last Turn Context:</strong> <span class="text-orange-400 font-semibold">Locked</span>`;
         hintTooltipSpan.innerHTML = `'Last Turn' context is locked on. Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to switch back to the default 'Full Session Context'.`;
-        contextStatusDot.className = 'connection-dot context-last-turn-locked'; // Orange color
+        contextStatusDot.className = 'connection-dot context-last-turn-locked'; 
         sendIcon.classList.remove('flipped');
     } else if (isTempLastTurnMode) {
-        // "Last Turn" context is temporarily on
         hintTextSpan.innerHTML = `<strong>Context:</strong> <span class="text-yellow-400 font-semibold">Last Turn</span>`;
         hintTooltipSpan.innerHTML = `Temporarily using 'Last Turn' context for this query.`;
-        contextStatusDot.className = 'connection-dot context-last-turn-temp'; // Yellow color
+        contextStatusDot.className = 'connection-dot context-last-turn-temp'; 
         sendIcon.classList.remove('flipped');
     } else {
-        // Default "Full Context" mode
         hintTextSpan.innerHTML = `<strong>Full Session Context:</strong> <span class="text-green-400 font-semibold">On</span>`;
         hintTooltipSpan.innerHTML = `Full session context is the default. Hold <kbd>Alt</kbd> to temporarily use 'Last Turn' context. Press <kbd>Shift</kbd> + <kbd>Alt</kbd> to lock 'Last Turn' context on.`;
-        contextStatusDot.className = 'connection-dot idle'; // Green color
+        contextStatusDot.className = 'connection-dot idle'; 
         sendIcon.classList.add('flipped');
     }
 }
@@ -2196,7 +2167,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     configForm.addEventListener('input', updateConfigButtonState);
     
     document.addEventListener('keydown', (e) => {
-        // Permanent Toggle: Shift + Alt
         if (e.key === 'Alt' && e.shiftKey) {
             e.preventDefault();
             isLastTurnModeLocked = !isLastTurnModeLocked;
@@ -2204,7 +2174,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // Temporary Switch (Hold): Alt
         if (e.key === 'Alt' && !isTempLastTurnMode) {
             e.preventDefault(); 
             isTempLastTurnMode = true;
@@ -2220,6 +2189,5 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
     
-    // Initial UI state update on load
     updateHintAndIndicatorState();
 });
