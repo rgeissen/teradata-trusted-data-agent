@@ -751,7 +751,6 @@ class PlanExecutor:
             "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
         })
 
-    # --- MODIFICATION: Add deterministic data type validation for chart calls ---
     def _is_numeric(self, value: any) -> bool:
         """Checks if a value can be reliably converted to a number."""
         if isinstance(value, (int, float)):
@@ -861,11 +860,13 @@ class PlanExecutor:
             async for event in self._execute_action_with_orchestrators(next_action, phase):
                 yield event
             
-            if self.last_tool_output and isinstance(self.last_tool_output, dict) and self.last_tool_output.get("status") == "success":
-                # --- MODIFICATION: Add deterministic data type validation for chart calls ---
+            # --- MODIFICATION: Update success check to recognize chart objects ---
+            is_standard_success = (isinstance(self.last_tool_output, dict) and self.last_tool_output.get("status") == "success")
+            is_chart_success = (isinstance(self.last_tool_output, dict) and self.last_tool_output.get("type") == "chart")
+
+            if self.last_tool_output and (is_standard_success or is_chart_success):
                 if next_action.get("tool_name") == "viz_createChart":
                     is_valid_chart = True
-                    # 1. Check for basic mapping existence
                     spec = self.last_tool_output.get("spec", {})
                     options = spec.get("options", {})
                     mapping_keys = ['xField', 'yField', 'seriesField', 'angleField', 'colorField']
@@ -873,7 +874,6 @@ class PlanExecutor:
                         is_valid_chart = False
                         self.last_failed_action_info = "The last attempt to create a chart failed because the 'mapping' argument was incorrect or missing. You MUST provide a valid mapping with the correct keys (e.g., 'angle', 'color')."
                     
-                    # 2. Check for data type mismatches
                     if is_valid_chart:
                         mapping = next_action.get("arguments", {}).get("mapping", {})
                         data = next_action.get("arguments", {}).get("data", [])
@@ -885,12 +885,12 @@ class PlanExecutor:
                                     if column_name in first_row and not self._is_numeric(first_row[column_name]):
                                         is_valid_chart = False
                                         self.last_failed_action_info = f"The last attempt failed. You mapped the non-numeric column '{column_name}' to the '{role}' role, which requires a number. You MUST map a numeric column to this role."
-                                        break # Exit the loop on first error
+                                        break
                     
                     if not is_valid_chart:
                         app_logger.warning(f"Silent chart failure detected. Reason: {self.last_failed_action_info}")
-                        continue # Force a retry of the phase
-
+                        continue
+                
                 self.last_action_str = None
                 break 
             else:
@@ -1719,7 +1719,7 @@ class PlanExecutor:
             return final_answer_text, events
 
         try:
-            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_text, re.DOTALL)
+            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_str, re.DOTALL)
             if not json_match: raise json.JSONDecodeError("No JSON object found", response_str, 0)
             
             json_str = json_match.group(1) or json_match.group(2)
