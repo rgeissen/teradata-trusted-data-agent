@@ -105,7 +105,7 @@ async def main():
     logging.getLogger("hypercorn.error").propagate = False
 
     # Configure the separate logger for LLM conversations
-    llm_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversations.log"))
+    llm_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversation.log"))
     llm_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
     llm_logger = logging.getLogger("llm_conversation")
     llm_logger.setLevel(logging.INFO)
@@ -113,7 +113,7 @@ async def main():
     llm_logger.propagate = False
     
     # --- NEW: Configure the separate logger for full LLM context history ---
-    llm_history_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversations_history.log"))
+    llm_history_log_handler = logging.FileHandler(os.path.join(LOG_DIR, "llm_conversation_history.log"))
     llm_history_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
     llm_history_logger = logging.getLogger("llm_conversation_history")
     llm_history_logger.setLevel(logging.INFO)

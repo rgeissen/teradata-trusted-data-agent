@@ -885,11 +885,59 @@ class PlanExecutor:
         async for event in self._execute_tool(action, phase):
             yield event
 
+    # --- MODIFICATION START: New method to resolve argument placeholders ---
+    def _resolve_arguments(self, arguments: dict) -> dict:
+        """
+        Scans tool arguments for placeholders (e.g., 'result_of_phase_1') and
+        replaces them with the actual data from the workflow state.
+        """
+        if not isinstance(arguments, dict):
+            return arguments
+
+        resolved_args = {}
+        for key, value in arguments.items():
+            if isinstance(value, str):
+                match = re.fullmatch(r"result_of_phase_(\d+)", value)
+                if match:
+                    phase_num = int(match.group(1))
+                    source_key = f"result_of_phase_{phase_num}"
+                    
+                    if source_key in self.workflow_state:
+                        data = self.workflow_state[source_key]
+                        
+                        # Intelligent extraction for common single-value tool outputs
+                        if (isinstance(data, list) and len(data) == 1 and 
+                            isinstance(data[0], dict) and "results" in data[0] and
+                            isinstance(data[0]["results"], list) and len(data[0]["results"]) == 1 and
+                            isinstance(data[0]["results"][0], dict) and len(data[0]["results"][0]) == 1):
+                            
+                            extracted_value = next(iter(data[0]["results"][0].values()))
+                            app_logger.info(f"Resolved placeholder '{value}' to single extracted value: '{extracted_value}'")
+                            resolved_args[key] = extracted_value
+                        else:
+                            app_logger.info(f"Resolved placeholder '{value}' to full data structure.")
+                            resolved_args[key] = data
+                    else:
+                        app_logger.warning(f"Could not resolve placeholder '{value}': key '{source_key}' not in workflow state.")
+                        resolved_args[key] = value # Keep original if not found
+                else:
+                    resolved_args[key] = value
+            else:
+                resolved_args[key] = value
+        
+        return resolved_args
+    # --- MODIFICATION END ---
+
     async def _execute_tool(self, action: dict, phase: dict, is_fast_path: bool = False):
         """Executes a single tool call with a built-in retry and recovery mechanism."""
         tool_name = action.get("tool_name")
         max_retries = 3
         
+        # --- MODIFICATION START: Resolve arguments before execution ---
+        if 'arguments' in action:
+            action['arguments'] = self._resolve_arguments(action['arguments'])
+        # --- MODIFICATION END ---
+
         if tool_name == "CoreLLMTask" and self.is_synthesis_from_history:
             app_logger.info("Preparing CoreLLMTask for 'full_context' execution.")
             session_data = session_manager.get_session(self.session_id)

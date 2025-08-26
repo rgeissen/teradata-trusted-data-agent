@@ -213,15 +213,18 @@ class OutputFormatter:
         key_metric_data = None
         remaining_content_str = summary_to_process
 
-        if lines and lines[0].strip().startswith("Key Metric:"):
+        if lines and "Key Metric:" in lines[0]:
             try:
-                json_str = lines[0].strip()[len("Key Metric:"):].strip()
-                metric_data = json.loads(json_str)
-                if 'value' in metric_data and 'label' in metric_data:
-                    key_metric_data = metric_data
-                    remaining_content_str = "\n".join(lines[1:]).strip()
+                # Be robust to backticks and whitespace
+                json_str_match = re.search(r'\{.*\}', lines[0])
+                if json_str_match:
+                    json_str = json_str_match.group(0)
+                    metric_data = json.loads(json_str)
+                    if 'value' in metric_data and 'label' in metric_data:
+                        key_metric_data = metric_data
+                        remaining_content_str = "\n".join(lines[1:]).strip()
             except (json.JSONDecodeError, IndexError):
-                pass
+                pass # If parsing fails, treat it as normal text
 
         if key_metric_data:
             metric_value = str(key_metric_data.get('value', ''))
