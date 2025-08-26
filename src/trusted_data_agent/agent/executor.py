@@ -257,16 +257,13 @@ class PlanExecutor:
                 session_manager.update_last_turn_data(self.session_id, self.turn_action_history)
                 app_logger.debug(f"Saved final known entities and last turn data to session {self.session_id}")
 
-    # --- MODIFICATION START: Add a new method for distilling data for LLM context ---
     def _distill_data_for_llm_context(self, data: any) -> any:
         """
         Recursively distills large data structures into metadata summaries to protect the LLM context window.
         """
         if isinstance(data, dict):
-            # Check if this dictionary looks like a tool result with a 'results' list
             if 'results' in data and isinstance(data['results'], list):
                 results_list = data['results']
-                # Heuristic for "large" data: more than 5 rows or serialized size > 2KB
                 is_large = len(results_list) > 5 or len(json.dumps(results_list)) > 2048
 
                 if is_large and all(isinstance(item, dict) for item in results_list):
@@ -281,14 +278,11 @@ class PlanExecutor:
                     }
                     return distilled_result
             
-            # If not a large tool result, recursively distill its values
             return {key: self._distill_data_for_llm_context(value) for key, value in data.items()}
         
         elif isinstance(data, list):
-            # Recursively distill items in a list
             return [self._distill_data_for_llm_context(item) for item in data]
         
-        # Return primitive types as is
         return data
 
     def _create_summary_from_history(self, history: list) -> str:
@@ -296,16 +290,13 @@ class PlanExecutor:
         Creates a token-efficient, high-signal summary of a history list for the planner.
         This now uses the data distillation method to keep the context lean.
         """
-        # Create a deep copy to avoid modifying the original history data
         history_copy = copy.deepcopy(history)
         
-        # Distill the 'result' part of each history entry
         for entry in history_copy:
             if 'result' in entry:
                 entry['result'] = self._distill_data_for_llm_context(entry['result'])
                 
         return json.dumps(history_copy, indent=2)
-    # --- MODIFICATION END ---
 
     def _update_session_known_entities(self) -> dict:
         """
@@ -677,7 +668,7 @@ class PlanExecutor:
 
         is_fast_path_candidate = (
             len(relevant_tools) == 1 and 
-            relevant_tools[0] != "CoreLLMTask"
+            relevant_tools[0] not in ["CoreLLMTask", "viz_createChart"]
         )
 
         if is_fast_path_candidate:
@@ -688,10 +679,8 @@ class PlanExecutor:
                 "details": f"Engaging enhanced fast path for tool loop: '{tool_name}'"
             })
             
-            # --- MODIFICATION START: Correctly merge arguments for the fast path ---
             session_context_args = self._get_latest_entities()
             phase_context_args = phase.get("arguments", {})
-            # --- MODIFICATION END ---
             
             synonym_map = {
                 'tablename': ['table_name', 'obj_name', 'object_name'],
@@ -704,7 +693,6 @@ class PlanExecutor:
             for i, item in enumerate(self.current_loop_items):
                 yield self._format_sse({"step": f"Processing Loop Item {i+1}/{len(self.current_loop_items)}", "details": item})
                 
-                # --- MODIFICATION START: Apply layered argument merging ---
                 merged_args = {**session_context_args, **phase_context_args}
                 if isinstance(item, dict):
                     for key, value in item.items():
@@ -712,7 +700,6 @@ class PlanExecutor:
                         target_keys = synonym_map.get(normalized_key, [key])
                         for target_key in target_keys:
                             merged_args[target_key] = value
-                # --- MODIFICATION END ---
 
                 command = {"tool_name": tool_name, "arguments": merged_args}
                 async for event in self._execute_tool(command, phase, is_fast_path=True):
@@ -741,7 +728,6 @@ class PlanExecutor:
                 except Exception as e:
                     error_message = f"Error processing item {item}: {e}"
                     app_logger.error(error_message, exc_info=True)
-                    # --- MODIFICATION START: Enhance Loop Item Failure event ---
                     error_result = {
                         "status": "error", 
                         "item": item, 
@@ -752,7 +738,6 @@ class PlanExecutor:
                     }
                     self._add_to_structured_data(error_result)
                     yield self._format_sse({"step": "Loop Item Failed", "details": error_result, "type": "error"}, "tool_result")
-                    # --- MODIFICATION END ---
 
                 self.processed_loop_items.append(item)
 
@@ -765,6 +750,19 @@ class PlanExecutor:
             "type": "phase_end",
             "details": {"phase_num": phase_num, "total_phases": len(self.meta_plan), "status": "completed"}
         })
+
+    # --- MODIFICATION: Add deterministic data type validation for chart calls ---
+    def _is_numeric(self, value: any) -> bool:
+        """Checks if a value can be reliably converted to a number."""
+        if isinstance(value, (int, float)):
+            return True
+        if isinstance(value, str):
+            try:
+                float(value.replace(',', ''))
+                return True
+            except (ValueError, TypeError):
+                return False
+        return False
 
     async def _execute_standard_phase(self, phase: dict, is_loop_iteration: bool = False):
         """Executes a single, non-looping phase or a single iteration of a complex loop."""
@@ -787,7 +785,7 @@ class PlanExecutor:
             })
 
         tool_name = relevant_tools[0] if len(relevant_tools) == 1 else None
-        if tool_name:
+        if tool_name and tool_name != "viz_createChart":
             all_tools = self.dependencies['STATE'].get('mcp_tools', {})
             tool_def = all_tools.get(tool_name)
             if tool_def:
@@ -864,8 +862,37 @@ class PlanExecutor:
                 yield event
             
             if self.last_tool_output and isinstance(self.last_tool_output, dict) and self.last_tool_output.get("status") == "success":
+                # --- MODIFICATION: Add deterministic data type validation for chart calls ---
+                if next_action.get("tool_name") == "viz_createChart":
+                    is_valid_chart = True
+                    # 1. Check for basic mapping existence
+                    spec = self.last_tool_output.get("spec", {})
+                    options = spec.get("options", {})
+                    mapping_keys = ['xField', 'yField', 'seriesField', 'angleField', 'colorField']
+                    if not any(key in options for key in mapping_keys):
+                        is_valid_chart = False
+                        self.last_failed_action_info = "The last attempt to create a chart failed because the 'mapping' argument was incorrect or missing. You MUST provide a valid mapping with the correct keys (e.g., 'angle', 'color')."
+                    
+                    # 2. Check for data type mismatches
+                    if is_valid_chart:
+                        mapping = next_action.get("arguments", {}).get("mapping", {})
+                        data = next_action.get("arguments", {}).get("data", [])
+                        if data and mapping:
+                            first_row = data[0]
+                            numeric_roles = ['angle', 'y_axis', 'value']
+                            for role, column_name in mapping.items():
+                                if role.lower() in numeric_roles:
+                                    if column_name in first_row and not self._is_numeric(first_row[column_name]):
+                                        is_valid_chart = False
+                                        self.last_failed_action_info = f"The last attempt failed. You mapped the non-numeric column '{column_name}' to the '{role}' role, which requires a number. You MUST map a numeric column to this role."
+                                        break # Exit the loop on first error
+                    
+                    if not is_valid_chart:
+                        app_logger.warning(f"Silent chart failure detected. Reason: {self.last_failed_action_info}")
+                        continue # Force a retry of the phase
+
                 self.last_action_str = None
-                break
+                break 
             else:
                 app_logger.warning(f"Action failed. Attempt {phase_attempts}/{max_phase_attempts} for phase.")
         
@@ -951,7 +978,6 @@ class PlanExecutor:
                     if source_key in self.workflow_state:
                         data = self.workflow_state[source_key]
                         
-                        # Intelligent extraction for common single-value tool outputs
                         if (isinstance(data, list) and len(data) == 1 and 
                             isinstance(data[0], dict) and "results" in data[0] and
                             isinstance(data[0]["results"], list) and len(data[0]["results"]) == 1 and
@@ -965,7 +991,7 @@ class PlanExecutor:
                             resolved_args[key] = data
                     else:
                         app_logger.warning(f"Could not resolve placeholder '{value}': key '{source_key}' not in workflow state.")
-                        resolved_args[key] = value # Keep original if not found
+                        resolved_args[key] = value 
                 else:
                     resolved_args[key] = value
             else:
@@ -1013,7 +1039,6 @@ class PlanExecutor:
                 del action['notification']
 
             if tool_name == "CoreLLMTask" and not self.is_synthesis_from_history:
-                # --- MODIFICATION: Distill the workflow state before passing it to the CoreLLMTask ---
                 distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
                 action.setdefault("arguments", {})["data"] = distilled_workflow_state
             
@@ -1054,13 +1079,11 @@ class PlanExecutor:
                         raise DefinitiveToolError(error_data_str, friendly_message)
                 
                 if attempt < max_retries - 1:
-                    # --- MODIFICATION START: Enhance Self-Correction event details ---
                     correction_details = {
                         "summary": f"Tool failed. Attempting self-correction ({attempt + 1}/{max_retries - 1}).",
                         "details": tool_result
                     }
                     yield self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": correction_details})
-                    # --- MODIFICATION END ---
                     
                     corrected_action, correction_events = await self._attempt_tool_self_correction(action, tool_result)
                     for event in correction_events:
@@ -1073,22 +1096,18 @@ class PlanExecutor:
                         action = corrected_action
                         continue
                     else:
-                        # --- MODIFICATION START: Enhance Self-Correction Failed event ---
                         correction_failed_details = {
                             "summary": "Unable to find a correction. Aborting retries for this action.",
                             "details": tool_result
                         }
                         yield self._format_sse({"step": "System Self-Correction Failed", "type": "error", "details": correction_failed_details})
-                        # --- MODIFICATION END ---
                         break
                 else:
-                    # --- MODIFICATION START: Enhance Persistent Failure event ---
                     persistent_failure_details = {
                         "summary": f"Tool '{tool_name}' failed after {max_retries} attempts.",
                         "details": tool_result
                     }
                     yield self._format_sse({"step": "Persistent Failure", "type": "error", "details": persistent_failure_details})
-                    # --- MODIFICATION END ---
             else:
                 if not is_fast_path:
                     yield self._format_sse({"step": "Tool Execution Result", "details": tool_result, "tool_name": tool_name}, "tool_result")
@@ -1104,7 +1123,7 @@ class PlanExecutor:
     def _enrich_arguments_from_history(self, relevant_tools: list[str], current_args: dict = None) -> tuple[dict, list, bool]:
         """
         Scans the current turn's action history to find missing arguments for a tool call.
-        This sandboxes the tactical planner's context to the current turn.
+        It now only uses arguments from tool calls that were definitively successful.
         """
         events_to_yield = []
         initial_args = current_args.copy() if current_args else {}
@@ -1127,13 +1146,27 @@ class PlanExecutor:
         for entry in reversed(self.turn_action_history):
             if not args_to_find: break
             
+            result = entry.get("result", {})
+            is_successful_data_action = (
+                isinstance(result, dict) and 
+                result.get('status') == 'success' and 
+                result.get('results')
+            )
+            is_successful_chart_action = (
+                isinstance(result, dict) and
+                result.get('type') == 'chart' and
+                'spec' in result
+            )
+
+            if not (is_successful_data_action or is_successful_chart_action):
+                continue
+
             action_args = entry.get("action", {}).get("arguments", {})
             for arg_name in list(args_to_find):
                 if arg_name in action_args and action_args[arg_name] is not None:
                     enriched_args[arg_name] = action_args[arg_name]
                     args_to_find.remove(arg_name)
 
-            result = entry.get("result", {})
             if isinstance(result, dict):
                 result_metadata = result.get("metadata", {})
                 if result_metadata:
@@ -1230,7 +1263,6 @@ class PlanExecutor:
         if strategic_args:
             strategic_arguments_section = json.dumps(strategic_args, indent=2)
 
-        # --- MODIFICATION: Distill the workflow state and history for the tactical prompt ---
         distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
         distilled_turn_history = self._distill_data_for_llm_context(copy.deepcopy(self.turn_action_history))
 
@@ -1435,7 +1467,6 @@ class PlanExecutor:
                 "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context."
             )
             
-            # --- MODIFICATION: Distill the workflow state before passing it to the final summary task ---
             distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
 
             core_llm_command = {
@@ -1455,11 +1486,9 @@ class PlanExecutor:
             summary_result, input_tokens, output_tokens = await mcp_adapter.invoke_mcp_tool(self.dependencies['STATE'], core_llm_command)
             yield self._format_sse({"target": "llm", "state": "idle"}, "status_indicator_update")
 
-            # --- MODIFICATION START: Add the missing token update event for the final summary ---
             updated_session = session_manager.get_session(self.session_id)
             if updated_session:
                 yield self._format_sse({ "statement_input": input_tokens, "statement_output": output_tokens, "total_input": updated_session.get("input_tokens", 0), "total_output": updated_session.get("output_tokens", 0) }, "token_update")
-            # --- MODIFICATION END ---
 
             if (summary_result and summary_result.get("status") == "success" and
                 "response" in (summary_result.get("results", [{}])[0] or {})):
@@ -1536,7 +1565,6 @@ class PlanExecutor:
                 self.globally_skipped_tools.add(failed_tool_name)
                 break
         
-        # --- MODIFICATION: Distill the workflow state before passing it to the recovery prompt ---
         distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
 
         recovery_prompt = ERROR_RECOVERY_PROMPT.format(
@@ -1691,7 +1719,7 @@ class PlanExecutor:
             return final_answer_text, events
 
         try:
-            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_str, re.DOTALL)
+            json_match = re.search(r"```json\s*\n(.*?)\n\s*```|(\{.*\})", response_text, re.DOTALL)
             if not json_match: raise json.JSONDecodeError("No JSON object found", response_str, 0)
             
             json_str = json_match.group(1) or json_match.group(2)
@@ -1701,35 +1729,29 @@ class PlanExecutor:
             
             if "tool_name" in corrected_data and "arguments" in corrected_data:
                 corrected_action = corrected_data
-                # --- MODIFICATION START: Enhance Self-Correction event details ---
                 correction_details = {
                     "summary": f"LLM proposed a new action. Retrying with tool '{corrected_action['tool_name']}'.",
                     "details": corrected_action
                 }
                 events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": correction_details}))
-                # --- MODIFICATION END ---
                 return corrected_action, events
             
             new_args = corrected_data.get("arguments", corrected_data)
             if isinstance(new_args, dict):
                 corrected_action = {**failed_action, "arguments": new_args}
-                # --- MODIFICATION START: Enhance Self-Correction event details ---
                 correction_details = {
                     "summary": f"LLM proposed a fix. Retrying tool with new arguments.",
                     "details": new_args
                 }
                 events.append(self._format_sse({"step": "System Self-Correction", "type": "workaround", "details": correction_details}))
-                # --- MODIFICATION END ---
                 return corrected_action, events
 
         except (json.JSONDecodeError, TypeError):
-            # --- MODIFICATION START: Enhance Self-Correction Failed event ---
             correction_failed_details = {
                 "summary": "LLM failed to provide a valid JSON correction.",
                 "details": response_str
             }
             events.append(self._format_sse({"step": "System Self-Correction", "type": "error", "details": correction_failed_details}))
-            # --- MODIFICATION END ---
             return None, events
             
         return None, events

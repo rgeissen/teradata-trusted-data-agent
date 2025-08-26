@@ -443,7 +443,7 @@ Your response MUST be a single, valid JSON list of phase objects. Do NOT add any
 """
 # --- MODIFICATION END ---
 
-# --- MODIFICATION: Add placeholder for permitted prompts and update instructions ---
+# --- MODIFICATION: Add a new CRITICAL RULE for chart mapping to prevent hallucinations ---
 WORKFLOW_TACTICAL_PROMPT = """
 You are a tactical assistant executing a single phase of a larger plan. Your task is to decide the single best next action to take to achieve the current phase's goal, strictly adhering to the provided capability constraints.
 
@@ -475,14 +475,20 @@ You are a tactical assistant executing a single phase of a larger plan. Your tas
     - If you choose a tool, your JSON response MUST use the key `"tool_name"`.
     - If you choose a prompt, your JSON response MUST use the key `"prompt_name"`.
     - You **MUST** use the exact argument names as they are defined in the details above. You **MUST NOT** invent, hallucinate, or use any arguments that are not explicitly listed in the definitions.
-4.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid capability from the permitted lists. Do not repeat the invalid choice.
-5.  **CoreLLMTask Usage**:
+4.  **CRITICAL RULE (Chart Mapping)**: If you are calling the `viz_createChart` tool, the `mapping` argument is the most critical part. You **MUST** adhere to the following key names based on the `chart_type`:
+    - For `pie` charts: `mapping` keys **MUST** be `"angle"` for the numeric value and `"color"` for the category label.
+    - For `bar`, `column`, `line`, or `area` charts: `mapping` keys **MUST** be `"x_axis"` and `"y_axis"`.
+    - For `scatter` charts: `mapping` keys **MUST** be `"x_axis"` and `"y_axis"`.
+    - **Example (Pie Chart)**: `"mapping": {{"angle": "Count", "color": "StateName"}}`
+    - You **MUST NOT** invent other mapping keys like "slice_labels" or "slice_values".
+5.  **Self-Correction**: If a "Previous Attempt" is noted in the "CONSTRAINTS" section, it means your last choice was invalid. You **MUST** analyze the error and choose a different, valid capability from the permitted lists. Do not repeat the invalid choice.
+6.  **CoreLLMTask Usage**:
     -   For any task that involves synthesis, analysis, description, or summarization, you **MUST** use the `CoreLLMTask` tool, but only if it is in the permitted tools list.
     -   When calling `CoreLLMTask`, you **MUST** provide the `task_description` argument.
     -   Crucially, you **MUST** also determine which previous phase results are necessary for the task. You **MUST** provide these as a list of strings in the `source_data` argument.
     -   **CONTEXT PRESERVATION RULE**: If the current phase involves creating a final summary or report for the user, you **MUST** ensure you have all the necessary context. Your `source_data` list **MUST** include the results from **ALL** previous data-gathering phases (e.g., `["result_of_phase_1", "result_of_phase_2"]`) to prevent information loss.
-6.  **Handle Loops**: If you are in a looping phase (indicated by the presence of a "LOOP CONTEXT" section), you **MUST** focus your action on the single item provided in `current_loop_item`. You **MUST** use the information within that item to formulate the arguments for your tool or prompt call.
-7.  **Format Response**: Your response MUST be a single JSON object for a tool or prompt call.
+7.  **Handle Loops**: If you are in a looping phase (indicated by the presence of a "LOOP CONTEXT" section), you **MUST** focus your action on the single item provided in `current_loop_item`. You **MUST** use the information within that item to formulate the arguments for your tool or prompt call.
+8.  **Format Response**: Your response MUST be a single JSON object for a tool or prompt call.
 
 Your response MUST be a single, valid JSON object for a tool or prompt call. Do NOT add any extra text or conversation.
 """
