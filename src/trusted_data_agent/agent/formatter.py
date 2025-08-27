@@ -212,16 +212,27 @@ class OutputFormatter:
 
         if lines and "Key Metric:" in lines[0]:
             try:
-                # Be robust to backticks and whitespace
                 json_str_match = re.search(r'\{.*\}', lines[0])
                 if json_str_match:
-                    json_str = json_str_match.group(0)
-                    metric_data = json.loads(json_str)
-                    if 'value' in metric_data and 'label' in metric_data:
-                        key_metric_data = metric_data
-                        remaining_content_str = "\n".join(lines[1:]).strip()
-            except (json.JSONDecodeError, IndexError):
-                pass # If parsing fails, treat it as normal text
+                    json_str = json_str_match.group(0).strip()
+                    
+                    # Iteratively unwrap the JSON string if it's enclosed in extra braces
+                    while len(json_str) > 1 and json_str.startswith('{') and json_str.endswith('}'):
+                        try:
+                            # Try to parse the current version of the string
+                            metric_data = json.loads(json_str)
+                            if 'value' in metric_data and 'label' in metric_data:
+                                key_metric_data = metric_data
+                                remaining_content_str = "\n".join(lines[1:]).strip()
+                            break # Exit the while loop on successful parse
+                        except json.JSONDecodeError:
+                            # If parsing fails, strip one layer of braces and try again.
+                            # This handles cases like `{{...}}`
+                            json_str = json_str[1:-1]
+            except IndexError:
+                # This handles cases where lines[1:] might be out of bounds, though unlikely.
+                # The original string remains, and it will be rendered as standard text.
+                pass
 
         if key_metric_data:
             metric_value = str(key_metric_data.get('value', ''))
@@ -267,7 +278,7 @@ class OutputFormatter:
         results = tool_result.get("results")
         if not isinstance(results, list) or not results: return ""
         ddl_text = results[0].get('Request Text', 'DDL not available.')
-        ddl_text_sanitized = dl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        ddl_text_sanitized = ddl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         metadata = tool_result.get("metadata", {})
         table_name = metadata.get("table", "DDL")
         self.processed_data_indices.add(index)

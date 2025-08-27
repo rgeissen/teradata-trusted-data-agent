@@ -1427,7 +1427,7 @@ class PlanExecutor:
                 "    - Quantitative Example: `Key Metric: {{\"value\": \"21\", \"label\": \"Databases on system\"}}`\n"
                 "    - Qualitative Example: `Key Metric: {{\"value\": \"High\", \"label\": \"System Utilization\"}}`\n"
                 "    If there is no single primary value, you MUST omit this line entirely.\n\n"
-                "2.  **CRITICAL RULE (Direct Answer Label):** The second part of your response **MUST** be the direct answer. This line **MUST** begin with the exact, bolded label `**The Direct Answer:**` followed by a single, concise sentence that factually answers the user's question.\n\n"
+                "2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.\n\n"
                 "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context.\n\n"
                 "4.  **CRITICAL RULE (Observations Content):** The 'Key Observations' section is for **textual insights only**. You **MUST NOT** include raw data, code blocks (like SQL), or titles for data that is presented elsewhere (e.g., 'DDL for table_x:'). Your observations should be narrative sentences that describe what the data means."
             )
