@@ -267,7 +267,7 @@ class OutputFormatter:
         results = tool_result.get("results")
         if not isinstance(results, list) or not results: return ""
         ddl_text = results[0].get('Request Text', 'DDL not available.')
-        ddl_text_sanitized = ddl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        ddl_text_sanitized = dl_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         metadata = tool_result.get("metadata", {})
         table_name = metadata.get("table", "DDL")
         self.processed_data_indices.add(index)
@@ -440,7 +440,6 @@ class OutputFormatter:
 
         return html
 
-    # --- MODIFICATION START: Update standard formatter to render charts at the top level ---
     def _format_standard_query_report(self) -> str:
         """
         A dedicated formatter for standard (non-workflow) queries. It creates a
@@ -511,7 +510,6 @@ class OutputFormatter:
             )
             
         return final_html
-    # --- MODIFICATION END ---
 
     def render(self) -> str:
         """

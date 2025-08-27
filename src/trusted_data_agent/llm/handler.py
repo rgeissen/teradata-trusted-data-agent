@@ -63,6 +63,8 @@ def _sanitize_llm_output(text: str) -> str:
     """
     Strips invalid characters from LLM output.
     """
+    if not isinstance(text, str):
+        return ""
     sanitized_text = text.replace('\ufeff', '')
     sanitized_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', sanitized_text)
     return sanitized_text.strip()
@@ -276,13 +278,15 @@ async def call_llm_api(llm_instance: any, prompt: str, session_id: str = None, c
                 response = await loop.run_in_executor(None, lambda: llm_instance.invoke_model(body=body, modelId=model_id_to_invoke))
                 response_body = json.loads(response.get('body').read())
                 
+                raw_response_text = ""
                 if "anthropic" in model_id_to_invoke:
-                    response_text = response_body.get('content')[0].get('text')
+                    raw_response_text = response_body.get('content')[0].get('text')
                 elif "amazon.nova" in model_id_to_invoke:
-                    response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
+                    raw_response_text = response_body.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
                 else:
-                    response_text = response_body.get('results')[0].get('outputText')
+                    raw_response_text = response_body.get('results')[0].get('outputText')
                 
+                response_text = _sanitize_llm_output(raw_response_text)
                 break
 
             else:
