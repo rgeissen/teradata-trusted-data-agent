@@ -156,7 +156,6 @@ class PlanExecutor:
              self.structured_collected_data[context_key].append(tool_result)
         app_logger.info(f"Added tool result to structured data under key: '{context_key}'.")
 
-    # --- MODIFICATION START: Corrected "plan hydration" logic ---
     def _hydrate_plan_from_previous_turn(self):
         """
         Detects if a plan starts with a loop that depends on data from the
@@ -183,12 +182,7 @@ class PlanExecutor:
             return 
         source_phase_num = int(source_phase_num_match.group())
 
-        # The condition for injection is that the source of the data must come
-        # from a phase *before* the current looping phase. If the source phase
-        # number is equal to or greater than the loop's phase number, it's
-        # impossible for the current plan to generate it, so we must inject.
         if source_phase_num >= looping_phase_num:
-            # Find the most recent, successful, list-based result from the last turn.
             data_to_inject = None
             for entry in reversed(self.previous_turn_data):
                 result = entry.get("result", {})
@@ -202,22 +196,21 @@ class PlanExecutor:
             
             if data_to_inject:
                 injection_key = "injected_previous_turn_data"
-                self.workflow_state[injection_key] = [data_to_inject] # Wrap in a list to match expected structure
+                self.workflow_state[injection_key] = [data_to_inject]
                 
-                # Modify the plan to use the injected data
                 original_loop_source = self.meta_plan[0]['loop_over']
                 self.meta_plan[0]['loop_over'] = injection_key
                 
                 app_logger.info(f"PLAN INJECTION: Hydrated plan with data from previous turn. Loop source changed from '{original_loop_source}' to '{injection_key}'.")
                 
-                # Yield the event to the UI
+                # --- MODIFICATION START: Changed event type for consistency ---
                 yield self._format_sse({
                     "step": "Plan Optimization",
-                    "type": "plan_injection",
+                    "type": "plan_optimization",
                     "details": f"Reusing data from the previous turn to fulfill the request: '{self.original_user_input}'."
                 })
-    # --- MODIFICATION END ---
-
+                # --- MODIFICATION END ---
+    
     async def run(self):
         """The main, unified execution loop for the agent."""
         final_answer_override = None
@@ -226,20 +219,17 @@ class PlanExecutor:
                 should_replan = False
                 planning_is_disabled_history = self.disabled_history
 
-                while True: # Loop to allow for a single re-plan if necessary
+                while True:
                     async for event in self._generate_meta_plan(force_disable_history=planning_is_disabled_history):
                         yield event
 
-                    # --- MODIFICATION START: Call the new hydration method ---
-                    # This is a generator, so we must iterate over it
                     for event in self._hydrate_plan_from_previous_turn():
                         yield event
-                    # --- MODIFICATION END ---
 
                     if self.is_conversational_plan:
                         app_logger.info("Detected a conversational plan. Bypassing execution.")
                         self.state = self.AgentState.SUMMARIZING
-                        break # Exit the planning loop and proceed to summarization
+                        break
 
                     is_synthesis_plan = (
                         self.meta_plan and
@@ -256,7 +246,7 @@ class PlanExecutor:
                                 "type": "plan_optimization",
                                 "details": "Agent determined the answer exists in history. Bypassing data collection and attempting direct synthesis."
                             })
-                            break # Proceed with this plan
+                            break
                         else:
                             if should_replan:
                                 app_logger.error("Re-planning without history still resulted in a synthesis-only plan. Executing as is.")
@@ -270,9 +260,9 @@ class PlanExecutor:
                             })
                             should_replan = True
                             planning_is_disabled_history = True
-                            continue # Re-run the planning loop with history disabled
+                            continue
                     else:
-                        break # This is a normal plan, proceed
+                        break
                 
                 if not self.is_conversational_plan:
                     self.state = self.AgentState.EXECUTING
@@ -834,7 +824,6 @@ class PlanExecutor:
             async for event in self._execute_action_with_orchestrators(next_action, phase):
                 yield event
             
-            # --- MODIFICATION: Update success check to recognize chart objects ---
             is_standard_success = (isinstance(self.last_tool_output, dict) and self.last_tool_output.get("status") == "success")
             is_chart_success = (isinstance(self.last_tool_output, dict) and self.last_tool_output.get("type") == "chart")
 
