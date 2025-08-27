@@ -207,7 +207,7 @@ class PlanExecutor:
                 yield self._format_sse({
                     "step": "Plan Optimization",
                     "type": "plan_optimization",
-                    "details": f"Reusing data from the previous turn to fulfill the request: '{self.original_user_input}'."
+                    "details": f"PLAN HYDRATION: Injected data from the previous turn to fulfill the request: '{self.original_user_input}'."
                 })
                 # --- MODIFICATION END ---
     
@@ -640,7 +640,7 @@ class PlanExecutor:
             yield self._format_sse({
                 "step": "Plan Optimization", 
                 "type": "plan_optimization",
-                "details": f"Engaging enhanced fast path for tool loop: '{tool_name}'"
+                "details": f"FASTPATH enabled for tool loop: '{tool_name}'"
             })
             
             session_context_args = {} # MODIFIED: No longer using entities
@@ -1420,6 +1420,7 @@ class PlanExecutor:
             standard_task_description = (
                 "You are an expert data analyst. Your task is to create a final report for the user based on the provided data."
             )
+            # --- MODIFICATION START: Add new critical rule to formatting instructions ---
             standard_formatting_instructions = (
                 "Your entire response MUST be formatted in standard markdown and MUST be structured as follows:\n\n"
                 "1.  **(Optional) Key Metric:** If the answer to the user's question can be summarized by a single primary value (either quantitative like a number, or qualitative like a status), you MUST provide it on the very first line in a specific JSON format. The line must start with `Key Metric: ` followed by a JSON object with a `value` (as a string) and a `label` (a short description).\n"
@@ -1427,8 +1428,10 @@ class PlanExecutor:
                 "    - Qualitative Example: `Key Metric: {{\"value\": \"High\", \"label\": \"System Utilization\"}}`\n"
                 "    If there is no single primary value, you MUST omit this line entirely.\n\n"
                 "2.  **The Direct Answer:** This part MUST immediately follow the Key Metric (or be the first line if no metric is provided). It must be a single, concise sentence that directly and factually answers the user's question.\n\n"
-                "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context."
+                "3.  **Key Observations:** This section MUST start with a level-2 markdown heading (`## Key Observations`). It should contain a bulleted list of all supporting details and context.\n\n"
+                "4.  **CRITICAL RULE (Observations Content):** The 'Key Observations' section is for **textual insights only**. You **MUST NOT** include raw data, code blocks (like SQL), or titles for data that is presented elsewhere (e.g., 'DDL for table_x:'). Your observations should be narrative sentences that describe what the data means."
             )
+            # --- MODIFICATION END ---
             
             distilled_workflow_state = self._distill_data_for_llm_context(copy.deepcopy(self.workflow_state))
 
