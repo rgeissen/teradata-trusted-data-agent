@@ -139,6 +139,9 @@ let isLastTurnModeLocked = false;
 
 let defaultPromptsCache = {};
 let currentPhaseContainerEl = null;
+// --- MODIFICATION START ---
+let appConfig = {}; // To store global app config flags
+// --- MODIFICATION END ---
 
 const thinkingIndicator = document.getElementById('thinking-indicator');
 const promptNameDisplay = document.getElementById('prompt-name-display');
@@ -404,10 +407,11 @@ function _renderPlanningDetails(details) {
     `;
 }
 
+// --- MODIFICATION START ---
 function _renderMetaPlanDetails(details) {
     if (!Array.isArray(details)) return null;
 
-    let html = `<details class="text-xs">
+    let html = `<details class="text-xs" open>
                     <summary class="cursor-pointer text-gray-400 hover:text-white">Generated Plan (${details.length} phases)</summary>
                     <div class="space-y-3 mt-2">`;
 
@@ -442,6 +446,7 @@ function _renderMetaPlanDetails(details) {
     html += '</div></details>';
     return html;
 }
+// --- MODIFICATION END ---
 
 function _renderToolIntentDetails(details) {
     if (!details.tool_name && !details.prompt_name) return null;
@@ -527,9 +532,7 @@ function updateStatusWindow(eventData, isFinal = false) {
             currentPhaseContainerEl.appendChild(phaseFooter);
             currentPhaseContainerEl = null;
         }
-        // --- MODIFICATION START: Reset fast path state on phase end ---
         isInFastPath = false;
-        // --- MODIFICATION END ---
         if (!isMouseOverStatus) {
             statusWindowContent.scrollTop = statusWindowContent.scrollHeight;
         }
@@ -1504,7 +1507,18 @@ configModalClose.addEventListener('click', () => {
     }
 });
 
+// --- MODIFICATION START ---
 function getSystemPromptSummaryHTML() {
+    let devFlagHtml = '';
+    if (appConfig.allow_synthesis_from_history) {
+        devFlagHtml = `
+            <div class="p-3 bg-yellow-900/50 rounded-lg mt-4">
+                <p class="font-semibold text-yellow-300">Developer Mode Enabled</p>
+                <p class="text-xs text-yellow-400 mt-1">The 'Answer from History' feature is active. The agent may answer questions by synthesizing from previous turns without re-running tools.</p>
+            </div>
+        `;
+    }
+
     return `
         <div class="space-y-4 text-gray-300 text-sm p-2">
             <h4 class="font-bold text-lg text-white">Agent Operating Principles</h4>
@@ -1517,12 +1531,14 @@ function getSystemPromptSummaryHTML() {
                 <p class="font-semibold text-white">Decision-Making Process:</p>
                 <p class="text-xs text-gray-400 mt-1">The agent follows a strict hierarchy. It will <strong class="text-white">always prioritize using a pre-defined prompt</strong> if it matches your request for an analysis. Otherwise, it will use the most appropriate tool to perform a direct action.</p>
             </div>
+            ${devFlagHtml}
             <div id="disabled-capabilities-container-splash" class="pt-4 border-t border-white/20">
                 <!-- Disabled capabilities will be injected here -->
             </div>
         </div>
     `;
 }
+// --- MODIFICATION END ---
 
 function buildDisabledCapabilitiesListHTML() {
     const disabledTools = [];
@@ -2121,12 +2137,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     try {
         const res = await fetch('/app-config');
-        const appConfig = await res.json();
+        // --- MODIFICATION START ---
+        appConfig = await res.json();
 
         const chartingIntensityContainer = document.getElementById('charting-intensity-container');
         if (!appConfig.charting_enabled) {
             chartingIntensityContainer.style.display = 'none';
+        } else {
+            chartingIntensitySelect.value = appConfig.default_charting_intensity || 'medium';
         }
+        // --- MODIFICATION END ---
 
     } catch (e) {
         console.error("Could not fetch app config", e);
