@@ -156,6 +156,68 @@ class PlanExecutor:
              self.structured_collected_data[context_key].append(tool_result)
         app_logger.info(f"Added tool result to structured data under key: '{context_key}'.")
 
+    # --- MODIFICATION START: Corrected "plan hydration" logic ---
+    def _hydrate_plan_from_previous_turn(self):
+        """
+        Detects if a plan starts with a loop that depends on data from the
+        previous turn, and if so, injects that data into the current state.
+        This is the "plan injection" feature.
+        """
+        if not self.meta_plan or not self.previous_turn_data:
+            return
+
+        first_phase = self.meta_plan[0]
+        is_candidate = (
+            first_phase.get("type") == "loop" and
+            isinstance(first_phase.get("loop_over"), str) and
+            first_phase.get("loop_over").startswith("result_of_phase_")
+        )
+
+        if not is_candidate:
+            return
+
+        looping_phase_num = first_phase.get("phase")
+        source_phase_key = first_phase.get("loop_over")
+        source_phase_num_match = re.search(r'\d+', source_phase_key)
+        if not source_phase_num_match:
+            return 
+        source_phase_num = int(source_phase_num_match.group())
+
+        # The condition for injection is that the source of the data must come
+        # from a phase *before* the current looping phase. If the source phase
+        # number is equal to or greater than the loop's phase number, it's
+        # impossible for the current plan to generate it, so we must inject.
+        if source_phase_num >= looping_phase_num:
+            # Find the most recent, successful, list-based result from the last turn.
+            data_to_inject = None
+            for entry in reversed(self.previous_turn_data):
+                result = entry.get("result", {})
+                if (isinstance(result, dict) and
+                    result.get("status") == "success" and
+                    isinstance(result.get("results"), list) and
+                    result.get("results")):
+                    
+                    data_to_inject = result
+                    break
+            
+            if data_to_inject:
+                injection_key = "injected_previous_turn_data"
+                self.workflow_state[injection_key] = [data_to_inject] # Wrap in a list to match expected structure
+                
+                # Modify the plan to use the injected data
+                original_loop_source = self.meta_plan[0]['loop_over']
+                self.meta_plan[0]['loop_over'] = injection_key
+                
+                app_logger.info(f"PLAN INJECTION: Hydrated plan with data from previous turn. Loop source changed from '{original_loop_source}' to '{injection_key}'.")
+                
+                # Yield the event to the UI
+                yield self._format_sse({
+                    "step": "Plan Optimization",
+                    "type": "plan_injection",
+                    "details": f"Reusing data from the previous turn to fulfill the request: '{self.original_user_input}'."
+                })
+    # --- MODIFICATION END ---
+
     async def run(self):
         """The main, unified execution loop for the agent."""
         final_answer_override = None
@@ -167,6 +229,12 @@ class PlanExecutor:
                 while True: # Loop to allow for a single re-plan if necessary
                     async for event in self._generate_meta_plan(force_disable_history=planning_is_disabled_history):
                         yield event
+
+                    # --- MODIFICATION START: Call the new hydration method ---
+                    # This is a generator, so we must iterate over it
+                    for event in self._hydrate_plan_from_previous_turn():
+                        yield event
+                    # --- MODIFICATION END ---
 
                     if self.is_conversational_plan:
                         app_logger.info("Detected a conversational plan. Bypassing execution.")
