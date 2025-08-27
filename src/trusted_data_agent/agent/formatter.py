@@ -182,9 +182,7 @@ class OutputFormatter:
         """
         clean_summary = self.raw_summary
 
-        # --- MODIFICATION START: Generalize regex to handle any language in code blocks ---
         markdown_block_match = re.search(r"```(?:\w+)?\s*\n(.*?)\n\s*```", clean_summary, re.DOTALL)
-        # --- MODIFICATION END ---
         if markdown_block_match:
             clean_summary = markdown_block_match.group(1).strip()
         
@@ -207,7 +205,6 @@ class OutputFormatter:
         
         summary_to_process = summary_to_process.lstrip(': ').strip()
 
-        # --- MODIFICATION START: Final UX refinement for summary presentation ---
         final_html = ""
         lines = summary_to_process.strip().split('\n')
         key_metric_data = None
@@ -240,13 +237,11 @@ class OutputFormatter:
     <div class="{label_class} text-gray-400 mt-1">{metric_label}</div>
 </div>
 """
-            # When a metric card is shown, we only render the Key Observations that follow it.
             obs_match = re.search(r'##\s*Key Observations.*', remaining_content_str, re.DOTALL | re.IGNORECASE)
             if obs_match:
                 final_html += self._render_standard_markdown(obs_match.group(0))
         
         elif remaining_content_str:
-            # If no key metric, we render the direct answer in the new "Summary Statement" component.
             parts = re.split(r'\n\s*\n', remaining_content_str, 1)
             direct_answer_text = parts[0]
             observations_content = parts[1] if len(parts) > 1 else ""
@@ -266,7 +261,6 @@ class OutputFormatter:
                 final_html += self._render_standard_markdown(observations_content)
 
         return final_html
-        # --- MODIFICATION END ---
 
     def _render_ddl(self, tool_result: dict, index: int) -> str:
         if not isinstance(tool_result, dict) or "results" not in tool_result: return ""
@@ -283,7 +277,7 @@ class OutputFormatter:
                 <div class="sql-header">
                     <span>SQL DDL: {table_name}</span>
                     <button class="copy-button" onclick="copyToClipboard(this)">
-                        <svg xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
                         Copy
                     </button>
                 </div>
@@ -316,7 +310,7 @@ class OutputFormatter:
             <div class="flex justify-between items-center mb-2">
                 <h4 class="text-lg font-semibold text-white">Data: Result for <code>{title}</code></h4>
                 <button class="copy-button" onclick="copyTableToClipboard(this)" data-table='{table_data_json}'>
-                    <svg xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
                         Copy Table
                     </button>
                 </div>
@@ -336,7 +330,6 @@ class OutputFormatter:
         self.processed_data_indices.add(index)
         return html
         
-    # --- MODIFICATION: Fix the 'html' variable referenced before assignment bug ---
     def _render_chart_with_details(self, chart_data: dict, table_data: dict, chart_index: int, table_index: int) -> str:
         chart_id = f"chart-render-target-{uuid.uuid4()}"
         chart_spec_json = json.dumps(chart_data.get("spec", {}))
@@ -351,7 +344,7 @@ class OutputFormatter:
             <div class="flex justify-between items-center mt-4 mb-2">
                 <h5 class="text-md font-semibold text-white">Chart Data</h5>
                 <button class="copy-button" onclick="copyTableToClipboard(this)" data-table='{table_data_json}'>
-                    <svg xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zM-1 7a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 0 1H-.5A.5.5 0 0 1-1 7z"/></svg>
                     Copy Table
                 </button>
             </div>
@@ -365,7 +358,7 @@ class OutputFormatter:
                 for header in headers:
                     cell_data = str(row.get(header, ''))
                     sanitized_cell = cell_data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    table_html += f"<td>{sanitized_cell}</td>" # Corrected variable name from 'html' to 'table_html'
+                    table_html += f"<td>{sanitized_cell}</td>"
                 table_html += "</tr>"
             table_html += "</tbody></table></div>"
 
@@ -382,7 +375,6 @@ class OutputFormatter:
         </div>
         """
 
-    # --- MODIFICATION START: Make workflow formatter robust to mixed content ---
     def _format_workflow_report(self) -> str:
         """
         A specialized formatter to render the results of a multi-step workflow.
@@ -390,18 +382,14 @@ class OutputFormatter:
         pairs with standard markdown.
         """
         summary_html = ""
-        # The parser now returns both the structured data and the remaining text.
         parsed_data, remaining_text = self._parse_structured_markdown(self.raw_summary)
         
         if parsed_data:
-            # Render the structured part first.
             summary_html += self._render_structured_report(parsed_data)
         
         if remaining_text:
-            # Render any remaining text as standard markdown.
             summary_html += self._render_standard_markdown(remaining_text)
         
-        # If nothing was parsed or remained, fall back to the basic sanitizer.
         if not summary_html:
             summary_html = self._sanitize_summary()
 
@@ -451,16 +439,17 @@ class OutputFormatter:
             html += "</div></details>"
 
         return html
-    # --- MODIFICATION END ---
 
+    # --- MODIFICATION START: Update standard formatter to render charts at the top level ---
     def _format_standard_query_report(self) -> str:
         """
         A dedicated formatter for standard (non-workflow) queries. It creates a
-        two-part report: a high-level summary followed by a collapsible
-        "Execution Report" containing all detailed data tables.
+        multi-part report: a high-level summary, any top-level charts, and a
+        collapsible "Execution Report" containing all detailed data tables.
         """
         final_html = ""
         
+        # 1. Render the LLM's text summary first.
         clean_summary_html = self._sanitize_summary()
         if clean_summary_html:
             final_html += f'<div class="response-card summary-card">{clean_summary_html}</div>'
@@ -475,27 +464,33 @@ class OutputFormatter:
         if not data_source:
             return final_html
 
-        details_html = ""
+        # 2. Find and render any charts at the top level.
         charts = []
         for i, tool_result in enumerate(data_source):
             if isinstance(tool_result, dict) and tool_result.get("type") == "chart":
                 charts.append((i, tool_result))
         
         for i, chart_result in charts:
+            # Find the data that was used to create the chart (usually the preceding tool call)
             table_data_result = data_source[i-1] if i > 0 else None
             if table_data_result and isinstance(table_data_result, dict) and "results" in table_data_result:
-                details_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
+                # Render the chart with its data in a collapsible details view
+                final_html += self._render_chart_with_details(chart_result, table_data_result, i, i-1)
             else:
+                # Render the chart standalone if its source data can't be found
                 chart_id = f"chart-render-target-{uuid.uuid4()}"
                 chart_spec_json = json.dumps(chart_result.get("spec", {}))
-                details_html += f"""
+                final_html += f"""
                 <div class="response-card">
                     <div id="{chart_id}" class="chart-render-target" data-spec='{chart_spec_json}'></div>
                 </div>
                 """
                 self.processed_data_indices.add(i)
 
+        # 3. Render all remaining data inside the collapsible Execution Report.
+        details_html = ""
         for i, tool_result in enumerate(data_source):
+            # Skip items that have already been processed (like charts and their data)
             if i in self.processed_data_indices or not isinstance(tool_result, dict):
                 continue
             
@@ -516,6 +511,7 @@ class OutputFormatter:
             )
             
         return final_html
+    # --- MODIFICATION END ---
 
     def render(self) -> str:
         """
