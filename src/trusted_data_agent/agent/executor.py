@@ -113,11 +113,6 @@ class PlanExecutor:
         self.llm_debug_history = []
         self.max_steps = 40
         
-        self.session_known_entities = {}
-        session_data = session_manager.get_session(self.session_id)
-        if session_data:
-            self.session_known_entities = session_data.get("session_known_entities", {}).copy()
-
         self.execution_depth = execution_depth
         self.MAX_EXECUTION_DEPTH = 5
         
@@ -252,10 +247,8 @@ class PlanExecutor:
             yield self._format_sse({"error": "Execution stopped due to an unrecoverable error.", "details": str(root_exception)}, "error")
         finally:
             if not self.disabled_history:
-                final_known_entities = self._update_session_known_entities()
-                session_manager.update_session_known_session_entities(self.session_id, final_known_entities)
                 session_manager.update_last_turn_data(self.session_id, self.turn_action_history)
-                app_logger.debug(f"Saved final known entities and last turn data to session {self.session_id}")
+                app_logger.debug(f"Saved last turn data to session {self.session_id}")
 
     def _distill_data_for_llm_context(self, data: any) -> any:
         """
@@ -264,7 +257,8 @@ class PlanExecutor:
         if isinstance(data, dict):
             if 'results' in data and isinstance(data['results'], list):
                 results_list = data['results']
-                is_large = len(results_list) > 5 or len(json.dumps(results_list)) > 2048
+                is_large = (len(results_list) > APP_CONFIG.CONTEXT_DISTILLATION_MAX_ROWS or 
+                            len(json.dumps(results_list)) > APP_CONFIG.CONTEXT_DISTILLATION_MAX_CHARS)
 
                 if is_large and all(isinstance(item, dict) for item in results_list):
                     distilled_result = {
@@ -298,74 +292,6 @@ class PlanExecutor:
                 
         return json.dumps(history_copy, indent=2)
 
-    def _update_session_known_entities(self) -> dict:
-        """
-        Processes the current turn's history to update the session's long-term
-        memory of known entities. It now uses lists to store multiple discovered
-        values for an entity.
-        """
-        current_entities = self.session_known_entities.copy()
-        all_known_tool_args = set(self.dependencies['STATE'].get('all_known_mcp_arguments', {}).get('tool', []))
-        
-        normalized_to_canonical_map = {
-            arg.lower().replace('_', ''): arg for arg in all_known_tool_args
-        }
-
-        def _add_entity(entities_dict, key, value):
-            """Helper to add a value to an entity list, avoiding duplicates."""
-            if key not in entities_dict:
-                entities_dict[key] = []
-            
-            if not isinstance(entities_dict[key], list):
-                entities_dict[key] = [entities_dict[key]]
-
-            if value not in entities_dict[key]:
-                entities_dict[key].append(value)
-
-        for entry in self.turn_action_history:
-            action = entry.get("action", {})
-            result = entry.get("result", {})
-
-            if isinstance(result, dict) and result.get('status') == 'success':
-                args = action.get("arguments", {})
-                for arg_name, arg_value in args.items():
-                    if arg_name in all_known_tool_args and arg_value:
-                        _add_entity(current_entities, arg_name, arg_value)
-
-                result_data = entry.get("result", {})
-                if 'results' in result_data and isinstance(result_data.get('results'), list):
-                    for row in result_data['results']:
-                        if not isinstance(row, dict):
-                            continue
-                        
-                        for row_key, row_value in row.items():
-                            if not row_value:
-                                continue
-
-                            normalized_row_key = row_key.lower().replace('_', '')
-                            
-                            if normalized_row_key in normalized_to_canonical_map:
-                                canonical_arg_name = normalized_to_canonical_map[normalized_row_key]
-                                
-                                if isinstance(row_value, (str, int, float)):
-                                    _add_entity(current_entities, canonical_arg_name, row_value)
-        
-        return current_entities
-
-    def _get_latest_entities(self) -> dict:
-        """
-        Abstracts the session's known entities, which may contain lists of values,
-        into a dictionary with only the most recent (last) value for each entity.
-        This provides a simple view for internal agent functions.
-        """
-        latest_entities = {}
-        for key, value in self.session_known_entities.items():
-            if isinstance(value, list) and value:
-                latest_entities[key] = value[-1]
-            else:
-                latest_entities[key] = value
-        return latest_entities
-
     async def _generate_meta_plan(self, force_disable_history: bool = False):
         """The universal planner. It generates a meta-plan for ANY request."""
         prompt_obj = None
@@ -391,28 +317,12 @@ class PlanExecutor:
             required_args = {arg['name'] for arg in prompt_def.get('arguments', []) if arg.get('required')}
             
             enriched_args = self.prompt_arguments.copy()
-            inferred_args = set()
-            
-            latest_entities = self._get_latest_entities()
-            for arg_name in required_args:
-                if arg_name not in enriched_args or enriched_args.get(arg_name) is None:
-                    if arg_name in latest_entities:
-                        enriched_args[arg_name] = latest_entities[arg_name]
-                        inferred_args.add(arg_name)
 
-            if inferred_args:
-                yield self._format_sse({
-                    "step": "System Correction",
-                    "details": f"System inferred missing arguments {inferred_args} from conversation history.",
-                    "type": "workaround",
-                    "correction_type": "inferred_argument"
-                })
-            
             missing_args = {arg for arg in required_args if arg not in enriched_args or enriched_args.get(arg) is None}
             if missing_args:
                 raise ValueError(
                     f"Cannot execute prompt '{self.active_prompt_name}' because the following required arguments "
-                    f"are missing and could not be found in the session context: {missing_args}"
+                    f"are missing: {missing_args}"
                 )
             
             self.prompt_arguments = enriched_args
@@ -450,8 +360,6 @@ class PlanExecutor:
 
         previous_turn_summary_str = self._create_summary_from_history(self.previous_turn_data)
         
-        session_entities_str = json.dumps(self.session_known_entities, indent=2)
-
         active_prompt_context_section = ""
         if self.active_prompt_name:
             active_prompt_context_section = f"- Active Prompt: You are currently executing the '{self.active_prompt_name}' prompt. Your plan should execute the steps described in the goal, not re-call the same prompt."
@@ -463,7 +371,7 @@ class PlanExecutor:
                 "**CRITICAL RULE (Grounding):** Your primary objective is to answer the user's `GOAL` using data from the available tools. You **MUST** prioritize using a data-gathering tool if the `Workflow History` does not contain a direct and complete answer to the user's `GOAL`."
             )
             answer_from_history_rule_str = (
-                "2.  **CRITICAL RULE (Answer from History):** If the `Workflow History` or `Known Entities` contain enough information to fully answer the user's `GOAL`, your response **MUST be a single JSON object** for a one-phase plan. This plan **MUST** call the `CoreLLMTask` tool. You **MUST** write the complete, final answer text inside the `synthesized_answer` argument within that tool call. **You are acting as a planner; DO NOT use the `FINAL_ANSWER:` format.**"
+                "2.  **CRITICAL RULE (Answer from History):** If the `Workflow History` contains enough information to fully answer the user's `GOAL`, your response **MUST be a single JSON object** for a one-phase plan. This plan **MUST** call the `CoreLLMTask` tool. You **MUST** write the complete, final answer text inside the `synthesized_answer` argument within that tool call. **You are acting as a planner; DO NOT use the `FINAL_ANSWER:` format.**"
             )
 
         planning_prompt = WORKFLOW_META_PLANNING_PROMPT.format(
@@ -471,7 +379,6 @@ class PlanExecutor:
             explicit_parameters_section=explicit_parameters_section,
             original_user_input=self.original_user_input,
             turn_action_history=previous_turn_summary_str,
-            session_known_entities=session_entities_str,
             execution_depth=self.execution_depth,
             active_prompt_context_section=active_prompt_context_section,
             data_gathering_priority_rule=data_gathering_rule_str,
@@ -491,7 +398,6 @@ class PlanExecutor:
             f"** CONTEXT **\n"
             f"Original User Input: {self.original_user_input}\n"
             f"Execution Depth: {self.execution_depth}\n"
-            f"Session Known Entities (for prompt):\n{session_entities_str}\n"
             f"Previous Turn History Summary (for prompt):\n{previous_turn_summary_str}\n"
             f"** GENERATED PLAN **\n{response_text}\n"
             f"-------------------------"
@@ -679,7 +585,7 @@ class PlanExecutor:
                 "details": f"Engaging enhanced fast path for tool loop: '{tool_name}'"
             })
             
-            session_context_args = self._get_latest_entities()
+            session_context_args = {} # MODIFIED: No longer using entities
             phase_context_args = phase.get("arguments", {})
             
             synonym_map = {
@@ -1689,7 +1595,6 @@ class PlanExecutor:
                 tool_definition=json.dumps(vars(tool_def), default=str),
                 failed_command=json.dumps(failed_action),
                 error_message=json.dumps(error_result.get('data', 'No error data.')),
-                history_context=json.dumps(self._get_latest_entities()),
                 session_history=json.dumps(session_history)
             )
             reason = f"Generic self-correction for failed tool call: {tool_name}"

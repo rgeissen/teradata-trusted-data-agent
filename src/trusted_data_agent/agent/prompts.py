@@ -278,13 +278,12 @@ Your task is to analyze the provided information about a failed tool call and ge
 - Tool Definition (this describes the required arguments): {tool_definition}
 - Failed Command (this is what was attempted): {failed_command}
 - Error Message (this is why it failed): {error_message}
-- Relevant Context from History (use this to fill in missing values): {history_context}
 - Full Conversation History (for more complex cases): {session_history}
 
 --- INSTRUCTIONS ---
 1.  **Analyze the Error**: Read the "Error Message" to understand why the tool failed. Common reasons include missing arguments (like `database_name`), incorrect values, or formatting issues.
 2.  **Consult the Definition**: Look at the "Tool Definition" to see the correct names and requirements for all arguments.
-3.  **Use History**: Use the "Relevant Context from History" and "Full Conversation History" to find correct values for any missing arguments.
+3.  **Use History**: Use the "Full Conversation History" to find correct values for any missing arguments.
 4.  **Generate Correction**: Create a new, valid set of arguments for the tool.
 
 Your response MUST be ONLY a single JSON object containing the corrected `arguments`.
@@ -344,11 +343,9 @@ You are an expert troubleshooter for a database agent. A tool call has failed wi
 --- CRITICAL RECOVERY DIRECTIVES ---
 1.  **Your primary rule is: DO NOT GUESS ANOTHER TABLE NAME.** You must work only with the facts.
 
-2.  **Re-evaluate the Original Goal**: Look at the "Original User Question". Given that the `{invalid_table_name}` table does not exist, is the user's goal still achievable?
+2.  **Consider Alternative Tools**: The best recovery action is often to determine what tables *are* available. You should consider using the `base_listTables` tool for the database `{database_name}` to provide the user with a list of valid options.
 
-3.  **Consider Alternative Tools**: The best recovery action is often to determine what tables *are* available. You should consider using the `base_listTables` tool for the database `{database_name}` to provide the user with a list of valid options.
-
-4.  **Conclude and Inform**: If listing tables is not appropriate or if you cannot determine a path forward, your only option is to conclude the task and inform the user that the requested table does not exist.
+3.  **Conclude and Inform**: If listing tables is not appropriate or if you cannot determine a path forward, your only option is to conclude the task and inform the user that the requested table does not exist.
 
 --- AVAILABLE CAPABILITIES ---
 {tools_context}
@@ -376,7 +373,6 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
 --- CONTEXT ---
 - User's Original Question (for reference): {original_user_input}
 - Workflow History (Actions taken so far): {turn_action_history}
-- Known Entities (Key information discovered so far): {session_known_entities}
 - Current Execution Depth: {execution_depth} (Max is 5)
 {active_prompt_context_section}
 --- INSTRUCTIONS ---
@@ -385,13 +381,13 @@ You are an expert strategic planning assistant. Your task is to analyze a user's
 {answer_from_history_rule}
 2.  **CRITICAL RULE (Conversational Identification)**: If the user's `GOAL` is purely conversational (e.g., a greeting like "hello", a thank you, or a simple question like "how are you?") and does not require any data or action from the available tools, your response **MUST be a single JSON object** with the key `"plan_type"` set to `"conversational"`.
     - **Example:** `{{"plan_type": "conversational", "response": "I'm doing well, thank you for asking! How can I help you with your Teradata system today?"}}`
-3.  **CRITICAL RULE (Contextual Prioritization):** You **MUST** prioritize entities from the user's current `GOAL` over conflicting information in `Known Entities`. The `Known Entities` memory is only for supplementing the `GOAL` (e.g., filling in a missing `database_name`), not for overriding it.
+3.  **CRITICAL RULE (Contextual Prioritization):** You **MUST** prioritize entities from the user's current `GOAL` over conflicting information in the `Workflow History`. The `Workflow History` is only for supplementing the `GOAL` (e.g., filling in a missing `database_name`), not for overriding it.
 
     **Example of Correct Prioritization:**
     * If the `GOAL` is "analyze quality of **'equipment'**".
-    * And `Known Entities` contains `{{"table_name": "CallCenter"}}`.
-    * You **MUST** create a plan to analyze the **"equipment"** table. You **MUST NOT** use the stale "CallCenter" entity from memory.
-4.  **CRITICAL RULE (Parameter Override):** If an "EXPLICIT PARAMETERS" section is provided above, the values in it are the ground truth for this execution. You **MUST** use these explicit parameters in your plan, overriding any conflicting information found in the `GOAL`, `User's Original Question`, or `Known Entities`.
+    * And `Workflow History` contains a previous action on the "CallCenter" table.
+    * You **MUST** create a plan to analyze the **"equipment"** table. You **MUST NOT** use the stale "CallCenter" entity from the history.
+4.  **CRITICAL RULE (Parameter Override):** If an "EXPLICIT PARAMETERS" section is provided above, the values in it are the ground truth for this execution. You **MUST** use these explicit parameters in your plan, overriding any conflicting information found in the `GOAL` or `User's Original Question`.
 5.  **CRITICAL RULE (Parameter Extraction):** You **MUST** meticulously scan the `GOAL` and `User's Original Question` for any entities that correspond to tool or prompt arguments (e.g., database names, table names, user names). If you identify any such entities, you **MUST** create an `"arguments"` block in your plan phase and populate it with the extracted key-value pairs. Do this even if the arguments are optional for the chosen tool.
 6.  **Decompose into Phases**: Break down the overall goal into a sequence of logical phases. Each phase should represent a major step.
 7.  **Define Each Phase**: For each phase, create a JSON object with the following keys:

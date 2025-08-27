@@ -32,7 +32,6 @@ def create_session(provider: str, llm_instance: any, charting_intensity: str) ->
         "created_at": datetime.now().isoformat(),
         "input_tokens": 0,
         "output_tokens": 0,
-        "session_known_entities": {},
         "last_turn_data": [],
     }
     return session_id
@@ -66,11 +65,6 @@ def update_token_count(session_id: str, input_tokens: int, output_tokens: int):
     if session_id in _SESSIONS:
         _SESSIONS[session_id]['input_tokens'] += input_tokens
         _SESSIONS[session_id]['output_tokens'] += output_tokens
-
-def update_session_known_session_entities(session_id: str, entities: dict):
-    """Saves the discovered entities map to the session."""
-    if session_id in _SESSIONS:
-        _SESSIONS[session_id]['session_known_entities'].update(entities)
 
 def update_last_turn_data(session_id: str, turn_data: list):
     """Saves the most recent turn's action history to the session."""
